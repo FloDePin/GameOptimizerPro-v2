@@ -664,6 +664,122 @@ powercfg -setacvalueindex $guid 2a737441-1930-4402-8d77-b2bebba308a3 48e6b7a6-50
 powercfg -setactive $guid
 ''',
     ),
+
+    # ══════════════════════════════════════════════════════════════
+    # AUDIO
+    # ══════════════════════════════════════════════════════════════
+
+    Tweak(
+        id="disable_audio_enhancements",
+        name="Disable Audio Enhancements",
+        desc="Deaktiviert Windows Audio-Verbesserungen (Bass Boost, EQ etc.). "
+             "Reduziert Audio-Latenz und CPU-Last. Empfohlen fur Gaming.",
+        category="Audio", group="Latency",
+        ps_command=(
+            "Get-ChildItem 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Render'"
+            " -Recurse -EA SilentlyContinue | Where-Object {$_.Name -like '*Properties*'} |"
+            " ForEach-Object {"
+            " Set-ItemProperty -Path $_.PSPath"
+            " -Name '{1da5d803-d492-4edd-8c23-e0c0ffee7f0e},5' -Value 0 -EA SilentlyContinue }"
+        ),
+        risk="safe",
+    ),
+
+    Tweak(
+        id="disable_audio_exclusive_lock",
+        name="Disable Exclusive Audio Lock",
+        desc="Verhindert dass Games das Audiogeraet exklusiv sperren und Discord/Spotify stumm machen.",
+        category="Audio", group="Latency",
+        ps_command=(
+            "Get-ChildItem 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Render'"
+            " -EA SilentlyContinue | ForEach-Object {"
+            " $props = Join-Path $_.PSPath 'Properties';"
+            " if (Test-Path $props) {"
+            " Set-ItemProperty -Path $props -Name '{b3f8fa53-0004-438e-9003-51a46e139bfc},3' -Value 0 -EA SilentlyContinue;"
+            " Set-ItemProperty -Path $props -Name '{b3f8fa53-0004-438e-9003-51a46e139bfc},4' -Value 0 -EA SilentlyContinue } }"
+        ),
+        risk="safe",
+    ),
+
+    Tweak(
+        id="disable_sound_scheme",
+        name="Disable Windows Sound Scheme",
+        desc="Schaltet alle Windows-Systemtoene aus (Startup, Error, Notifications). "
+             "Verhindert Audio-Unterbrechungen beim Gaming.",
+        category="Audio", group="System Sounds",
+        ps_command=(
+            "Set-ItemProperty -Path 'HKCU:\\AppEvents\\Schemes' -Name '(Default)' -Value '.None';"
+            " Get-ChildItem 'HKCU:\\AppEvents\\Schemes\\Apps' -EA SilentlyContinue |"
+            " ForEach-Object { Get-ChildItem $_.PSPath -EA SilentlyContinue |"
+            " ForEach-Object { $cur = Join-Path $_.PSPath '.Current';"
+            " if (Test-Path $cur) { Set-ItemProperty -Path $cur -Name '(Default)' -Value '' -EA SilentlyContinue } } }"
+        ),
+        revert_cmd="Set-ItemProperty -Path 'HKCU:\\AppEvents\\Schemes' -Name '(Default)' -Value '.Default'",
+        risk="safe",
+    ),
+
+    Tweak(
+        id="disable_nahimic",
+        name="Disable Nahimic Audio Service",
+        desc="Deaktiviert Nahimic Audio (vorinstalliert auf MSI-Boards/Gaming-Laptops). "
+             "Verursacht CPU-Spikes und Audio-Artefakte. Sicher wenn nicht benoetigt.",
+        category="Audio", group="System Sounds",
+        ps_command=(
+            "$svcs = @('NahimicService','A-Volute','nahimicSvc');"
+            " foreach ($s in $svcs) {"
+            " $svc = Get-Service -Name $s -EA SilentlyContinue;"
+            " if ($svc) { Stop-Service -Name $s -Force -EA SilentlyContinue;"
+            " Set-Service -Name $s -StartupType Disabled -EA SilentlyContinue } }"
+        ),
+        revert_cmd=(
+            "$svcs = @('NahimicService','A-Volute','nahimicSvc');"
+            " foreach ($s in $svcs) {"
+            " $svc = Get-Service -Name $s -EA SilentlyContinue;"
+            " if ($svc) { Set-Service -Name $s -StartupType Automatic -EA SilentlyContinue } }"
+        ),
+        risk="safe",
+    ),
+
+    Tweak(
+        id="set_mmcss_audio",
+        name="MMCSS Audio Priority (Pro Audio)",
+        desc="Setzt MMCSS Audio-Prioritaet auf maximum. Windows gibt Audio-Threads hoehere CPU-Prioritaet "
+             "— weniger Stottern und Knacken bei hoher Systemlast.",
+        category="Audio", group="Performance",
+        ps_command=(
+            "$p = 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile\\Tasks\\Pro Audio';"
+            " if (!(Test-Path $p)) { New-Item -Path $p -Force | Out-Null };"
+            " Set-ItemProperty -Path $p -Name 'Affinity' -Value 0 -Type DWord;"
+            " Set-ItemProperty -Path $p -Name 'Clock Rate' -Value 10000 -Type DWord;"
+            " Set-ItemProperty -Path $p -Name 'GPU Priority' -Value 8 -Type DWord;"
+            " Set-ItemProperty -Path $p -Name 'Priority' -Value 6 -Type DWord;"
+            " Set-ItemProperty -Path $p -Name 'Scheduling Category' -Value 'High' -Type String;"
+            " Set-ItemProperty -Path $p -Name 'SFIO Priority' -Value 'High' -Type String"
+        ),
+        revert_cmd=(
+            "Remove-Item 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion"
+            "\\Multimedia\\SystemProfile\\Tasks\\Pro Audio' -Recurse -EA SilentlyContinue"
+        ),
+        risk="safe",
+    ),
+
+    Tweak(
+        id="disable_audio_ducking",
+        name="Disable Audio Ducking (Communications)",
+        desc="Verhindert dass Windows andere Toene bei Anrufen/Kommunikation leiser macht. "
+             "Oft stoerend beim Gaming mit Discord waehrend andere Sounds gedaempft werden.",
+        category="Audio", group="Performance",
+        ps_command=(
+            "Set-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Multimedia\\Audio'"
+            " -Name 'UserDuckingPreference' -Value 3 -Type DWord"
+        ),
+        revert_cmd=(
+            "Set-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Multimedia\\Audio'"
+            " -Name 'UserDuckingPreference' -Value 0 -Type DWord"
+        ),
+        risk="safe",
+    ),
+
 ]
 
 

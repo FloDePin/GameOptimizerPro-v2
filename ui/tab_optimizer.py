@@ -47,11 +47,12 @@ from core.hardware       import HardwareInfo
 
 # Section definitions: (key, label, color)
 SECTIONS = [
-    ("presets",  "⭐  Presets",       "#e53935"),
-    ("windows",  "[WIN]  Windows",    "#e53935"),
-    ("gaming",   "[GAME] Gaming",     "#f59e0b"),
-    ("network",  "[NET]  Network",    "#00b4d8"),
-    ("verify",   "[✓]   Verify",      "#22c55e"),
+    ("presets",  "⭐  Presets",        "#e53935"),
+    ("windows",  "[WIN]  Windows",     "#e53935"),
+    ("gaming",   "[GAME] Gaming",      "#f59e0b"),
+    ("network",  "[NET]  Network",     "#00b4d8"),
+    ("audio",    "[AUDIO] Audio",      "#a78bfa"),
+    ("verify",   "[✓]   Verify",       "#22c55e"),
     ("exim",     "[↕]   Export/Import","#7c3aed"),
 ]
 
@@ -176,6 +177,7 @@ class OptimizerTab(tk.Frame):
         self._build_tweaks_section(self._section_frames["windows"], "Windows")
         self._build_tweaks_section(self._section_frames["gaming"], "Gaming")
         self._build_tweaks_section(self._section_frames["network"], "Network")
+        self._build_tweaks_section(self._section_frames["audio"],   "Audio")
         self._build_verify(self._section_frames["verify"])
         self._build_exim(self._section_frames["exim"])
 
@@ -334,7 +336,7 @@ class OptimizerTab(tk.Frame):
         hdr = tk.Frame(p, bg="#0d1117")
         hdr.pack(fill="x", padx=12, pady=(10, 2))
 
-        cat_colors = {"Windows": "#e53935", "Gaming": "#f59e0b", "Network": "#00b4d8"}
+        cat_colors = {"Windows": "#e53935", "Gaming": "#f59e0b", "Network": "#00b4d8", "Audio": "#a78bfa"}
         color = cat_colors.get(category, ACC)
         tk.Label(hdr, text=f"[{category[:3].upper()}]  {category}",
                  font=("Segoe UI", 10, "bold"),
@@ -509,6 +511,7 @@ class OptimizerTab(tk.Frame):
             "Windows": "#e53935",
             "Gaming":  "#f59e0b",
             "Network": "#00b4d8",
+            "Audio":   "#a78bfa",
         }
 
         ok_count      = 0  # verified active

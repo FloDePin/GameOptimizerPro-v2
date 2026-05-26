@@ -280,7 +280,27 @@ VERIFY_MAP: dict[str, str] = {
         'if($p -match "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c"){"1"}else{"0"}'
     ),
 
-    # ── Windows 11 ────────────────────────────────────────────────────────────
+    # ── Audio ────────────────────────────────────────────────────────────────────
+    "disable_sound_scheme": (
+        r'$v=(Get-ItemProperty "HKCU:\AppEvents\Schemes" -Name "(Default)" -EA SilentlyContinue)."(Default)";'
+        'if($v -eq ".None"){"1"}else{"0"}'
+    ),
+    "disable_nahimic": (
+        '$s=Get-Service -Name "NahimicService" -EA SilentlyContinue;'
+        'if($s -and $s.StartType -eq "Disabled"){"1"}else{"0"}'
+    ),
+    "set_mmcss_audio": (
+        r'$p="HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Pro Audio";'
+        '$v=(Get-ItemProperty $p -Name "Priority" -EA SilentlyContinue).Priority;'
+        'if($v -eq 6){"1"}else{"0"}'
+    ),
+    "disable_audio_ducking": (
+        r'$v=(Get-ItemProperty "HKCU:\Software\Microsoft\Multimedia\Audio"'
+        ' -Name "UserDuckingPreference" -EA SilentlyContinue).UserDuckingPreference;'
+        'if($v -eq 3){"1"}else{"0"}'
+    ),
+
+    # ── Windows 11 ────────────────────────────────────────────────────────────────
     "w11_classic_context_menu": (
         '$p="HKCU:\\Software\\Classes\\CLSID\\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\\InprocServer32"; '
         'if(Test-Path $p){"1"}else{"0"}'
