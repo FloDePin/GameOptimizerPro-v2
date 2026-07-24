@@ -133,6 +133,10 @@ TWEAK_DESC_EN: dict[str, str] = {
         "Adds 'End Task' to the taskbar right-click menu — kill a frozen game instantly without opening Task Manager. Windows 11 22H2+.",
     "disable_delivery_optimization":
         "Turns off peer-to-peer sharing of Windows updates, which otherwise eats upload/download bandwidth in the background — noticeably steadier pings for online gaming. Policy only.",
+    "power_pcie_aspm_off":
+        "Disables PCIe link power saving (ASPM). The PCIe bus to the graphics card stays at full power instead of dropping into low-power states — marginally more consistent latency at the cost of a little more idle power. Fully reversible.",
+    "power_disk_never_sleep":
+        "Stops Windows from spinning down drives after inactivity. On systems with HDD(s) this prevents micro-stutter when a background process has to wake a sleeping drive. Fully reversible.",
 }
 
 # English names, only where the German name differs. Most names are already English.

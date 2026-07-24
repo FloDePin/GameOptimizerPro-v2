@@ -7,6 +7,7 @@ from typing import Optional
 
 from ui.widgets import *
 from core.hardware import HardwareInfo
+from core import network_test
 
 
 class DashboardTab(tk.Frame):
@@ -115,6 +116,68 @@ class DashboardTab(tk.Frame):
         tk.Label(thr, text="Throttle:", font=FL, fg=DIM, bg=BG1).pack(side="left")
         self.lbl_throttle = tk.Label(thr, text="None", font=FM, fg=OK, bg=BG1)
         self.lbl_throttle.pack(side="left", padx=8)
+
+        # ── Network latency test ────────────────────────────────────────────
+        SecHdr(self, "Network Latency Test").pack(fill="x", padx=14, pady=(10, 4))
+        net_f = tk.Frame(self, bg=BG1)
+        net_f.pack(fill="x", padx=14, pady=(0, 10))
+
+        top = tk.Frame(net_f, bg=BG1)
+        top.pack(fill="x")
+        self.btn_nettest = tk.Button(
+            top, text="▶  Test starten", font=("Segoe UI", 9, "bold"),
+            bg=ACC, fg="#04121a", activebackground="#33e0ff", relief="flat",
+            padx=14, pady=4, cursor="hand2", command=self._run_nettest)
+        self.btn_nettest.pack(side="left")
+        self.lbl_nettest_hint = tk.Label(
+            top, text="Ping zu Gateway, Cloudflare (1.1.1.1) und Google (8.8.8.8)",
+            font=FM, fg=DIM, bg=BG1)
+        self.lbl_nettest_hint.pack(side="left", padx=10)
+
+        self._net_rows = tk.Frame(net_f, bg=BG1)
+        self._net_rows.pack(fill="x", pady=(6, 0))
+        self._net_labels = {}
+        for key in ("Gateway (Router)", "Cloudflare", "Google DNS"):
+            row = tk.Frame(self._net_rows, bg=BG2)
+            row.pack(fill="x", pady=2)
+            name = tk.Label(row, text=key, font=FL, fg=WHT, bg=BG2,
+                            width=18, anchor="w", padx=10, pady=4)
+            name.pack(side="left")
+            val = tk.Label(row, text="—", font=FM, fg=DIM, bg=BG2, anchor="w")
+            val.pack(side="left", fill="x", expand=True)
+            self._net_labels[key] = val
+
+    def _run_nettest(self):
+        self.btn_nettest.config(state="disabled", text="⏳  Läuft…")
+        for lbl in self._net_labels.values():
+            lbl.config(text="…", fg=DIM)
+
+        def work():
+            try:
+                results = network_test.run_all(count=10)
+            except Exception:
+                results = []
+            self.after(0, lambda: self._show_nettest(results))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _show_nettest(self, results):
+        colmap = {"excellent": OK, "good": OK, "ok": WRN, "poor": ERR, "unknown": DIM}
+        for r in results:
+            lbl = self._net_labels.get(r.label)
+            if not lbl:
+                continue
+            if r.reachable:
+                rating = network_test.rate_latency(r.avg_ms)
+                lbl.config(
+                    text=(f"{r.avg_ms:.0f} ms  Ø   "
+                          f"(min {r.min_ms:.0f} / max {r.max_ms:.0f})   "
+                          f"Jitter {r.jitter_ms:.0f} ms   "
+                          f"Verlust {r.loss_pct:.0f}%   [{r.host}]"),
+                    fg=colmap.get(rating, DIM))
+            else:
+                lbl.config(text=f"nicht erreichbar — {r.error}   [{r.host}]", fg=ERR)
+        self.btn_nettest.config(state="normal", text="▶  Test starten")
 
     def _start_live(self):
         def loop():

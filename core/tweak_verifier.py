@@ -377,6 +377,18 @@ VERIFY_MAP: dict[str, str] = {
         '-Name DODownloadMode -EA SilentlyContinue).DODownloadMode; '
         'if($v -eq 0){"1"}else{"0"}'
     ),
+    # powercfg: the current AC setting index is always the second-to-last
+    # 0x-hex value in the query output (AC then DC last) — locale-independent.
+    "power_pcie_aspm_off": (
+        '$o=(powercfg /query SCHEME_CURRENT SUB_PCIEXPRESS ASPM 2>$null | Out-String); '
+        '$m=[regex]::Matches($o,"0x[0-9a-fA-F]{8}"); '
+        'if($m.Count -ge 2 -and [Convert]::ToInt32($m[$m.Count-2].Value.Substring(2),16) -eq 0){"1"}else{"0"}'
+    ),
+    "power_disk_never_sleep": (
+        '$o=(powercfg /query SCHEME_CURRENT SUB_DISK DISKIDLE 2>$null | Out-String); '
+        '$m=[regex]::Matches($o,"0x[0-9a-fA-F]{8}"); '
+        'if($m.Count -ge 2 -and [Convert]::ToInt32($m[$m.Count-2].Value.Substring(2),16) -eq 0){"1"}else{"0"}'
+    ),
 }
 
 

@@ -114,6 +114,8 @@ BUILTIN_PRESETS: list[TweakPreset] = [
             "timer_resolution",
             "disable_transparency",
             "disable_hibernation",
+            "power_pcie_aspm_off",
+            "power_disk_never_sleep",
         ],
     ),
 

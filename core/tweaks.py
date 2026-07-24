@@ -784,6 +784,40 @@ powercfg -setacvalueindex $guid 2a737441-1930-4402-8d77-b2bebba308a3 48e6b7a6-50
 powercfg -setactive $guid
 ''',
     ),
+    Tweak(
+        id="power_pcie_aspm_off",
+        name="PCIe Link State Power Management aus",
+        desc="Deaktiviert das Energiesparen des PCIe-Links (ASPM). Der PCIe-Bus zur Grafikkarte bleibt "
+             "dauerhaft auf voller Leistung statt in Sparzustände zu wechseln — minimal konsistentere "
+             "Latenz, dafür etwas mehr Idle-Verbrauch. Voll reversibel.",
+        category="Windows", group="Power Plan",
+        ps_command='''
+powercfg -setacvalueindex SCHEME_CURRENT SUB_PCIEXPRESS ASPM 0
+powercfg -setactive SCHEME_CURRENT
+''',
+        revert_cmd='''
+powercfg -setacvalueindex SCHEME_CURRENT SUB_PCIEXPRESS ASPM 2
+powercfg -setactive SCHEME_CURRENT
+''',
+        risk="safe",
+    ),
+    Tweak(
+        id="power_disk_never_sleep",
+        name="Festplatte nie schlafen legen",
+        desc="Verhindert dass Windows Laufwerke nach Inaktivität abschaltet. Auf Systemen mit HDD(s) "
+             "verhindert das Mikro-Ruckler, wenn ein Hintergrundprozess ein eingeschlafenes Laufwerk "
+             "aufwecken muss. Voll reversibel.",
+        category="Windows", group="Power Plan",
+        ps_command='''
+powercfg -setacvalueindex SCHEME_CURRENT SUB_DISK DISKIDLE 0
+powercfg -setactive SCHEME_CURRENT
+''',
+        revert_cmd='''
+powercfg -setacvalueindex SCHEME_CURRENT SUB_DISK DISKIDLE 1200
+powercfg -setactive SCHEME_CURRENT
+''',
+        risk="safe",
+    ),
 
     # ══════════════════════════════════════════════════════════════
     # AUDIO
