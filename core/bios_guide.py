@@ -191,6 +191,25 @@ PROFILES: list[BiosProfile] = [
                 impact="low",
                 detect_key="fast_boot"
             ),
+            BiosSetting(
+                category="GPU",
+                name="Integrierte Grafik (iGPU) deaktivieren",
+                recommended="Disabled (nur mit dedizierter GPU)",
+                default="Auto / Enabled",
+                path="ASUS: Advanced → NB Configuration → Primary Video Device = PCIE, "
+                     "Integrated Graphics = Disabled. Gigabyte: Settings → Miscellaneous → "
+                     "iGPU Configuration = Disabled.",
+                explanation="Alle AM5-Ryzen-Desktop-CPUs haben eine kleine integrierte Grafik "
+                            "(RDNA2). Sie reserviert etwas System-RAM (UMA Frame Buffer, ~0,5–2 GB) "
+                            "und bleibt als Gerät aktiv. Wenn du eine dedizierte Grafikkarte nutzt, "
+                            "kannst du sie abschalten: gibt den reservierten RAM frei und entfernt "
+                            "ein Hintergrundgerät. WICHTIG: danach funktionieren die Bildausgänge "
+                            "des Mainboards nicht mehr (nur noch die der Grafikkarte), und du "
+                            "verlierst die iGPU als Notfall-/Zweitausgabe sowie deren Video-Encoder. "
+                            "Der FPS-Gewinn ist minimal — es ist eher Aufräumen als echter Boost.",
+                risk=MODERATE,
+                impact="low",
+            ),
         ],
     ),
 
@@ -237,6 +256,23 @@ PROFILES: list[BiosProfile] = [
                 risk=SAFE,
                 impact="high",
                 detect_key="rebar_intel"
+            ),
+            BiosSetting(
+                category="GPU",
+                name="Integrierte Grafik (iGPU) deaktivieren",
+                recommended="Disabled (nur mit dedizierter GPU)",
+                default="Auto / Enabled",
+                path="ASUS: Advanced → NB Configuration → Primary Video Device = PCIE, "
+                     "Integrated Graphics = Disabled. Gigabyte: Settings → Miscellaneous → "
+                     "iGPU Configuration = Disabled.",
+                explanation="Ryzen 7000 Desktop-CPUs haben eine kleine integrierte RDNA2-Grafik, "
+                            "die etwas System-RAM reserviert (UMA Frame Buffer, ~0,5–2 GB) und als "
+                            "Gerät aktiv bleibt. Mit dedizierter Grafikkarte abschaltbar — gibt den "
+                            "RAM frei und entfernt ein Hintergrundgerät. WICHTIG: danach sind die "
+                            "Mainboard-Bildausgänge tot (nur noch die der Grafikkarte), und die iGPU "
+                            "als Notfall-Ausgabe/Video-Encoder entfällt. FPS-Gewinn ist minimal.",
+                risk=MODERATE,
+                impact="low",
             ),
         ],
     ),
