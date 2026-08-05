@@ -7,7 +7,7 @@
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python)](https://python.org)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D4?style=flat-square&logo=windows)](https://microsoft.com/windows)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-2.2-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2.1.1/releases)
+[![Version](https://img.shields.io/badge/Version-2.2-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
 
 🇬🇧 [English](README.md) | 🇩🇪 **Deutsch**
 
@@ -129,7 +129,7 @@ Python 3.10+ von [python.org/downloads](https://python.org/downloads) herunterla
 ### 2. GameOptimizerPro herunterladen
 Auf dieser Seite **Code → Download ZIP** klicken, oder das Repo klonen:
 ```bash
-git clone https://github.com/FloDePin/GameOptimizerPro-v2.1.1.git
+git clone https://github.com/FloDePin/GameOptimizerPro-v2.git
 ```
 In einen dauerhaften Ordner entpacken, z. B. `C:\Tools\GameOptimizerPro\`
 

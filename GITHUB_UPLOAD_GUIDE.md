@@ -39,7 +39,7 @@ cd "C:/Tools/GameOptimizerPro"
 git init
 
 # 3. Connect to your GitHub repository
-git remote add origin https://github.com/FloDePin/GameOptimizerPro-v2.1.1.git
+git remote add origin https://github.com/FloDePin/GameOptimizerPro-v2.git
 
 # 4. Stage all files
 git add .
@@ -122,4 +122,4 @@ For a new release, repeat Step 4 with the new version tag (e.g. `v2.1`).
 ## Repository URL
 
 Your project will be live at:
-**https://github.com/FloDePin/GameOptimizerPro-v2.1.1**
+**https://github.com/FloDePin/GameOptimizerPro-v2**

@@ -8,7 +8,7 @@ import threading, json, urllib.request, urllib.error
 from typing import Optional, Callable
 
 CURRENT_VERSION = "2.2"
-GITHUB_REPO     = "FloDePin/GameOptimizerPro-v2.1.1"
+GITHUB_REPO     = "FloDePin/GameOptimizerPro-v2"
 GITHUB_API_URL  = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 GITHUB_RELEASE  = f"https://github.com/{GITHUB_REPO}/releases/latest"
 

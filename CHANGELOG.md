@@ -120,4 +120,4 @@ All notable changes to GameOptimizerPro are documented here.
 
 ---
 
-*Dates reflect development/release dates. For full commit history see [GitHub](https://github.com/FloDePin/GameOptimizerPro-v2.1.1/commits).*
+*Dates reflect development/release dates. For full commit history see [GitHub](https://github.com/FloDePin/GameOptimizerPro-v2/commits).*
