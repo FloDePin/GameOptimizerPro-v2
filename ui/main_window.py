@@ -26,7 +26,7 @@ from core.nvtune_tuner import AutoTuner
 from core.tweak_runner import TweakRunner
 
 APP_NAME    = "GameOptimizerPro"
-APP_VERSION = "v2.1.1"
+APP_VERSION = "v2.2"
 
 # Tab definitions: (key, label, color_active, color_bg)
 TAB_DEFS = [
@@ -80,8 +80,8 @@ class GameOptimizerWindow(tk.Tk):
 
     def _setup_window(self):
         self.title(f"{APP_NAME} {APP_VERSION} -- by FloDePin")
-        self.geometry("960x760")
-        self.minsize(860, 660)
+        self.geometry("1000x920")
+        self.minsize(900, 720)
         self.configure(bg="#0d1117")
         apply_ttk_style(self)   # global dark theme + option_add overrides
 

@@ -1,13 +1,13 @@
 <div align="center">
 
-# ⚡ GameOptimizerPro v2.1.1
+# ⚡ GameOptimizerPro v2.2
 
-**Windows & Gaming Optimizer v2.1.1 by FloDePin**
+**Windows & Gaming Optimizer v2.2 by FloDePin**
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python)](https://python.org)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D4?style=flat-square&logo=windows)](https://microsoft.com/windows)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-2.1.1-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2.1.1/releases)
+[![Version](https://img.shields.io/badge/Version-2.2-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2.1.1/releases)
 
 🇬🇧 **English** | 🇩🇪 [Deutsch](README.de.md)
 
@@ -37,8 +37,18 @@
 - All audio tweaks integrated into **Windows Optimizer** for easy on/off control
 - ✨ **NEW in v2.1.1:** Full verification & revert support for all audio tweaks
 
+### 📊 Live Dashboard
+- Real-time **GPU telemetry** (voltage, temp, clocks, power, load) + gauge bars
+- **CPU / RAM / Disk usage** tiles alongside the GPU stats (via psutil)
+- **Network Latency Test** — one-click ping to your gateway + Cloudflare (1.1.1.1) & Google (8.8.8.8) with average/min/max latency, jitter and packet loss
+
+### 🧹 System Cleaner
+- Safely clears temp/dump folders (user `%TEMP%`, `Windows\Temp`, `CrashDumps`)
+- **Never** touches documents, browser profiles or the recycle bin; skips files in use
+- Scan first to see how much can be freed, then clean with one click
+
 ### 🛠 Windows Optimizer
-- **55+ Tweaks** across Windows, Gaming, Network, Audio categories
+- **65 Tweaks** across Windows, Gaming, Network, Audio categories
 - Live status verification — reads actual Registry/Service state (not just JSON)
 - 3-state indicators: ● Green (verified active) / ◑ Amber (applied, unverified) / ○ Grey (inactive)
 - **7 built-in Presets:** Gaming, Privacy & Anti-Telemetry, Debloat, Network, Performance, Windows 11 Classic, All Safe Tweaks
@@ -81,25 +91,22 @@
 
 ---
 
-## 🆕 What's New in v2.1.1
+## 🆕 What's New in v2.2
 
-### 🐛 Bug Fixes
-- **Launcher window now visible** — Fixed PowerShell `-WindowStyle Hidden` flag that was hiding the main window
-- **Registry tweaks working** — Fixed double-backslash escaping bug in "Disable Power Throttling" & "Process Count Reduction"
-- **Audio tweaks fully verified** — "Disable Audio Enhancements" & "Disable Exclusive Audio Lock" now have complete status verification & revert commands
-- **Telemetry blocking reversible** — "Block Telemetry Hosts" now has proper revert that safely removes appended entries
-- **Rapid game switching stable** — Fixed file write race condition in game profile manager with proper locking
+### 🚀 New Features
+- **Network Latency Test** (Dashboard) — one-click ping to gateway + Cloudflare & Google with average/min/max latency, jitter and packet loss
+- **Live System Monitoring** — CPU, RAM and Disk usage tiles next to the GPU telemetry
+- **System Cleaner** (Settings) — safely clears temp/dump folders; never touches documents, browsers or the recycle bin
+- **iGPU-disable BIOS tip** for AM5 (Zen 4/5) — honest recommendation with the real trade-offs, not the hyped version
+- **2 new power tweaks** — PCIe Link State Power Management off, Hard disk never sleep
+- Larger default window so the full dashboard is visible at a glance
 
-### 🎯 New Tweaks Added (4 total)
-1. **Disable Consumer Features** — Stops Windows from auto-installing suggested apps & bloatware (Candy Crush, etc. after updates)
-2. **Disable Hibernation** — Saves ~RAM size on SSD (e.g., 32 GB) + disables flaky Fast Startup
-3. **End Task via Right-Click** — Kill frozen games instantly from taskbar (Windows 11 22H2+)
-4. **Disable Delivery Optimization** — Disables P2P Windows update sharing for steadier gaming pings
+### 🐛 Fixes
+- **Verifier engine fixed** — a PowerShell grouping bug (`(...)` vs `$(...)`) meant most registry status checks silently showed the amber "unverified" dot; the green/amber/grey indicators now read real state for all 65 tweaks
+- Non-English Windows `ping` output no longer crashes the network test (latin-1 decoding)
 
-### 📚 Documentation & CI
-- Added complete German README (`README.de.md`)
-- Added GitHub Actions CI workflow for syntax checking & registry path validation
-- Corrected stale URL references from old repo name
+### 📈 Since v2.1.1
+- Launcher window visibility fix, registry double-backslash fix, full audio-tweak verification & revert, 4 gaming tweaks (Consumer Features, Hibernation, End-Task-right-click, Delivery Optimization), German README + CI.
 
 ---
 
@@ -179,7 +186,9 @@ GameOptimizerPro/
 │   ├── nvtune_tuner.py       ← Auto-tuner (Stage 1 OC, Stage 2 UV, TDR detection)
 │   ├── vf_curve.py           ← Voltage-frequency curve optimization
 │   ├── hardware.py           ← WMI hardware detection
-│   ├── tweaks.py             ← 55+ tweaks database (Windows, Gaming, Network, Audio)
+│   ├── tweaks.py             ← 65 tweaks database (Windows, Gaming, Network, Audio)
+│   ├── network_test.py       ← Gateway/DNS ping latency test
+│   ├── system_cleaner.py     ← Safe temp/junk file cleaner
 │   ├── tweak_runner.py       ← PowerShell executor (hidden)
 │   ├── tweak_verifier.py     ← Registry verification (100% coverage)
 │   ├── tweak_presets.py      ← 7 built-in presets

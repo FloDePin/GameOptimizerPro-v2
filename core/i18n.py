@@ -38,8 +38,8 @@ def _save_lang(lang: str):
 
 STRINGS = {
     # ── App general ───────────────────────────────────────────────────────────
-    "app_subtitle":       {"de": "Windows & Gaming Optimizer v2.1.1 -- by FloDePin",
-                           "en": "Windows & Gaming Optimizer v2.1.1 -- by FloDePin"},
+    "app_subtitle":       {"de": "Windows & Gaming Optimizer v2.2 -- by FloDePin",
+                           "en": "Windows & Gaming Optimizer v2.2 -- by FloDePin"},
     "btn_status_check":   {"de": "⟳ Status prüfen",        "en": "⟳ Check Status"},
     "btn_apply_selected": {"de": ">> Apply Selected",       "en": ">> Apply Selected"},
     "btn_revert_all":     {"de": "↩ Revert All",            "en": "↩ Revert All"},

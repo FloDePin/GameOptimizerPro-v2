@@ -4,6 +4,24 @@ All notable changes to GameOptimizerPro are documented here.
 
 ---
 
+## [2.2] — 2026-08-05
+
+### 🚀 New Features
+- **Network Latency Test** (`core/network_test.py` + Dashboard panel) — one-click ping to the default gateway + Cloudflare (1.1.1.1) and Google (8.8.8.8), reporting average/min/max latency, jitter and packet loss. Read-only, runs in a background thread. Parses the Windows `ping` output as latin-1 so non-English locales (e.g. German "Zeit=12ms") don't crash the reader thread
+- **Live System Monitoring** — CPU, RAM and Disk-C: usage tiles added to the Dashboard next to the GPU telemetry (via `psutil`, already a dependency), colour-coded by load
+- **System Cleaner** (`core/system_cleaner.py` + Settings panel) — scans and clears only dedicated temp/dump folders (user `%TEMP%`, `%SystemRoot%\Temp`, `%LOCALAPPDATA%\CrashDumps`). A safety guard refuses any path that isn't clearly a temp/dump dir, so it never touches documents, browser profiles or the recycle bin; files in use are skipped, target root dirs are kept
+- **iGPU-disable BIOS recommendation** for AM5 (Zen 4/5) — added to the BIOS Guide with the exact ASUS/Gigabyte menu paths and an honest write-up of the trade-offs (frees ~0.5–2 GB reserved RAM, but disables the motherboard's display outputs and the iGPU video encoder; minimal FPS impact)
+- **2 new power tweaks** — PCIe Link State Power Management off (steadier GPU-bus latency) and Hard disk never sleep (avoids micro-stutter when a background process wakes a sleeping HDD), both with apply/revert and a locale-independent powercfg verifier
+- Larger default window (1000×920) so the full dashboard is visible at startup
+
+### 🐛 Bug Fixes
+- **Verifier engine parse bug** — `TweakVerifier` wrapped each check as `$__r=(cmd)`, but a PowerShell `(...)` grouping only accepts a single pipeline, so every verify command written as two statements (`$v=…; if(…){}`) — most of the registry checks — failed to parse and silently showed the amber "unverified" dot. Changed to `$__r=$(cmd)` (subexpression); the green/amber/grey indicators now reflect real state for all 65 tweaks
+
+### 🎯 New Tweaks (since v2.1.1)
+- 4 gaming tweaks from v2.1.1 (Disable Consumer Features, Disable Hibernation, End Task via Right-Click, Disable Delivery Optimization) plus the 2 power tweaks above — **65 tweaks total**, all with verification & revert
+
+---
+
 ## [2.1.1] — 2026-07-05
 
 ### 🐛 Bug Fixes

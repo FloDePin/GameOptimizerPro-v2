@@ -1,19 +1,37 @@
 <div align="center">
 
-# ⚡ GameOptimizerPro v2.1.1
+# ⚡ GameOptimizerPro v2.2
 
-**Windows & Gaming Optimizer v2.1.1 von FloDePin**
+**Windows & Gaming Optimizer v2.2 von FloDePin**
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python)](https://python.org)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D4?style=flat-square&logo=windows)](https://microsoft.com/windows)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-2.1.1-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2.1.1/releases)
+[![Version](https://img.shields.io/badge/Version-2.2-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2.1.1/releases)
 
 🇬🇧 [English](README.md) | 🇩🇪 **Deutsch**
 
 *All-in-one PC-Optimierungstool — GPU Auto-Tuner, Audio-Optimierung, Windows-Tweaks, BIOS-Guide, Per-Game-Profile und mehr.*
 
 </div>
+
+---
+
+## 🆕 Neu in v2.2
+
+**Neue Features**
+- **Netzwerk-Latenz-Test** (Dashboard) — Ein-Klick-Ping zu Gateway + Cloudflare (1.1.1.1) & Google (8.8.8.8) mit Ø/min/max-Latenz, Jitter und Paketverlust
+- **Live-Systemüberwachung** — CPU-, RAM- und Disk-Auslastung als Tiles neben der GPU-Telemetrie
+- **System Cleaner** (Einstellungen) — leert sicher nur Temp-/Dump-Ordner; fasst nie Dokumente, Browser oder den Papierkorb an
+- **iGPU-Abschalt-Tipp** für AM5 (Zen 4/5) im BIOS-Guide — ehrlich mit echten Vor-/Nachteilen, nicht die Hype-Version
+- **2 neue Power-Tweaks** — PCIe Link State Power Management aus, Festplatte nie schlafen
+- Größeres Startfenster, damit das komplette Dashboard sofort sichtbar ist
+
+**Fixes**
+- **Verifier-Engine repariert** — ein PowerShell-Gruppierungsbug (`(...)` statt `$(...)`) ließ die meisten Registry-Statuschecks still auf Amber „ungeprüft" stehen; die grünen/amber/grauen Punkte lesen jetzt für alle 65 Tweaks den echten Zustand
+- Ping-Test crasht nicht mehr bei nicht-englischer `ping`-Ausgabe (latin-1-Dekodierung)
+
+**Seit v2.1.1:** Launcher-Fenster-Fix, Registry-Backslash-Fix, vollständige Audio-Tweak-Verifizierung & Revert, 4 Gaming-Tweaks, deutsche README + CI.
 
 ---
 
@@ -36,8 +54,18 @@
 - **Entfernung der Windows-Audioverbesserungen** — reduziert Audio-Latenz und CPU-Last
 - Alle Audio-Tweaks sind direkt in den **Windows Optimizer** integriert, per Klick an/aus
 
+### 📊 Live-Dashboard
+- Echtzeit-**GPU-Telemetrie** (Spannung, Temp, Takte, Power, Last) + Balkenanzeigen
+- **CPU- / RAM- / Disk-Auslastung** als Tiles neben den GPU-Werten (via psutil)
+- **Netzwerk-Latenz-Test** — Ein-Klick-Ping zu Gateway + Cloudflare & Google mit Ø/min/max-Latenz, Jitter, Paketverlust
+
+### 🧹 System Cleaner
+- Leert sicher nur Temp-/Dump-Ordner (`%TEMP%`, `Windows\Temp`, `CrashDumps`)
+- Fasst **nie** Dokumente, Browserprofile oder den Papierkorb an; überspringt Dateien in Benutzung
+- Erst scannen (zeigt freigebbaren Speicher), dann per Klick bereinigen
+
 ### 🛠 Windows Optimizer
-- **50+ Tweaks** in den Kategorien Windows, Gaming, Network, Audio
+- **65 Tweaks** in den Kategorien Windows, Gaming, Network, Audio
 - Live-Statusverifizierung — liest den tatsächlichen Registry-/Dienst-Zustand (nicht nur die JSON-Datei)
 - 3-stufige Statusanzeige: ● Grün (verifiziert aktiv) / ◑ Amber (angewendet, ungeprüft) / ○ Grau (inaktiv)
 - **7 integrierte Presets:** Gaming, Privacy & Anti-Telemetry, Debloat, Network, Performance, Windows 11 Classic, Alle sicheren Tweaks
