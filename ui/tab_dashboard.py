@@ -2,7 +2,7 @@
 
 import tkinter as tk
 from tkinter import ttk
-import threading, time
+import threading, time, os
 from typing import Optional
 
 from ui.widgets import *
@@ -117,6 +117,20 @@ class DashboardTab(tk.Frame):
         self.lbl_throttle = tk.Label(thr, text="None", font=FM, fg=OK, bg=BG1)
         self.lbl_throttle.pack(side="left", padx=8)
 
+        # ── System (CPU / RAM / Disk) ───────────────────────────────────────
+        SecHdr(self, "System").pack(fill="x", padx=14, pady=(10, 4))
+        sys_f = tk.Frame(self, bg=BG1)
+        sys_f.pack(fill="x", padx=14, pady=(0, 4))
+        sys_f.columnconfigure((0, 1, 2), weight=1)
+        self._sys_tiles = {}
+        for i, (key, label, unit, color) in enumerate([
+                ("cpu",  "CPU",      "%", ACC),
+                ("ram",  "RAM",      "%", ACC2),
+                ("disk", "Disk C:",  "%", WRN)]):
+            f, vl = mk_tile(sys_f, label, "--", color, unit)
+            f.grid(row=0, column=i, padx=3, sticky="nsew")
+            self._sys_tiles[key] = vl
+
         # ── Network latency test ────────────────────────────────────────────
         SecHdr(self, "Network Latency Test").pack(fill="x", padx=14, pady=(10, 4))
         net_f = tk.Frame(self, bg=BG1)
@@ -180,14 +194,39 @@ class DashboardTab(tk.Frame):
         self.btn_nettest.config(state="normal", text="▶  Test starten")
 
     def _start_live(self):
+        try:
+            import psutil
+            psutil.cpu_percent()   # prime (first call returns 0.0)
+            self._psutil = psutil
+            self._sysdrive = (os.environ.get("SystemDrive", "C:") + "\\")
+        except Exception:
+            self._psutil = None
         def loop():
             while self._running:
                 try:
                     s = self.monitor.read()
                     self.after(0, self._update, s)
+                    if self._psutil:
+                        cpu = self._psutil.cpu_percent()
+                        ram = self._psutil.virtual_memory().percent
+                        try:
+                            disk = self._psutil.disk_usage(self._sysdrive).percent
+                        except Exception:
+                            disk = 0.0
+                        self.after(0, self._update_sys, cpu, ram, disk)
                 except: pass
                 time.sleep(1.0)
         threading.Thread(target=loop, daemon=True).start()
+
+    def _update_sys(self, cpu, ram, disk):
+        if "cpu" not in self._sys_tiles:
+            return
+        cc = ERR if cpu >= 90 else WRN if cpu >= 70 else ACC
+        self._sys_tiles["cpu"].config(text=f"{cpu:.0f}", fg=cc)
+        rc = ERR if ram >= 90 else WRN if ram >= 80 else ACC2
+        self._sys_tiles["ram"].config(text=f"{ram:.0f}", fg=rc)
+        dc = ERR if disk >= 95 else WRN if disk >= 85 else OK
+        self._sys_tiles["disk"].config(text=f"{disk:.0f}", fg=dc)
 
     def _update(self, s):
         # Voltage

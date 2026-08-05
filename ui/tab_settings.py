@@ -8,7 +8,9 @@ GameOptimizerPro Settings Tab
 
 import tkinter as tk
 from tkinter import messagebox
+import threading
 from ui.widgets import *
+from core import system_cleaner
 
 
 class SettingsTab(tk.Frame):
@@ -75,12 +77,30 @@ class SettingsTab(tk.Frame):
         mk_btn(self, "⟳ Setup prüfen", self._run_setup_check, BG3, TXT
                ).pack(padx=14, anchor="w", pady=(0, 4))
 
+        # ── System Cleaner ────────────────────────────────────────────────────
+        SecHdr(self, "System Cleaner (Temp-Dateien)").pack(fill="x", padx=14, pady=(8, 4))
+        cln_f = tk.Frame(self, bg=BG2, padx=12, pady=10)
+        cln_f.pack(fill="x", padx=14, pady=(0, 8))
+        tk.Label(cln_f,
+                 text="Löscht nur dedizierte Temp-/Dump-Ordner (Benutzer-Temp, Windows-Temp, "
+                      "CrashDumps). Niemals Dokumente, Browserprofile oder Papierkorb. "
+                      "Dateien in Benutzung werden übersprungen.",
+                 font=FM, fg=DIM, bg=BG2, justify="left", wraplength=560).pack(anchor="w")
+        cln_btns = tk.Frame(cln_f, bg=BG2)
+        cln_btns.pack(anchor="w", pady=(8, 2))
+        mk_btn(cln_btns, "🔍 Scannen", self._cleaner_scan, BG3, TXT).pack(side="left", padx=(0, 6))
+        self.btn_clean = mk_btn(cln_btns, "🧹 Bereinigen", self._cleaner_clean, BG3, TXT)
+        self.btn_clean.pack(side="left")
+        self.lbl_cleaner = tk.Label(cln_f, text="Noch nicht gescannt.", font=FM,
+                                    fg=DIM, bg=BG2, justify="left", anchor="w")
+        self.lbl_cleaner.pack(anchor="w", pady=(6, 0))
+
         # ── About ─────────────────────────────────────────────────────────────
         SecHdr(self, "About").pack(fill="x", padx=14, pady=(8, 4))
         about_f = tk.Frame(self, bg=BG2, padx=12, pady=10)
         about_f.pack(fill="x", padx=14)
         tk.Label(about_f,
-                 text="GameOptimizerPro v2.1\n"
+                 text="GameOptimizerPro v2.1.1\n"
                       "All-in-one Windows & GPU Optimizer\n"
                       "GPU Tuner (NVML + MAHM + Afterburner)\n"
                       "by FloDePin",
@@ -108,6 +128,40 @@ class SettingsTab(tk.Frame):
         ok, msg = self.startup_loader.load_startup_profile()
         self.lbl_startup_result.config(
             text=msg, fg=OK if ok else WRN)
+
+    def _cleaner_scan(self):
+        self.lbl_cleaner.config(text="Scanne…", fg=DIM)
+        def work():
+            targets = system_cleaner.scan()
+            tf = sum(t.file_count for t in targets)
+            tb = sum(t.bytes for t in targets)
+            lines = [f"Gefunden: {tf} Dateien, {system_cleaner.human_size(tb)}"]
+            for t in targets:
+                if t.exists:
+                    lines.append(f"   • {t.label}: {t.file_count} Dateien, "
+                                 f"{system_cleaner.human_size(t.bytes)}")
+            self.after(0, lambda: self.lbl_cleaner.config(
+                text="\n".join(lines), fg=OK if tf else DIM))
+        threading.Thread(target=work, daemon=True).start()
+
+    def _cleaner_clean(self):
+        if not messagebox.askyesno(
+            "Bereinigen",
+            "Temp-Dateien jetzt löschen?\n\nBetrifft nur Temp-/Dump-Ordner. "
+            "Dateien, die gerade in Benutzung sind, werden übersprungen."):
+            return
+        self.lbl_cleaner.config(text="Bereinige…", fg=DIM)
+        self.btn_clean.config(state="disabled")
+        def work():
+            res = system_cleaner.clean()
+            msg = (f"✓ {res.files_deleted} Dateien gelöscht, "
+                   f"{system_cleaner.human_size(res.bytes_freed)} freigegeben")
+            if res.errors:
+                msg += f"   ({res.errors} in Benutzung übersprungen)"
+            self.after(0, lambda: (
+                self.lbl_cleaner.config(text=msg, fg=OK),
+                self.btn_clean.config(state="normal")))
+        threading.Thread(target=work, daemon=True).start()
 
     def _run_setup_check(self):
         for w in self.setup_frame.winfo_children():
