@@ -91,22 +91,48 @@
 
 ---
 
-## 🆕 What's New in v2.2
+## 📜 Changelog
 
-### 🚀 New Features
-- **Network Latency Test** (Dashboard) — one-click ping to gateway + Cloudflare & Google with average/min/max latency, jitter and packet loss
-- **Live System Monitoring** — CPU, RAM and Disk usage tiles next to the GPU telemetry
-- **System Cleaner** (Settings) — safely clears temp/dump folders; never touches documents, browsers or the recycle bin
-- **iGPU-disable BIOS tip** for AM5 (Zen 4/5) — honest recommendation with the real trade-offs, not the hyped version
-- **2 new power tweaks** — PCIe Link State Power Management off, Hard disk never sleep
-- Larger default window so the full dashboard is visible at a glance
+### v2.2 ⭐ **CURRENT** — 2026-08-05
+- 🌐 **New: Network Latency Test** (Dashboard) — one-click ping to your gateway + Cloudflare (1.1.1.1) & Google (8.8.8.8) with average/min/max latency, jitter and packet loss (read-only, runs in the background)
+- 📊 **New: Live System Monitoring** — CPU, RAM and Disk-C: usage tiles added to the Dashboard next to the GPU telemetry (via psutil), colour-coded by load
+- 🧹 **New: System Cleaner** (Settings) — scans & clears only dedicated temp/dump folders (`%TEMP%`, `Windows\Temp`, `CrashDumps`); a safety guard means it never touches documents, browser profiles or the recycle bin, and files in use are skipped
+- 🖥 **New: iGPU-disable BIOS tip** for AM5 (Zen 4/5) — added to the BIOS Guide with exact ASUS/Gigabyte menu paths and an honest write-up of the trade-offs (frees reserved RAM, but disables the board's display outputs + iGPU encoder)
+- ⚡ **New tweaks (2):** PCIe Link State Power Management off, Hard disk never sleep → **65 tweaks total**
+- 🐛 **Fix: verifier engine** — a PowerShell grouping bug (`$__r=(cmd)` vs `$__r=$(cmd)`) meant most registry status checks silently showed the amber "unverified" dot; the green/amber/grey indicators now reflect real state for **all** tweaks
+- 🐛 **Fix:** non-English Windows `ping` output no longer crashes the network test (latin-1 decoding)
+- 🪟 **UI:** larger default window (1000×920) so the full dashboard fits at startup
 
-### 🐛 Fixes
-- **Verifier engine fixed** — a PowerShell grouping bug (`(...)` vs `$(...)`) meant most registry status checks silently showed the amber "unverified" dot; the green/amber/grey indicators now read real state for all 65 tweaks
-- Non-English Windows `ping` output no longer crashes the network test (latin-1 decoding)
+### v2.1.1 — 2026-07-05
+- 🐛 **Fix: launcher window** — removed a `-WindowStyle Hidden` flag on the inner `Start-Process` that started the whole app window invisibly (only fix was killing the process)
+- 🐛 **Fix: registry tweaks** — corrected a double-backslash escaping bug that made "Disable Power Throttling" & "Process Count Reduction" fail with "invalid key name" every time
+- 🔊 **Fix: audio tweaks** — "Disable Audio Enhancements" & "Disable Exclusive Audio Lock" now have full status verification **and** revert commands
+- 🛡 **Fix:** "Block Telemetry Hosts" now reverts precisely (removes only the appended hosts-file entries)
+- 🔒 **Hardening:** profile names/notes sanitized (no `.cfg` injection); game-profile file writes are now thread-safe (lock)
+- 🎯 **New tweaks (4):** Disable Consumer Features, Disable Hibernation, End Task via Right-Click, Disable Delivery Optimization
+- 📚 **Docs/CI:** added German README (`README.de.md`) + GitHub Actions CI (syntax & registry-path validation)
 
-### 📈 Since v2.1.1
-- Launcher window visibility fix, registry double-backslash fix, full audio-tweak verification & revert, 4 gaming tweaks (Consumer Features, Hibernation, End-Task-right-click, Delivery Optimization), German README + CI.
+### v2.1 — 2026-07-02
+- ✨ **3 new tweaks:** Disable Power Throttling (Gaming), Process Count Reduction / Svchost (Gaming), Disable Bing in Windows Search (Privacy) — all with revert + verification
+- 🛡 **Safety review:** deliberately excluded risky third-party tweaks (AMD Crash Defender off, C-States off, ULPS off, modded drivers) that reduce stability/security without meaningful gains
+
+### v2.0 — 2026-05-25
+- 🎮 **New: Per-Game Profiles** — background process monitor auto-loads a GPU profile when a game starts, restores default on exit
+- 📋 **New: Tune History Viewer**, 🌡 **GPU Temperature Toast** (≥90 °C, 5-min cooldown), 🔄 **GitHub Update Checker**
+- 🖥 **New: BIOS Guide Tab** — hardware-aware recommendations with live state detection
+- 🚀 **New: Startup Manager**, 🔀 **Profile Comparison Tab**, 💾 **Export/Import** as `.nextune`
+- ✅ **New: Tweak Status Verification** — reads real Registry/Service state (3-state dots), **7 built-in presets**
+- 🌐 **New: DE/EN language toggle**, ℹ️ tooltips on every tweak, 📈 live Voltage/Clock/Temp graph
+- ⚡ **GPU Tuner:** 3 modes (OC / UV / OC+UV), generation auto-detection, TDR detection (Event ID 4101), crash recovery
+- 🏗 **Rewrite:** thread-safe architecture — `tkinter mainloop()` on the main thread, tray in a daemon thread (fixes freezes/crashes)
+
+### v1.0 — 2026-05-23 *(Initial Release)*
+- 🎮 **GPU Auto-Tuner** (automated OC + UV via MSI Afterburner)
+- 🛠 **Windows Optimizer** (50 tweaks: Windows, Gaming, Network)
+- 📊 **Dashboard** (live GPU telemetry), 🔥 **Stress Test** + FurMark launcher
+- 🖥 **Hardware Detection** (WMI), 💾 **Profile Manager**, 🖲 **System Tray** with live stats
+
+> Full technical detail for every release: [CHANGELOG.md](CHANGELOG.md)
 
 ---
 
