@@ -1,13 +1,13 @@
 <div align="center">
 
-# ⚡ GameOptimizerPro v2.2
+# ⚡ GameOptimizerPro v2.3
 
-**Windows & Gaming Optimizer v2.2 von FloDePin**
+**Windows & Gaming Optimizer v2.3 von FloDePin**
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python)](https://python.org)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D4?style=flat-square&logo=windows)](https://microsoft.com/windows)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-2.2-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
+[![Version](https://img.shields.io/badge/Version-2.3-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
 
 🇬🇧 [English](README.md) | 🇩🇪 **Deutsch**
 
@@ -19,7 +19,15 @@
 
 ## 📜 Änderungsverlauf
 
-### v2.2 ⭐ **AKTUELL** — 05.08.2026
+### v2.3 ⭐ **AKTUELL** — 10.08.2026
+- 🛟 **Neu: Wiederherstellungspunkt erstellen** (Einstellungen) — Ein-Klick-Windows-Wiederherstellungspunkt als Sicherheitsnetz vor dem Anwenden von Tweaks (klare Meldungen bei deaktiviertem Schutz / 24-h-Limit / fehlenden Admin-Rechten)
+- 🖥 **Neuer Tweak: Multiplane Overlay (MPO) deaktivieren** — bekannter Fix gegen Bild-Flackern / Mikroruckler (NVIDIA + Multi-Monitor); ehrlich als „nur bei Flacker-Problemen" markiert, neuere Treiber haben's großteils behoben
+- 🛡 **Neuer Tweak: WPBT deaktivieren** — blockt, dass Firmware/Mainboard beim Start Programme ins Windows einschleust
+- 🗂 **Neue Tweaks: Dateiendungen anzeigen + Versteckte Dateien anzeigen** — Explorer-Komfort, hilft auch getarnte Dateien zu erkennen
+- 🧹 **Neuer Tweak: Storage Sense deaktivieren** — verhindert automatisches Löschen von Dateien im Hintergrund
+- ➡️ **70 Tweaks gesamt.** Aus der Chris-Titus-WinUtil-Liste — bewusst die unsicheren/unpassenden weggelassen (BitLocker aus, Services→Manual, IPv6/Teredo aus, Edge-Entfernung, Kosmetik-Toggles)
+
+### v2.2 — 05.08.2026
 - 🌐 **Neu: Netzwerk-Latenz-Test** (Dashboard) — Ein-Klick-Ping zu Gateway + Cloudflare (1.1.1.1) & Google (8.8.8.8) mit Ø/min/max-Latenz, Jitter und Paketverlust (rein lesend, läuft im Hintergrund)
 - 📊 **Neu: Live-Systemüberwachung** — CPU-, RAM- und Disk-C:-Auslastung als Tiles neben der GPU-Telemetrie (via psutil), farbcodiert nach Last
 - 🧹 **Neu: System Cleaner** (Einstellungen) — scannt & leert nur dedizierte Temp-/Dump-Ordner (`%TEMP%`, `Windows\Temp`, `CrashDumps`); ein Schutzgitter sorgt dafür, dass nie Dokumente, Browserprofile oder der Papierkorb angefasst werden, Dateien in Benutzung werden übersprungen
@@ -86,13 +94,14 @@
 - **CPU- / RAM- / Disk-Auslastung** als Tiles neben den GPU-Werten (via psutil)
 - **Netzwerk-Latenz-Test** — Ein-Klick-Ping zu Gateway + Cloudflare & Google mit Ø/min/max-Latenz, Jitter, Paketverlust
 
-### 🧹 System Cleaner
+### 🧹 System Cleaner & Sicherheit
 - Leert sicher nur Temp-/Dump-Ordner (`%TEMP%`, `Windows\Temp`, `CrashDumps`)
 - Fasst **nie** Dokumente, Browserprofile oder den Papierkorb an; überspringt Dateien in Benutzung
 - Erst scannen (zeigt freigebbaren Speicher), dann per Klick bereinigen
+- **Wiederherstellungspunkt erstellen** — Ein-Klick-Sicherheitsnetz vor dem Anwenden von Tweaks
 
 ### 🛠 Windows Optimizer
-- **65 Tweaks** in den Kategorien Windows, Gaming, Network, Audio
+- **70 Tweaks** in den Kategorien Windows, Gaming, Network, Audio
 - Live-Statusverifizierung — liest den tatsächlichen Registry-/Dienst-Zustand (nicht nur die JSON-Datei)
 - 3-stufige Statusanzeige: ● Grün (verifiziert aktiv) / ◑ Amber (angewendet, ungeprüft) / ○ Grau (inaktiv)
 - **7 integrierte Presets:** Gaming, Privacy & Anti-Telemetry, Debloat, Network, Performance, Windows 11 Classic, Alle sicheren Tweaks

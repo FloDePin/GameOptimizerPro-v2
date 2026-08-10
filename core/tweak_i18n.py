@@ -137,11 +137,26 @@ TWEAK_DESC_EN: dict[str, str] = {
         "Disables PCIe link power saving (ASPM). The PCIe bus to the graphics card stays at full power instead of dropping into low-power states — marginally more consistent latency at the cost of a little more idle power. Fully reversible.",
     "power_disk_never_sleep":
         "Stops Windows from spinning down drives after inactivity. On systems with HDD(s) this prevents micro-stutter when a background process has to wake a sleeping drive. Fully reversible.",
+    "show_file_extensions":
+        "Shows file extensions (.exe, .txt, .cfg …) in Explorer. Helps spot disguised files like 'setup.exe.scr' — a small security & convenience win.",
+    "show_hidden_files":
+        "Shows hidden files and folders in Explorer. Handy for cleaning up and editing app configs stored in hidden folders.",
+    "disable_mpo":
+        "Disables Multiplane Overlay (registry OverlayTestMode=5). A well-known fix for screen flickering and micro-stutter, especially on NVIDIA + multi-monitor. NOTE: recent drivers have largely fixed MPO bugs — only enable this if you actually have flicker/stutter problems. Needs a reboot.",
+    "disable_wpbt":
+        "Prevents firmware/motherboard from injecting programs into Windows at boot (WPBT). Blocks vendor-preinstalled background software at the UEFI level. Safe, reversible.",
+    "disable_storage_sense":
+        "Turns off Windows' automatic Storage Sense, which can delete files in the background. Not needed if you clean up yourself (e.g. via the System Cleaner).",
 }
 
 # English names, only where the German name differs. Most names are already English.
 TWEAK_NAME_EN: dict[str, str] = {
     "end_task_right_click": "End Task via Right-Click (Taskbar)",
+    "show_file_extensions": "Show File Extensions",
+    "show_hidden_files":    "Show Hidden Files",
+    "disable_mpo":          "Disable Multiplane Overlay (MPO)",
+    "disable_wpbt":         "Disable Windows Platform Binary Table (WPBT)",
+    "disable_storage_sense": "Disable Storage Sense",
 }
 
 

@@ -1,13 +1,13 @@
 <div align="center">
 
-# ⚡ GameOptimizerPro v2.2
+# ⚡ GameOptimizerPro v2.3
 
-**Windows & Gaming Optimizer v2.2 by FloDePin**
+**Windows & Gaming Optimizer v2.3 by FloDePin**
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python)](https://python.org)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D4?style=flat-square&logo=windows)](https://microsoft.com/windows)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-2.2-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
+[![Version](https://img.shields.io/badge/Version-2.3-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
 
 🇬🇧 **English** | 🇩🇪 [Deutsch](README.de.md)
 
@@ -42,13 +42,14 @@
 - **CPU / RAM / Disk usage** tiles alongside the GPU stats (via psutil)
 - **Network Latency Test** — one-click ping to your gateway + Cloudflare (1.1.1.1) & Google (8.8.8.8) with average/min/max latency, jitter and packet loss
 
-### 🧹 System Cleaner
+### 🧹 System Cleaner & Safety
 - Safely clears temp/dump folders (user `%TEMP%`, `Windows\Temp`, `CrashDumps`)
 - **Never** touches documents, browser profiles or the recycle bin; skips files in use
 - Scan first to see how much can be freed, then clean with one click
+- **Create Restore Point** — one-click Windows System Restore Point as a safety net before applying tweaks
 
 ### 🛠 Windows Optimizer
-- **65 Tweaks** across Windows, Gaming, Network, Audio categories
+- **70 Tweaks** across Windows, Gaming, Network, Audio categories
 - Live status verification — reads actual Registry/Service state (not just JSON)
 - 3-state indicators: ● Green (verified active) / ◑ Amber (applied, unverified) / ○ Grey (inactive)
 - **7 built-in Presets:** Gaming, Privacy & Anti-Telemetry, Debloat, Network, Performance, Windows 11 Classic, All Safe Tweaks
@@ -93,7 +94,15 @@
 
 ## 📜 Changelog
 
-### v2.2 ⭐ **CURRENT** — 2026-08-05
+### v2.3 ⭐ **CURRENT** — 2026-08-10
+- 🛟 **New: Create Restore Point** (Settings) — one-click Windows System Restore Point as a safety net before applying tweaks (clear messages for protection-disabled / 24 h-limit / not-admin)
+- 🖥 **New tweak: Disable Multiplane Overlay (MPO)** — known fix for screen flicker / micro-stutter (NVIDIA + multi-monitor); flagged honestly as "only if you have flicker problems", recent drivers largely fixed it
+- 🛡 **New tweak: Disable WPBT** — blocks firmware/motherboard from injecting programs into Windows at boot
+- 🗂 **New tweaks: Show File Extensions + Show Hidden Files** — Explorer QoL, also helps spot disguised files
+- 🧹 **New tweak: Disable Storage Sense** — stops Windows auto-deleting files in the background
+- ➡️ **70 tweaks total.** Picked from the Chris-Titus WinUtil set — deliberately skipped the unsafe/unfitting ones (BitLocker-off, Services→Manual, IPv6/Teredo off, Edge removal, cosmetic toggles)
+
+### v2.2 — 2026-08-05
 - 🌐 **New: Network Latency Test** (Dashboard) — one-click ping to your gateway + Cloudflare (1.1.1.1) & Google (8.8.8.8) with average/min/max latency, jitter and packet loss (read-only, runs in the background)
 - 📊 **New: Live System Monitoring** — CPU, RAM and Disk-C: usage tiles added to the Dashboard next to the GPU telemetry (via psutil), colour-coded by load
 - 🧹 **New: System Cleaner** (Settings) — scans & clears only dedicated temp/dump folders (`%TEMP%`, `Windows\Temp`, `CrashDumps`); a safety guard means it never touches documents, browser profiles or the recycle bin, and files in use are skipped
@@ -212,9 +221,10 @@ GameOptimizerPro/
 │   ├── nvtune_tuner.py       ← Auto-tuner (Stage 1 OC, Stage 2 UV, TDR detection)
 │   ├── vf_curve.py           ← Voltage-frequency curve optimization
 │   ├── hardware.py           ← WMI hardware detection
-│   ├── tweaks.py             ← 65 tweaks database (Windows, Gaming, Network, Audio)
+│   ├── tweaks.py             ← 70 tweaks database (Windows, Gaming, Network, Audio)
 │   ├── network_test.py       ← Gateway/DNS ping latency test
 │   ├── system_cleaner.py     ← Safe temp/junk file cleaner
+│   ├── restore_point.py      ← System Restore Point creator
 │   ├── tweak_runner.py       ← PowerShell executor (hidden)
 │   ├── tweak_verifier.py     ← Registry verification (100% coverage)
 │   ├── tweak_presets.py      ← 7 built-in presets

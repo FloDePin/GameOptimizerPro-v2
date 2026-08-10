@@ -4,6 +4,21 @@ All notable changes to GameOptimizerPro are documented here.
 
 ---
 
+## [2.3] — 2026-08-10
+
+### 🚀 New Features
+- **Create Restore Point** (`core/restore_point.py` + Settings panel) — one-click Windows System Restore Point as a safety net before applying tweaks. Uses `Checkpoint-Computer`; reports clear messages for the common cases (protection disabled, 24 h frequency limit, not admin). The description is sanitized against injection
+- **5 new tweaks (from the Chris-Titus WinUtil set, only the safe/fitting ones)** — **70 tweaks total**:
+  - **Disable Multiplane Overlay (MPO)** (Gaming, moderate) — `OverlayTestMode=5`, a known fix for screen flicker / micro-stutter (esp. NVIDIA + multi-monitor). Flagged honestly: recent drivers largely fixed MPO, so only for people actually seeing flicker
+  - **Disable WPBT** (Privacy) — blocks firmware/motherboard from injecting programs into Windows at boot (`DisableWpbtExecution=1`)
+  - **Show File Extensions** / **Show Hidden Files** (Mouse & UI) — Explorer QoL, also helps spot disguised files
+  - **Disable Storage Sense** (Performance) — stops Windows auto-deleting files in the background
+
+### 📝 Notes
+- Deliberately skipped WinUtil items that don't fit a gaming optimizer or aren't safe: BitLocker-off (weakens disk encryption), Services→Manual (risky batch), IPv6/Teredo off (can break networking), Edge removal (Windows depends on it), Date-to-UTC (dual-boot only), and pure cosmetic toggles. "Background Apps" was already covered by *Disable Background App Throttling*
+
+---
+
 ## [2.2] — 2026-08-05
 
 ### 🚀 New Features

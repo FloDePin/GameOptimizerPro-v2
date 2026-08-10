@@ -389,6 +389,26 @@ VERIFY_MAP: dict[str, str] = {
         '$m=[regex]::Matches($o,"0x[0-9a-fA-F]{8}"); '
         'if($m.Count -ge 2 -and [Convert]::ToInt32($m[$m.Count-2].Value.Substring(2),16) -eq 0){"1"}else{"0"}'
     ),
+    "show_file_extensions": (
+        '$v=(Get-ItemProperty "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced" '
+        '-Name HideFileExt -EA SilentlyContinue).HideFileExt; if($v -eq 0){"1"}else{"0"}'
+    ),
+    "show_hidden_files": (
+        '$v=(Get-ItemProperty "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced" '
+        '-Name Hidden -EA SilentlyContinue).Hidden; if($v -eq 1){"1"}else{"0"}'
+    ),
+    "disable_mpo": (
+        '$v=(Get-ItemProperty "HKLM:\\SOFTWARE\\Microsoft\\Windows\\Dwm" '
+        '-Name OverlayTestMode -EA SilentlyContinue).OverlayTestMode; if($v -eq 5){"1"}else{"0"}'
+    ),
+    "disable_wpbt": (
+        '$v=(Get-ItemProperty "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Session Manager" '
+        '-Name DisableWpbtExecution -EA SilentlyContinue).DisableWpbtExecution; if($v -eq 1){"1"}else{"0"}'
+    ),
+    "disable_storage_sense": (
+        '$v=(Get-ItemProperty "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\StorageSense" '
+        '-Name AllowStorageSenseGlobal -EA SilentlyContinue).AllowStorageSenseGlobal; if($v -eq 0){"1"}else{"0"}'
+    ),
 }
 
 

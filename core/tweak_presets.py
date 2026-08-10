@@ -62,6 +62,7 @@ BUILTIN_PRESETS: list[TweakPreset] = [
             "disable_location",
             "remove_copilot",
             "remove_recall",
+            "disable_wpbt",
         ],
     ),
 
@@ -116,6 +117,7 @@ BUILTIN_PRESETS: list[TweakPreset] = [
             "disable_hibernation",
             "power_pcie_aspm_off",
             "power_disk_never_sleep",
+            "disable_storage_sense",
         ],
     ),
 

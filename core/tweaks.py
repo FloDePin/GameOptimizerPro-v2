@@ -261,6 +261,17 @@ $tasks=@("\\Microsoft\\Windows\\Application Experience\\Microsoft Compatibility 
 foreach($t in $tasks){schtasks /Change /TN $t /Disable 2>$null}
 ''',
     ),
+    Tweak(
+        id="disable_wpbt",
+        name="Windows Platform Binary Table (WPBT) deaktivieren",
+        desc="Verhindert, dass die Firmware/das Mainboard beim Start Programme ins Windows einschleusen "
+             "kann (WPBT). Blockt vom Hersteller vorinstallierte Hintergrund-Software auf UEFI-Ebene. "
+             "Sicher, reversibel.",
+        category="Windows", group="Privacy",
+        ps_command='reg add "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager" /v DisableWpbtExecution /t REG_DWORD /d 1 /f',
+        revert_cmd='reg delete "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager" /v DisableWpbtExecution /f 2>$null',
+        risk="safe",
+    ),
 
     # ══════════════════════════════════════════════════════════════
     # WINDOWS — PERFORMANCE
@@ -361,6 +372,16 @@ Start-Service WSearch -ErrorAction SilentlyContinue
         revert_cmd='powercfg /hibernate on',
         risk="safe",
     ),
+    Tweak(
+        id="disable_storage_sense",
+        name="Storage Sense deaktivieren",
+        desc="Schaltet die automatische Speicherbereinigung von Windows ab, die im Hintergrund "
+             "Dateien löschen kann. Wer selbst aufräumt (z.B. über den System Cleaner) braucht sie nicht.",
+        category="Windows", group="Performance",
+        ps_command='reg add "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\StorageSense" /v AllowStorageSenseGlobal /t REG_DWORD /d 0 /f',
+        revert_cmd='reg delete "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\StorageSense" /v AllowStorageSenseGlobal /f 2>$null',
+        risk="safe",
+    ),
 
     # ══════════════════════════════════════════════════════════════
     # WINDOWS — MOUSE & UI
@@ -423,6 +444,26 @@ reg add "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize
         category="Windows", group="Mouse & UI",
         ps_command='reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\TaskbarDeveloperSettings" /v TaskbarEndTask /t REG_DWORD /d 1 /f',
         revert_cmd='reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\TaskbarDeveloperSettings" /v TaskbarEndTask /t REG_DWORD /d 0 /f',
+        risk="safe",
+    ),
+    Tweak(
+        id="show_file_extensions",
+        name="Dateiendungen anzeigen",
+        desc="Blendet die Dateiendungen (.exe, .txt, .cfg …) im Explorer ein. Hilft, getarnte "
+             "Dateien wie 'setup.exe.scr' zu erkennen — kleiner Sicherheits- und Komfortgewinn.",
+        category="Windows", group="Mouse & UI",
+        ps_command='reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced" /v HideFileExt /t REG_DWORD /d 0 /f',
+        revert_cmd='reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced" /v HideFileExt /t REG_DWORD /d 1 /f',
+        risk="safe",
+    ),
+    Tweak(
+        id="show_hidden_files",
+        name="Versteckte Dateien anzeigen",
+        desc="Zeigt versteckte Dateien und Ordner im Explorer an. Praktisch beim Aufräumen und "
+             "Bearbeiten von App-Configs in versteckten Ordnern.",
+        category="Windows", group="Mouse & UI",
+        ps_command='reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced" /v Hidden /t REG_DWORD /d 1 /f',
+        revert_cmd='reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced" /v Hidden /t REG_DWORD /d 2 /f',
         risk="safe",
     ),
 
@@ -595,6 +636,18 @@ reg add "HKLM\\SOFTWARE\\Microsoft\\DirectX" /v D3D12_ENABLE_UNSAFE_COMMAND_BUFF
 reg add "HKLM\\SYSTEM\\CurrentControlSet\\Control\\GraphicsDrivers" /v TdrDelay /t REG_DWORD /d 10 /f
 reg add "HKLM\\SYSTEM\\CurrentControlSet\\Control\\GraphicsDrivers" /v TdrDdiDelay /t REG_DWORD /d 10 /f
 ''',
+    ),
+    Tweak(
+        id="disable_mpo",
+        name="Multiplane Overlay (MPO) deaktivieren",
+        desc="Schaltet MPO ab (Registry OverlayTestMode=5). Bekannter Fix gegen Bild-Flackern und "
+             "Mikroruckler, v.a. bei NVIDIA + Multi-Monitor. HINWEIS: neuere Treiber haben MPO-Bugs "
+             "großteils behoben — nur aktivieren wenn du solche Flacker-/Ruckel-Probleme hast. Neustart nötig.",
+        category="Gaming", group="GPU & Driver",
+        requires_reboot=True,
+        ps_command='reg add "HKLM\\SOFTWARE\\Microsoft\\Windows\\Dwm" /v OverlayTestMode /t REG_DWORD /d 5 /f',
+        revert_cmd='reg delete "HKLM\\SOFTWARE\\Microsoft\\Windows\\Dwm" /v OverlayTestMode /f 2>$null',
+        risk="moderate",
     ),
 
     # ══════════════════════════════════════════════════════════════

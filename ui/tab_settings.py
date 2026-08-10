@@ -11,6 +11,7 @@ from tkinter import messagebox
 import threading
 from ui.widgets import *
 from core import system_cleaner
+from core import restore_point
 
 
 class SettingsTab(tk.Frame):
@@ -77,6 +78,22 @@ class SettingsTab(tk.Frame):
         mk_btn(self, "⟳ Setup prüfen", self._run_setup_check, BG3, TXT
                ).pack(padx=14, anchor="w", pady=(0, 4))
 
+        # ── System Restore Point ──────────────────────────────────────────────
+        SecHdr(self, "Wiederherstellungspunkt").pack(fill="x", padx=14, pady=(8, 4))
+        rp_f = tk.Frame(self, bg=BG2, padx=12, pady=10)
+        rp_f.pack(fill="x", padx=14, pady=(0, 8))
+        tk.Label(rp_f,
+                 text="Erstellt einen Windows-Wiederherstellungspunkt als Sicherheitsnetz — "
+                      "am besten VOR dem Anwenden von Tweaks. Erfordert Admin-Rechte und aktivierten "
+                      "Computerschutz. Windows erlaubt standardmäßig max. einen Punkt pro 24 h.",
+                 font=FM, fg=DIM, bg=BG2, justify="left", wraplength=560).pack(anchor="w")
+        self.btn_restore = mk_btn(rp_f, "🛟 Wiederherstellungspunkt erstellen",
+                                  self._create_restore_point, BG3, TXT)
+        self.btn_restore.pack(anchor="w", pady=(8, 2))
+        self.lbl_restore = tk.Label(rp_f, text="", font=FM, fg=DIM, bg=BG2,
+                                    justify="left", anchor="w", wraplength=560)
+        self.lbl_restore.pack(anchor="w", pady=(4, 0))
+
         # ── System Cleaner ────────────────────────────────────────────────────
         SecHdr(self, "System Cleaner (Temp-Dateien)").pack(fill="x", padx=14, pady=(8, 4))
         cln_f = tk.Frame(self, bg=BG2, padx=12, pady=10)
@@ -100,7 +117,7 @@ class SettingsTab(tk.Frame):
         about_f = tk.Frame(self, bg=BG2, padx=12, pady=10)
         about_f.pack(fill="x", padx=14)
         tk.Label(about_f,
-                 text="GameOptimizerPro v2.2\n"
+                 text="GameOptimizerPro v2.3\n"
                       "All-in-one Windows & GPU Optimizer\n"
                       "GPU Tuner (NVML + MAHM + Afterburner)\n"
                       "by FloDePin",
@@ -128,6 +145,16 @@ class SettingsTab(tk.Frame):
         ok, msg = self.startup_loader.load_startup_profile()
         self.lbl_startup_result.config(
             text=msg, fg=OK if ok else WRN)
+
+    def _create_restore_point(self):
+        self.btn_restore.config(state="disabled")
+        self.lbl_restore.config(text="Erstelle Wiederherstellungspunkt … (kann bis zu 1 Min dauern)", fg=DIM)
+        def work():
+            ok, msg = restore_point.create("GameOptimizerPro Tweaks")
+            self.after(0, lambda: (
+                self.lbl_restore.config(text=msg, fg=OK if ok else WRN),
+                self.btn_restore.config(state="normal")))
+        threading.Thread(target=work, daemon=True).start()
 
     def _cleaner_scan(self):
         self.lbl_cleaner.config(text="Scanne…", fg=DIM)
