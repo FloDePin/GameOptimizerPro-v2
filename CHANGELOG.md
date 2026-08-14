@@ -4,6 +4,21 @@ All notable changes to GameOptimizerPro are documented here.
 
 ---
 
+## [2.3.1] — 2026-08-14
+
+### 🐛 Bug Fixes (from a code review)
+- **Installer / launcher Python mismatch (could crash the app on first run)** — `install.bat` used a plain `python`/`pip`, which can install the dependencies into the Microsoft-Store Python while the launcher starts the classic `C:\PythonXX\pythonw.exe` → `ModuleNotFoundError`. `install.bat` now uses the **same** classic-Python search as the launcher and installs via `"%PY%" -m pip install -r requirements.txt`
+- **Elevation lost the working directory** — `relaunch_admin()` passed `lpDirectory=None` to `ShellExecuteW`, so after the UAC prompt Windows set the working dir to `System32`. Now passes `str(BASE)` (app already used absolute paths internally, so this is hardening)
+- **CPU stress fallback only loaded one core** — the no-numpy fallback ran a single GIL-bound loop. It now spawns one process per core via `multiprocessing`; each child self-terminates when the worker is stopped (checks the parent PID), so no orphaned CPU-burning processes remain after a stress test
+- **Launcher missed all-users Python installs** — added `C:\Program Files\PythonXX\` (and 312/313/314) to both the launcher and installer search paths
+- **Tray menu could collapse** — the tray menu is now rebuilt every 60 s instead of 20 s, shrinking the window in which an open menu gets redrawn (a known pystray quirk)
+
+### 🧹 Housekeeping
+- `requirements.txt`: relaxed lower bounds (e.g. `numpy>=1.26` instead of `>=2.0`) so the app coexists with environments that have older, already-installed packages
+- `.gitignore`: added `venv/ .venv/ env/ .env/ ENV/`
+
+---
+
 ## [2.3] — 2026-08-10
 
 ### 🚀 New Features

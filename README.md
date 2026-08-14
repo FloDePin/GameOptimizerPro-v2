@@ -1,13 +1,13 @@
 <div align="center">
 
-# ⚡ GameOptimizerPro v2.3
+# ⚡ GameOptimizerPro v2.3.1
 
-**Windows & Gaming Optimizer v2.3 by FloDePin**
+**Windows & Gaming Optimizer v2.3.1 by FloDePin**
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python)](https://python.org)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D4?style=flat-square&logo=windows)](https://microsoft.com/windows)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-2.3-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
+[![Version](https://img.shields.io/badge/Version-2.3.1-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
 
 🇬🇧 **English** | 🇩🇪 [Deutsch](README.de.md)
 
@@ -94,7 +94,15 @@
 
 ## 📜 Changelog
 
-### v2.3 ⭐ **CURRENT** — 2026-08-10
+### v2.3.1 ⭐ **CURRENT** — 2026-08-14 *(bug-fix release)*
+- 🐛 **Fix: installer/launcher Python mismatch** — `install.bat` could install dependencies into the Microsoft-Store Python while the launcher runs classic `C:\PythonXX\pythonw.exe` → `ModuleNotFoundError`. The installer now uses the **same** classic-Python search as the launcher (`"%PY%" -m pip …`)
+- 🐛 **Fix: elevation working directory** — `relaunch_admin()` now passes `str(BASE)` to `ShellExecuteW`, so UAC no longer drops the app into `System32`
+- 🐛 **Fix: CPU stress fallback used one core** — the no-numpy fallback now spawns one process per core (`multiprocessing`) and each child self-terminates when the test is stopped (no orphaned CPU-burners)
+- 🐛 **Fix: launcher missed all-users installs** — added `C:\Program Files\PythonXX\` paths to launcher + installer
+- 🐛 **Fix: tray menu could collapse** — menu now rebuilt every 60 s instead of 20 s (known pystray quirk)
+- 🧹 `requirements.txt` relaxed lower bounds (`numpy>=1.26` etc.); `.gitignore` now covers virtual-env folders
+
+### v2.3 — 2026-08-10
 - 🛟 **New: Create Restore Point** (Settings) — one-click Windows System Restore Point as a safety net before applying tweaks (clear messages for protection-disabled / 24 h-limit / not-admin)
 - 🖥 **New tweak: Disable Multiplane Overlay (MPO)** — known fix for screen flicker / micro-stutter (NVIDIA + multi-monitor); flagged honestly as "only if you have flicker problems", recent drivers largely fixed it
 - 🛡 **New tweak: Disable WPBT** — blocks firmware/motherboard from injecting programs into Windows at boot

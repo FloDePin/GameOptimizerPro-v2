@@ -9,8 +9,12 @@ set "PYW="
 if exist "C:\Python314\pythonw.exe"      set "PYW=C:\Python314\pythonw.exe"
 if not defined PYW if exist "C:\Python313\pythonw.exe"      set "PYW=C:\Python313\pythonw.exe"
 if not defined PYW if exist "C:\Python312\pythonw.exe"      set "PYW=C:\Python312\pythonw.exe"
+if not defined PYW if exist "C:\Program Files\Python314\pythonw.exe" set "PYW=C:\Program Files\Python314\pythonw.exe"
+if not defined PYW if exist "C:\Program Files\Python313\pythonw.exe" set "PYW=C:\Program Files\Python313\pythonw.exe"
+if not defined PYW if exist "C:\Program Files\Python312\pythonw.exe" set "PYW=C:\Program Files\Python312\pythonw.exe"
 if not defined PYW if exist "%LOCALAPPDATA%\Programs\Python\Python314\pythonw.exe" set "PYW=%LOCALAPPDATA%\Programs\Python\Python314\pythonw.exe"
 if not defined PYW if exist "%LOCALAPPDATA%\Programs\Python\Python313\pythonw.exe" set "PYW=%LOCALAPPDATA%\Programs\Python\Python313\pythonw.exe"
+if not defined PYW if exist "%LOCALAPPDATA%\Programs\Python\Python312\pythonw.exe" set "PYW=%LOCALAPPDATA%\Programs\Python\Python312\pythonw.exe"
 
 :: Letzter Fallback: PATH-Suche, aber Store-Variante ausschliessen
 if not defined PYW (

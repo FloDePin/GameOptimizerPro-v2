@@ -1,27 +1,58 @@
 @echo off
-title GameOptimizerPro v2.1 - Installer
+title GameOptimizerPro - Installer
 color 0B
 echo.
 echo  ==========================================
-echo    GameOptimizerPro v2.1 - Installing Dependencies
+echo    GameOptimizerPro - Installing Dependencies
 echo  ==========================================
 echo.
 
-python --version >nul 2>&1
-if errorlevel 1 (echo [ERROR] Python not found & pause & exit /b 1)
-for /f "tokens=*" %%i in ('python --version') do echo  Python: %%i
+:: WICHTIG: dieselbe klassische Python-Installation finden wie der Launcher
+:: (GameOptimizerPro.bat), damit die Module NICHT in der Microsoft-Store-Version
+:: landen und die App danach mit ModuleNotFoundError abstuerzt.
+:: Reihenfolge = exakt wie im Launcher, nur python.exe statt pythonw.exe.
+set "PY="
+if exist "C:\Python314\python.exe"      set "PY=C:\Python314\python.exe"
+if not defined PY if exist "C:\Python313\python.exe"      set "PY=C:\Python313\python.exe"
+if not defined PY if exist "C:\Python312\python.exe"      set "PY=C:\Python312\python.exe"
+if not defined PY if exist "C:\Program Files\Python314\python.exe" set "PY=C:\Program Files\Python314\python.exe"
+if not defined PY if exist "C:\Program Files\Python313\python.exe" set "PY=C:\Program Files\Python313\python.exe"
+if not defined PY if exist "C:\Program Files\Python312\python.exe" set "PY=C:\Program Files\Python312\python.exe"
+if not defined PY if exist "%LOCALAPPDATA%\Programs\Python\Python314\python.exe" set "PY=%LOCALAPPDATA%\Programs\Python\Python314\python.exe"
+if not defined PY if exist "%LOCALAPPDATA%\Programs\Python\Python313\python.exe" set "PY=%LOCALAPPDATA%\Programs\Python\Python313\python.exe"
+if not defined PY if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" set "PY=%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
+
+:: Fallback: PATH-Suche, aber Store-Variante (WindowsApps) ausschliessen
+if not defined PY (
+    for /f "delims=" %%i in ('where python.exe 2^>nul') do (
+        echo %%i | findstr /I "WindowsApps" >nul
+        if errorlevel 1 (
+            if not defined PY set "PY=%%i"
+        )
+    )
+)
+
+if not defined PY (
+    echo [ERROR] Keine klassische python.exe gefunden.
+    echo Bitte Python von python.org installieren ^(nicht aus dem Microsoft Store^).
+    pause
+    exit /b 1
+)
+
+echo  Python: %PY%
+"%PY%" --version
 echo.
 
 echo [1/2] pip upgrade...
-python -m pip install --upgrade pip -q
+"%PY%" -m pip install --upgrade pip -q
 
 echo [2/2] Installing dependencies from requirements.txt...
-pip install -r "%~dp0requirements.txt" -q
+"%PY%" -m pip install -r "%~dp0requirements.txt" -q
 
 echo.
 echo  ==========================================
 echo   Done! Optional CUDA stress test:
-echo     pip install cupy-cuda12x
+echo     "%PY%" -m pip install cupy-cuda12x
 echo  ==========================================
 echo.
 echo  Before first run - Afterburner setup:

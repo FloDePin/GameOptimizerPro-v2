@@ -76,9 +76,11 @@ def ask_admin_msgbox() -> bool:
 
 
 def relaunch_admin():
+    # lpDirectory = str(BASE): ohne das setzt UAC das Arbeitsverzeichnis oft auf
+    # C:\Windows\System32 — relative Pfade würden dann dort landen.
     ctypes.windll.shell32.ShellExecuteW(
         None, "runas", sys.executable,
-        " ".join(f'"{a}"' for a in sys.argv), None, 1
+        " ".join(f'"{a}"' for a in sys.argv), str(BASE), 1
     )
     sys.exit(0)
 
@@ -324,8 +326,10 @@ class GameOptimizerApp:
             time.sleep(4)
 
     def _menu_refresh_loop(self):
+        # 60s statt 20s: pystray klappt ein offenes Tray-Menü ein, wenn es
+        # während der Anzeige neu aufgebaut wird — seltener = kleineres Zeitfenster.
         while self._running:
-            time.sleep(20)
+            time.sleep(60)
             if self._tray:
                 try:
                     self._tray.menu = self._build_menu()

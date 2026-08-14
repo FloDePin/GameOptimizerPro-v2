@@ -1,13 +1,13 @@
 <div align="center">
 
-# ⚡ GameOptimizerPro v2.3
+# ⚡ GameOptimizerPro v2.3.1
 
-**Windows & Gaming Optimizer v2.3 von FloDePin**
+**Windows & Gaming Optimizer v2.3.1 von FloDePin**
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python)](https://python.org)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D4?style=flat-square&logo=windows)](https://microsoft.com/windows)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-2.3-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
+[![Version](https://img.shields.io/badge/Version-2.3.1-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
 
 🇬🇧 [English](README.md) | 🇩🇪 **Deutsch**
 
@@ -19,7 +19,15 @@
 
 ## 📜 Änderungsverlauf
 
-### v2.3 ⭐ **AKTUELL** — 10.08.2026
+### v2.3.1 ⭐ **AKTUELL** — 14.08.2026 *(Bugfix-Release)*
+- 🐛 **Fix: Installer/Launcher-Python-Konflikt** — `install.bat` konnte die Abhängigkeiten in die Microsoft-Store-Python installieren, während der Launcher das klassische `C:\PythonXX\pythonw.exe` startet → `ModuleNotFoundError`. Der Installer nutzt jetzt **dieselbe** Suche nach der klassischen Python wie der Launcher (`"%PY%" -m pip …`)
+- 🐛 **Fix: Arbeitsverzeichnis beim Hochstufen** — `relaunch_admin()` übergibt jetzt `str(BASE)` an `ShellExecuteW`, damit UAC die App nicht in `System32` startet
+- 🐛 **Fix: CPU-Stresstest lastete nur einen Kern aus** — der Fallback ohne numpy startet jetzt einen Prozess pro Kern (`multiprocessing`); jedes Kind beendet sich selbst, wenn der Test gestoppt wird (keine verwaisten CPU-Brenner)
+- 🐛 **Fix: Launcher fand keine All-Users-Installation** — `C:\Program Files\PythonXX\`-Pfade zu Launcher + Installer ergänzt
+- 🐛 **Fix: Tray-Menü konnte einklappen** — Menü wird jetzt alle 60 s statt 20 s neu aufgebaut (bekanntes pystray-Verhalten)
+- 🧹 `requirements.txt` mit moderateren Untergrenzen (`numpy>=1.26` etc.); `.gitignore` deckt jetzt venv-Ordner ab
+
+### v2.3 — 10.08.2026
 - 🛟 **Neu: Wiederherstellungspunkt erstellen** (Einstellungen) — Ein-Klick-Windows-Wiederherstellungspunkt als Sicherheitsnetz vor dem Anwenden von Tweaks (klare Meldungen bei deaktiviertem Schutz / 24-h-Limit / fehlenden Admin-Rechten)
 - 🖥 **Neuer Tweak: Multiplane Overlay (MPO) deaktivieren** — bekannter Fix gegen Bild-Flackern / Mikroruckler (NVIDIA + Multi-Monitor); ehrlich als „nur bei Flacker-Problemen" markiert, neuere Treiber haben's großteils behoben
 - 🛡 **Neuer Tweak: WPBT deaktivieren** — blockt, dass Firmware/Mainboard beim Start Programme ins Windows einschleust
