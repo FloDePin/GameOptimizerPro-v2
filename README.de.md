@@ -1,13 +1,13 @@
 <div align="center">
 
-# ⚡ GameOptimizerPro v2.3.1
+# ⚡ GameOptimizerPro v2.3.2
 
-**Windows & Gaming Optimizer v2.3.1 von FloDePin**
+**Windows & Gaming Optimizer v2.3.2 von FloDePin**
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python)](https://python.org)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D4?style=flat-square&logo=windows)](https://microsoft.com/windows)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-2.3.1-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
+[![Version](https://img.shields.io/badge/Version-2.3.2-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
 
 🇬🇧 [English](README.md) | 🇩🇪 **Deutsch**
 
@@ -19,7 +19,10 @@
 
 ## 📜 Änderungsverlauf
 
-### v2.3.1 ⭐ **AKTUELL** — 14.08.2026 *(Bugfix-Release)*
+### v2.3.2 ⭐ **AKTUELL** — 14.08.2026
+- 🐛 **Fix: Dead-Man's-Switch im Stress-Worker** — der CPU-Fallback prüfte den Elternprozess über `psutil`; ließ sich das nicht importieren, schaltete sich die Prüfung lautlos ab und ein Burner konnte ewig weiterlaufen. Nutzt jetzt einen abhängigkeitsfreien `ctypes`-`OpenProcess`-Check (zuverlässig auf Windows), mit `psutil` als Fallback und „beenden wenn nicht prüfbar". (`os.getppid()` funktioniert hier nicht — Windows hängt Waisen nie um, per Test bestätigt)
+
+### v2.3.1 — 14.08.2026 *(Bugfix-Release)*
 - 🐛 **Fix: Installer/Launcher-Python-Konflikt** — `install.bat` konnte die Abhängigkeiten in die Microsoft-Store-Python installieren, während der Launcher das klassische `C:\PythonXX\pythonw.exe` startet → `ModuleNotFoundError`. Der Installer nutzt jetzt **dieselbe** Suche nach der klassischen Python wie der Launcher (`"%PY%" -m pip …`)
 - 🐛 **Fix: Arbeitsverzeichnis beim Hochstufen** — `relaunch_admin()` übergibt jetzt `str(BASE)` an `ShellExecuteW`, damit UAC die App nicht in `System32` startet
 - 🐛 **Fix: CPU-Stresstest lastete nur einen Kern aus** — der Fallback ohne numpy startet jetzt einen Prozess pro Kern (`multiprocessing`); jedes Kind beendet sich selbst, wenn der Test gestoppt wird (keine verwaisten CPU-Brenner)

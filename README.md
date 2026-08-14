@@ -1,13 +1,13 @@
 <div align="center">
 
-# ⚡ GameOptimizerPro v2.3.1
+# ⚡ GameOptimizerPro v2.3.2
 
-**Windows & Gaming Optimizer v2.3.1 by FloDePin**
+**Windows & Gaming Optimizer v2.3.2 by FloDePin**
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python)](https://python.org)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D4?style=flat-square&logo=windows)](https://microsoft.com/windows)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-2.3.1-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
+[![Version](https://img.shields.io/badge/Version-2.3.2-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
 
 🇬🇧 **English** | 🇩🇪 [Deutsch](README.de.md)
 
@@ -94,7 +94,10 @@
 
 ## 📜 Changelog
 
-### v2.3.1 ⭐ **CURRENT** — 2026-08-14 *(bug-fix release)*
+### v2.3.2 ⭐ **CURRENT** — 2026-08-14
+- 🐛 **Fix: stress-worker dead-man's-switch** — the CPU-fallback's parent-alive check relied on `psutil`; if that couldn't import, the switch silently disabled and a burner could run forever. Now uses a dependency-free `ctypes` `OpenProcess` check (reliable on Windows), with `psutil` fallback and "exit if unverifiable". (`os.getppid()` doesn't work here — Windows never re-parents orphans, verified by test)
+
+### v2.3.1 — 2026-08-14 *(bug-fix release)*
 - 🐛 **Fix: installer/launcher Python mismatch** — `install.bat` could install dependencies into the Microsoft-Store Python while the launcher runs classic `C:\PythonXX\pythonw.exe` → `ModuleNotFoundError`. The installer now uses the **same** classic-Python search as the launcher (`"%PY%" -m pip …`)
 - 🐛 **Fix: elevation working directory** — `relaunch_admin()` now passes `str(BASE)` to `ShellExecuteW`, so UAC no longer drops the app into `System32`
 - 🐛 **Fix: CPU stress fallback used one core** — the no-numpy fallback now spawns one process per core (`multiprocessing`) and each child self-terminates when the test is stopped (no orphaned CPU-burners)

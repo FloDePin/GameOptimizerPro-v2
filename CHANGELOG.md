@@ -4,6 +4,13 @@ All notable changes to GameOptimizerPro are documented here.
 
 ---
 
+## [2.3.2] — 2026-08-14
+
+### 🐛 Bug Fixes
+- **Stress-worker dead-man's-switch hardened** — the v2.3.1 CPU-fallback checked the parent process via `psutil.pid_exists()`; if `psutil` couldn't be imported it silently disabled the check and a burner could run forever after the parent died. Now uses a `ctypes` `OpenProcess`/`GetExitCodeProcess` check first (built into Python, no dependency, reliable on Windows), with `psutil` as a fallback and "treat as dead → exit" if nothing is checkable. Note: `os.getppid()` is **not** usable here — on Windows orphans are not re-parented, so it keeps returning the dead parent's PID forever (verified empirically)
+
+---
+
 ## [2.3.1] — 2026-08-14
 
 ### 🐛 Bug Fixes (from a code review)
