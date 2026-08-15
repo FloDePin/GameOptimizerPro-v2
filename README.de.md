@@ -1,13 +1,13 @@
 <div align="center">
 
-# ⚡ GameOptimizerPro v2.3.2
+# ⚡ GameOptimizerPro v2.4
 
-**Windows & Gaming Optimizer v2.3.2 von FloDePin**
+**Windows & Gaming Optimizer v2.4 von FloDePin**
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python)](https://python.org)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D4?style=flat-square&logo=windows)](https://microsoft.com/windows)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-2.3.2-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
+[![Version](https://img.shields.io/badge/Version-2.4-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
 
 🇬🇧 [English](README.md) | 🇩🇪 **Deutsch**
 
@@ -19,10 +19,12 @@
 
 ## 📜 Änderungsverlauf
 
-### v2.3.2 ⭐ **AKTUELL** — 14.08.2026
-- 🐛 **Fix: Dead-Man's-Switch im Stress-Worker** — der CPU-Fallback prüfte den Elternprozess über `psutil`; ließ sich das nicht importieren, schaltete sich die Prüfung lautlos ab und ein Burner konnte ewig weiterlaufen. Nutzt jetzt einen abhängigkeitsfreien `ctypes`-`OpenProcess`-Check (zuverlässig auf Windows), mit `psutil` als Fallback und „beenden wenn nicht prüfbar". (`os.getppid()` funktioniert hier nicht — Windows hängt Waisen nie um, per Test bestätigt)
+### v2.4 ⭐ **AKTUELL** — 20.08.2026
+- 🎚 **Neu: abgestufte Ein-Klick-Presets — 🟢 Minimal → 🟡 Mittel → 🔴 Hart (Debloat)** — kumulative Intensitätsstufen im Optimizer, die ein kuratiertes, ansteigendes Tweak-Set anwenden (10 → 33 → 65), jeweils über den normalen Bestätigen-+-Verifizieren-Ablauf. Minimal = nur grundsolide sichere Tweaks; Mittel ergänzt Performance/Gaming/Netzwerk + leichten Debloat; Hart ergänzt aggressiven Debloat (Cortana/Copilot/Recall/Teams/OneDrive), volle Performance/Netzwerk/Audio und die W11-Classic-UI
+- Situative/Geschmack-Tweaks bleiben bewusst einzeln (Disable MPO, Dark Mode, die anderen Energiepläne, Google DNS)
 
 ### v2.3.1 — 14.08.2026 *(Bugfix-Release)*
+- 🐛 **Fix: Dead-Man's-Switch im Stress-Worker** *(als v2.3.2 ausgeliefert)* — der CPU-Fallback prüfte den Elternprozess über `psutil`; ließ sich das nicht importieren, schaltete sich die Prüfung lautlos ab und ein Burner konnte ewig weiterlaufen. Nutzt jetzt einen abhängigkeitsfreien `ctypes`-`OpenProcess`-Check (zuverlässig auf Windows), mit `psutil` als Fallback und „beenden wenn nicht prüfbar". (`os.getppid()` funktioniert hier nicht — Windows hängt Waisen nie um, per Test bestätigt)
 - 🐛 **Fix: Installer/Launcher-Python-Konflikt** — `install.bat` konnte die Abhängigkeiten in die Microsoft-Store-Python installieren, während der Launcher das klassische `C:\PythonXX\pythonw.exe` startet → `ModuleNotFoundError`. Der Installer nutzt jetzt **dieselbe** Suche nach der klassischen Python wie der Launcher (`"%PY%" -m pip …`)
 - 🐛 **Fix: Arbeitsverzeichnis beim Hochstufen** — `relaunch_admin()` übergibt jetzt `str(BASE)` an `ShellExecuteW`, damit UAC die App nicht in `System32` startet
 - 🐛 **Fix: CPU-Stresstest lastete nur einen Kern aus** — der Fallback ohne numpy startet jetzt einen Prozess pro Kern (`multiprocessing`); jedes Kind beendet sich selbst, wenn der Test gestoppt wird (keine verwaisten CPU-Brenner)
@@ -115,7 +117,8 @@
 - **70 Tweaks** in den Kategorien Windows, Gaming, Network, Audio
 - Live-Statusverifizierung — liest den tatsächlichen Registry-/Dienst-Zustand (nicht nur die JSON-Datei)
 - 3-stufige Statusanzeige: ● Grün (verifiziert aktiv) / ◑ Amber (angewendet, ungeprüft) / ○ Grau (inaktiv)
-- **7 integrierte Presets:** Gaming, Privacy & Anti-Telemetry, Debloat, Network, Performance, Windows 11 Classic, Alle sicheren Tweaks
+- **Abgestufte Ein-Klick-Presets — 🟢 Minimal → 🟡 Mittel → 🔴 Hart (Debloat)** — kumulative Intensitätsstufen, die ein kuratiertes, ansteigendes Tweak-Set anwenden
+- **10 integrierte Presets:** die 3 Intensitätsstufen + Gaming, Privacy & Anti-Telemetry, Debloat, Network, Performance, Windows 11 Classic, Alle sicheren Tweaks
 - Export/Import der Einstellungen als `.nextune`-Dateien
 - Tooltips (Hover über `?`) für jeden einzelnen Tweak
 

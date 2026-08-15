@@ -19,9 +19,79 @@ class TweakPreset:
     builtin:     bool = True    # False = user-created
 
 
+# ── Abgestufte Intensitäts-Stufen (kumulativ: Mittel = Minimal + X, Hart = Mittel + Y) ──
+# Bewusst NICHT in den Stufen: disable_mpo (situativer Flacker-Fix), enable_dark_mode
+# (reine Optik), power_balanced/power_high (widersprechen dem Ultimate-Plan),
+# dns_google (Cloudflare reicht) — die bleiben Einzel-Tweaks.
+
+_TIER_MINIMAL = [
+    # sicher, universell, kein Funktionsverlust — "das sollte jeder machen"
+    "disable_telemetry", "disable_activity_history", "disable_advertising_id",
+    "disable_consumer_features",
+    "enable_game_mode", "disable_game_bar", "disable_mouse_accel", "disable_fullscreen_opt",
+    "disable_sticky_keys", "show_file_extensions",
+]
+
+_MEDIUM_EXTRA = [
+    # + ausgewogene Performance/Privacy/Debloat + Gaming-Basics
+    "disable_bing_search", "disable_location", "disable_telemetry_tasks",
+    "ultimate_performance", "visual_effects_perf", "timer_resolution", "disable_transparency",
+    "cpu_priority_games", "mmcss_gaming", "disable_bg_throttle", "enable_hags",
+    "dx12_optimization", "nvidia_low_latency", "enable_msi_mode",
+    "remove_bloatware", "remove_xbox",
+    "disable_nagle", "disable_network_throttle", "enable_rss", "disable_delivery_optimization",
+    "disable_hibernation", "disable_storage_sense", "end_task_right_click",
+]
+
+_HARD_EXTRA = [
+    # + aggressiver Debloat + volle Performance/Netzwerk/Audio + W11-Classic + moderate Tweaks
+    "remove_cortana", "remove_copilot", "remove_recall", "remove_teams", "remove_onedrive",
+    "block_telemetry_hosts", "disable_wpbt",
+    "disable_prefetch", "disable_search_indexing", "disable_usb_suspend", "disable_hpet",
+    "disable_power_throttling", "disable_wu_gaming", "reduce_process_count", "clear_shader_cache",
+    "dns_cloudflare", "flush_dns", "disable_tcp_autotuning", "disable_lso",
+    "disable_audio_enhancements", "disable_audio_exclusive_lock", "disable_nahimic",
+    "set_mmcss_audio", "disable_audio_ducking", "disable_sound_scheme",
+    "w11_classic_context_menu", "w11_taskbar_left", "w11_disable_widgets", "w11_disable_snap_suggest",
+    "power_pcie_aspm_off", "power_disk_never_sleep", "show_hidden_files",
+]
+
+_TIER_MEDIUM = _TIER_MINIMAL + _MEDIUM_EXTRA
+_TIER_HARD   = _TIER_MINIMAL + _MEDIUM_EXTRA + _HARD_EXTRA
+
+
 # ── Builtin Presets ───────────────────────────────────────────────────────────
 
 BUILTIN_PRESETS: list[TweakPreset] = [
+
+    TweakPreset(
+        id="tier_minimal",
+        name="Minimal",
+        icon="🟢",
+        desc="Sanfte Basis: nur absolut sichere Tweaks ohne Funktionsverlust — "
+             "Grund-Privacy, Gaming-Basics und ein paar Komfort-Fixes. Ideal als Einstieg.",
+        color="#22c55e",
+        tweak_ids=list(_TIER_MINIMAL),
+    ),
+    TweakPreset(
+        id="tier_medium",
+        name="Mittel",
+        icon="🟡",
+        desc="Ausgewogen: Minimal + Performance-Plan, Gaming-/Netzwerk-Tweaks, "
+             "leichter Debloat (Candy Crush & Xbox-Apps). Guter Allround-Kompromiss.",
+        color="#f59e0b",
+        tweak_ids=list(_TIER_MEDIUM),
+    ),
+    TweakPreset(
+        id="tier_hard",
+        name="Hart — Debloat",
+        icon="🔴",
+        desc="Maximal: Mittel + aggressiver Debloat (Cortana, Copilot, Recall, Teams, OneDrive), "
+             "volle Performance/Netzwerk/Audio-Tweaks, W11-Classic-UI. Für erfahrene Nutzer — "
+             "vorher am besten einen Wiederherstellungspunkt erstellen (Settings).",
+        color="#ef4444",
+        tweak_ids=list(_TIER_HARD),
+    ),
 
     TweakPreset(
         id="gaming",

@@ -4,16 +4,18 @@ All notable changes to GameOptimizerPro are documented here.
 
 ---
 
-## [2.3.2] — 2026-08-14
+## [2.4] — 2026-08-20
 
-### 🐛 Bug Fixes
-- **Stress-worker dead-man's-switch hardened** — the v2.3.1 CPU-fallback checked the parent process via `psutil.pid_exists()`; if `psutil` couldn't be imported it silently disabled the check and a burner could run forever after the parent died. Now uses a `ctypes` `OpenProcess`/`GetExitCodeProcess` check first (built into Python, no dependency, reliable on Windows), with `psutil` as a fallback and "treat as dead → exit" if nothing is checkable. Note: `os.getppid()` is **not** usable here — on Windows orphans are not re-parented, so it keeps returning the dead parent's PID forever (verified empirically)
+### 🚀 New Features
+- **Graduated one-click intensity presets — Minimal → Medium → Hard** (cumulative): three new buttons in the Optimizer that apply a curated, escalating set of tweaks. **Minimal** = only rock-solid safe tweaks, no loss of function (10). **Medium** = Minimal + performance plan, gaming/network tweaks and light debloat (33). **Hard — Debloat** = Medium + aggressive debloat (Cortana/Copilot/Recall/Teams/OneDrive), full performance/network/audio + Win11-classic UI, incl. select moderate tweaks (65). Each still runs through the normal confirmation + verification flow
+  - Deliberately kept out of the tiers (remain individual toggles): `disable_mpo` (situational flicker fix), `enable_dark_mode` (pure cosmetics), `power_balanced`/`power_high` (would fight the Ultimate plan), `dns_google` (Cloudflare already covers it)
 
 ---
 
 ## [2.3.1] — 2026-08-14
 
 ### 🐛 Bug Fixes (from a code review)
+- **Stress-worker dead-man's-switch hardened** — the CPU-fallback checked the parent process via `psutil.pid_exists()`; if `psutil` couldn't be imported it silently disabled the check and a burner could run forever after the parent died. Now uses a `ctypes` `OpenProcess`/`GetExitCodeProcess` check first (built into Python, no dependency, reliable on Windows), with `psutil` as a fallback and "treat as dead → exit" if nothing is checkable. Note: `os.getppid()` is **not** usable here — on Windows orphans are not re-parented, so it keeps returning the dead parent's PID forever (verified empirically). *(shipped as v2.3.2)*
 - **Installer / launcher Python mismatch (could crash the app on first run)** — `install.bat` used a plain `python`/`pip`, which can install the dependencies into the Microsoft-Store Python while the launcher starts the classic `C:\PythonXX\pythonw.exe` → `ModuleNotFoundError`. `install.bat` now uses the **same** classic-Python search as the launcher and installs via `"%PY%" -m pip install -r requirements.txt`
 - **Elevation lost the working directory** — `relaunch_admin()` passed `lpDirectory=None` to `ShellExecuteW`, so after the UAC prompt Windows set the working dir to `System32`. Now passes `str(BASE)` (app already used absolute paths internally, so this is hardening)
 - **CPU stress fallback only loaded one core** — the no-numpy fallback ran a single GIL-bound loop. It now spawns one process per core via `multiprocessing`; each child self-terminates when the worker is stopped (checks the parent PID), so no orphaned CPU-burning processes remain after a stress test

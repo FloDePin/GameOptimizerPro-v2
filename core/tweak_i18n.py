@@ -162,6 +162,12 @@ TWEAK_NAME_EN: dict[str, str] = {
 
 # Preset descriptions in English, keyed by preset id.
 PRESET_DESC_EN: dict[str, str] = {
+    "tier_minimal":
+        "Gentle baseline: only rock-solid safe tweaks with no loss of function — basic privacy, gaming basics and a few comfort fixes. A good starting point.",
+    "tier_medium":
+        "Balanced: Minimal + performance plan, gaming/network tweaks, light debloat (Candy Crush & Xbox apps). A solid all-round compromise.",
+    "tier_hard":
+        "Maximum: Medium + aggressive debloat (Cortana, Copilot, Recall, Teams, OneDrive), full performance/network/audio tweaks, Win11 classic UI. For advanced users — best to create a restore point first (Settings).",
     "gaming":
         "Optimises for maximum FPS and minimal input lag. Disables Xbox Game Bar, enables Ultimate Performance plan, HAGS, CPU priority, mouse accel off.",
     "privacy":
@@ -179,7 +185,9 @@ PRESET_DESC_EN: dict[str, str] = {
 }
 
 PRESET_NAME_EN: dict[str, str] = {
-    # names are mostly English already
+    "tier_minimal": "Minimal",
+    "tier_medium":  "Medium",
+    "tier_hard":    "Hard — Debloat",
 }
 
 

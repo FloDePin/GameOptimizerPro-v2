@@ -26,7 +26,7 @@ from core.nvtune_tuner import AutoTuner
 from core.tweak_runner import TweakRunner
 
 APP_NAME    = "GameOptimizerPro"
-APP_VERSION = "v2.3.2"
+APP_VERSION = "v2.4"
 
 # Tab definitions: (key, label, color_active, color_bg)
 TAB_DEFS = [

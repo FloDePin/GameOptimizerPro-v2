@@ -1,13 +1,13 @@
 <div align="center">
 
-# ⚡ GameOptimizerPro v2.3.2
+# ⚡ GameOptimizerPro v2.4
 
-**Windows & Gaming Optimizer v2.3.2 by FloDePin**
+**Windows & Gaming Optimizer v2.4 by FloDePin**
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python)](https://python.org)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D4?style=flat-square&logo=windows)](https://microsoft.com/windows)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-2.3.2-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
+[![Version](https://img.shields.io/badge/Version-2.4-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
 
 🇬🇧 **English** | 🇩🇪 [Deutsch](README.de.md)
 
@@ -52,7 +52,8 @@
 - **70 Tweaks** across Windows, Gaming, Network, Audio categories
 - Live status verification — reads actual Registry/Service state (not just JSON)
 - 3-state indicators: ● Green (verified active) / ◑ Amber (applied, unverified) / ○ Grey (inactive)
-- **7 built-in Presets:** Gaming, Privacy & Anti-Telemetry, Debloat, Network, Performance, Windows 11 Classic, All Safe Tweaks
+- **Graduated one-click presets — 🟢 Minimal → 🟡 Medium → 🔴 Hard (Debloat)** — cumulative intensity tiers that apply a curated, escalating set of tweaks
+- **10 built-in Presets:** the 3 intensity tiers + Gaming, Privacy & Anti-Telemetry, Debloat, Network, Performance, Windows 11 Classic, All Safe Tweaks
 - Export / Import settings as `.nextune` files
 - Tooltips (hover `?`) on every single tweak
 - ✨ **NEW in v2.1.1:** 4 powerful new tweaks for gaming & system optimization
@@ -94,10 +95,12 @@
 
 ## 📜 Changelog
 
-### v2.3.2 ⭐ **CURRENT** — 2026-08-14
-- 🐛 **Fix: stress-worker dead-man's-switch** — the CPU-fallback's parent-alive check relied on `psutil`; if that couldn't import, the switch silently disabled and a burner could run forever. Now uses a dependency-free `ctypes` `OpenProcess` check (reliable on Windows), with `psutil` fallback and "exit if unverifiable". (`os.getppid()` doesn't work here — Windows never re-parents orphans, verified by test)
+### v2.4 ⭐ **CURRENT** — 2026-08-20
+- 🎚 **New: graduated one-click presets — 🟢 Minimal → 🟡 Medium → 🔴 Hard (Debloat)** — cumulative intensity tiers in the Optimizer that apply a curated, escalating set of tweaks (10 → 33 → 65), each through the normal confirm + verify flow. Minimal = only rock-solid safe tweaks; Medium adds performance/gaming/network + light debloat; Hard adds aggressive debloat (Cortana/Copilot/Recall/Teams/OneDrive), full performance/network/audio and the Win11-classic UI
+- Situational/preference tweaks stay separate on purpose (Disable MPO, Dark Mode, the other power plans, Google DNS)
 
 ### v2.3.1 — 2026-08-14 *(bug-fix release)*
+- 🐛 **Fix: stress-worker dead-man's-switch** *(shipped as v2.3.2)* — the CPU-fallback's parent-alive check relied on `psutil`; if that couldn't import, the switch silently disabled and a burner could run forever. Now uses a dependency-free `ctypes` `OpenProcess` check (reliable on Windows), with `psutil` fallback and "exit if unverifiable". (`os.getppid()` doesn't work here — Windows never re-parents orphans, verified by test)
 - 🐛 **Fix: installer/launcher Python mismatch** — `install.bat` could install dependencies into the Microsoft-Store Python while the launcher runs classic `C:\PythonXX\pythonw.exe` → `ModuleNotFoundError`. The installer now uses the **same** classic-Python search as the launcher (`"%PY%" -m pip …`)
 - 🐛 **Fix: elevation working directory** — `relaunch_admin()` now passes `str(BASE)` to `ShellExecuteW`, so UAC no longer drops the app into `System32`
 - 🐛 **Fix: CPU stress fallback used one core** — the no-numpy fallback now spawns one process per core (`multiprocessing`) and each child self-terminates when the test is stopped (no orphaned CPU-burners)
