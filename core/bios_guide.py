@@ -46,6 +46,50 @@ class BiosProfile:
     notes:        str = ""
 
 
+# ── Gemeinsame AMD-Zusatz-Einstellungen (AM4 + AM5) ──────────────────────────
+# Frische Objekte pro Aufruf, damit sie nicht profilübergreifend geteilt werden.
+def _amd_extra_latency() -> list:
+    return [
+        BiosSetting(
+            category="Boot",
+            name="Launch CSM (Legacy-Modus)",
+            recommended="Disabled",
+            default="Auto / Enabled",
+            path="Boot → CSM Configuration → Launch CSM = Disabled",
+            explanation="CSM ist der alte Legacy-BIOS-Kompatibilitätsmodus. Für Resizable BAR und "
+                        "sauberes UEFI-Booten muss er aus sein. WICHTIG: nur deaktivieren, wenn Windows "
+                        "bereits im UEFI-Modus (GPT-Datenträger) installiert ist — sonst startet das "
+                        "System nicht mehr. Prüfen mit msinfo32 → 'BIOS-Modus: UEFI'.",
+            risk=MODERATE,
+            impact="medium",
+        ),
+        BiosSetting(
+            category="CPU",
+            name="Local APIC Mode = x2APIC",
+            recommended="x2APIC",
+            default="Auto",
+            path="Advanced → AMD CBS → CPU Common Options → Local APIC Mode = x2APIC",
+            explanation="x2APIC ist die moderne, effizientere Interrupt-Verwaltung — besonders bei "
+                        "CPUs mit vielen Threads. Auf 'Auto' wählt das BIOS es meist ohnehin; explizit "
+                        "'x2APIC' ist die saubere Einstellung. Kein Risiko auf aktuellem Windows.",
+            risk=SAFE,
+            impact="low",
+        ),
+        BiosSetting(
+            category="CPU",
+            name="Data Fabric (DF) C-States",
+            recommended="Disabled",
+            default="Auto / Enabled",
+            path="Advanced → AMD Overclocking / CBS → DF C-States = Disabled",
+            explanation="Verhindert, dass der Infinity-Fabric-Interconnect (zwischen CPU-Chiplets und "
+                        "RAM) in Schlafzustände geht. Reduziert Latenz-Spikes — spürbar bei "
+                        "latenzkritischem Gaming. Kostet minimal mehr Idle-Strom. Gilt für AM4 und AM5.",
+            risk=MODERATE,
+            impact="medium",
+        ),
+    ]
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # BIOS PROFILES DATABASE
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -210,6 +254,7 @@ PROFILES: list[BiosProfile] = [
                 risk=MODERATE,
                 impact="low",
             ),
+            *_amd_extra_latency(),
         ],
     ),
 
@@ -274,6 +319,7 @@ PROFILES: list[BiosProfile] = [
                 risk=MODERATE,
                 impact="low",
             ),
+            *_amd_extra_latency(),
         ],
     ),
 
@@ -332,6 +378,7 @@ PROFILES: list[BiosProfile] = [
                 impact="medium",
                 detect_key="rebar"
             ),
+            *_amd_extra_latency(),
         ],
     ),
 
