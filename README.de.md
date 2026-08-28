@@ -17,78 +17,6 @@
 
 ---
 
-## 📜 Änderungsverlauf
-
-### v2.4.1 ⭐ **AKTUELL** — 22.08.2026 *(Bugfix-Release)*
-- 🐛 **Fix: Autostart nervt nicht mehr mit UAC bei jedem Boot** — „Mit Windows starten" nutzt jetzt eine Task-Scheduler-Aufgabe mit *höchsten Rechten* (`schtasks /RL HIGHEST`) statt eines `HKCU\Run`-Eintrags; die Admin-App startet damit still erhöht. Alter Run-Eintrag wird automatisch entfernt
-- ⚡ **BIOS-Erkennung ~5–8× schneller** — die ~8 einzelnen PowerShell-Kaltstarts beim Öffnen des BIOS-Guides sind jetzt ein gebündelter JSON-Aufruf (~1,9 s statt ~5–8 s). Die Status-Punkte erscheinen viel früher (die Erkennung lief eh im Hintergrund-Thread, es fror also nie ein)
-- 🐛 **Fix: ehrliche PBO-Erkennung** — WMI `MaxClockSpeed` ist der gemeldete Max-Takt, kein Live-Boost; ältere CPUs (z.B. Ryzen 5 3600) zeigten fälschlich „inaktiv". Schwelle gesenkt, als Low-Confidence markiert, Hinweis sagt jetzt klar dass PBO aus Windows nicht sicher auslesbar ist
-- 🧹 Netzwerk-Test nutzt `utf-8`/replace statt `latin-1` (Konvention; `latin-1` crasht faktisch nie)
-
-### v2.4 — 20.08.2026
-- 🎚 **Neu: abgestufte Ein-Klick-Presets — 🟢 Minimal → 🟡 Mittel → 🔴 Hart (Debloat)** — kumulative Intensitätsstufen im Optimizer, die ein kuratiertes, ansteigendes Tweak-Set anwenden (10 → 33 → 65), jeweils über den normalen Bestätigen-+-Verifizieren-Ablauf. Minimal = nur grundsolide sichere Tweaks; Mittel ergänzt Performance/Gaming/Netzwerk + leichten Debloat; Hart ergänzt aggressiven Debloat (Cortana/Copilot/Recall/Teams/OneDrive), volle Performance/Netzwerk/Audio und die W11-Classic-UI
-- Situative/Geschmack-Tweaks bleiben bewusst einzeln (Disable MPO, Dark Mode, die anderen Energiepläne, Google DNS)
-
-### v2.3.1 — 14.08.2026 *(Bugfix-Release)*
-- 🐛 **Fix: Dead-Man's-Switch im Stress-Worker** *(als v2.3.2 ausgeliefert)* — der CPU-Fallback prüfte den Elternprozess über `psutil`; ließ sich das nicht importieren, schaltete sich die Prüfung lautlos ab und ein Burner konnte ewig weiterlaufen. Nutzt jetzt einen abhängigkeitsfreien `ctypes`-`OpenProcess`-Check (zuverlässig auf Windows), mit `psutil` als Fallback und „beenden wenn nicht prüfbar". (`os.getppid()` funktioniert hier nicht — Windows hängt Waisen nie um, per Test bestätigt)
-- 🐛 **Fix: Installer/Launcher-Python-Konflikt** — `install.bat` konnte die Abhängigkeiten in die Microsoft-Store-Python installieren, während der Launcher das klassische `C:\PythonXX\pythonw.exe` startet → `ModuleNotFoundError`. Der Installer nutzt jetzt **dieselbe** Suche nach der klassischen Python wie der Launcher (`"%PY%" -m pip …`)
-- 🐛 **Fix: Arbeitsverzeichnis beim Hochstufen** — `relaunch_admin()` übergibt jetzt `str(BASE)` an `ShellExecuteW`, damit UAC die App nicht in `System32` startet
-- 🐛 **Fix: CPU-Stresstest lastete nur einen Kern aus** — der Fallback ohne numpy startet jetzt einen Prozess pro Kern (`multiprocessing`); jedes Kind beendet sich selbst, wenn der Test gestoppt wird (keine verwaisten CPU-Brenner)
-- 🐛 **Fix: Launcher fand keine All-Users-Installation** — `C:\Program Files\PythonXX\`-Pfade zu Launcher + Installer ergänzt
-- 🐛 **Fix: Tray-Menü konnte einklappen** — Menü wird jetzt alle 60 s statt 20 s neu aufgebaut (bekanntes pystray-Verhalten)
-- 🧹 `requirements.txt` mit moderateren Untergrenzen (`numpy>=1.26` etc.); `.gitignore` deckt jetzt venv-Ordner ab
-
-### v2.3 — 10.08.2026
-- 🛟 **Neu: Wiederherstellungspunkt erstellen** (Einstellungen) — Ein-Klick-Windows-Wiederherstellungspunkt als Sicherheitsnetz vor dem Anwenden von Tweaks (klare Meldungen bei deaktiviertem Schutz / 24-h-Limit / fehlenden Admin-Rechten)
-- 🖥 **Neuer Tweak: Multiplane Overlay (MPO) deaktivieren** — bekannter Fix gegen Bild-Flackern / Mikroruckler (NVIDIA + Multi-Monitor); ehrlich als „nur bei Flacker-Problemen" markiert, neuere Treiber haben's großteils behoben
-- 🛡 **Neuer Tweak: WPBT deaktivieren** — blockt, dass Firmware/Mainboard beim Start Programme ins Windows einschleust
-- 🗂 **Neue Tweaks: Dateiendungen anzeigen + Versteckte Dateien anzeigen** — Explorer-Komfort, hilft auch getarnte Dateien zu erkennen
-- 🧹 **Neuer Tweak: Storage Sense deaktivieren** — verhindert automatisches Löschen von Dateien im Hintergrund
-- ➡️ **70 Tweaks gesamt.** Aus der Chris-Titus-WinUtil-Liste — bewusst die unsicheren/unpassenden weggelassen (BitLocker aus, Services→Manual, IPv6/Teredo aus, Edge-Entfernung, Kosmetik-Toggles)
-
-### v2.2 — 05.08.2026
-- 🌐 **Neu: Netzwerk-Latenz-Test** (Dashboard) — Ein-Klick-Ping zu Gateway + Cloudflare (1.1.1.1) & Google (8.8.8.8) mit Ø/min/max-Latenz, Jitter und Paketverlust (rein lesend, läuft im Hintergrund)
-- 📊 **Neu: Live-Systemüberwachung** — CPU-, RAM- und Disk-C:-Auslastung als Tiles neben der GPU-Telemetrie (via psutil), farbcodiert nach Last
-- 🧹 **Neu: System Cleaner** (Einstellungen) — scannt & leert nur dedizierte Temp-/Dump-Ordner (`%TEMP%`, `Windows\Temp`, `CrashDumps`); ein Schutzgitter sorgt dafür, dass nie Dokumente, Browserprofile oder der Papierkorb angefasst werden, Dateien in Benutzung werden übersprungen
-- 🖥 **Neu: iGPU-Abschalt-Tipp** für AM5 (Zen 4/5) — im BIOS-Guide mit exakten ASUS-/Gigabyte-Menüpfaden und ehrlichen Vor-/Nachteilen (gibt reservierten RAM frei, deaktiviert aber die Mainboard-Bildausgänge + iGPU-Encoder)
-- ⚡ **Neue Tweaks (2):** PCIe Link State Power Management aus, Festplatte nie schlafen → **65 Tweaks gesamt**
-- 🐛 **Fix: Verifier-Engine** — ein PowerShell-Gruppierungsbug (`$__r=(cmd)` statt `$__r=$(cmd)`) ließ die meisten Registry-Statuschecks still auf Amber „ungeprüft" stehen; die grünen/amber/grauen Punkte zeigen jetzt für **alle** Tweaks den echten Zustand
-- 🐛 **Fix:** Ping-Test crasht nicht mehr bei nicht-englischer `ping`-Ausgabe (latin-1-Dekodierung)
-- 🪟 **UI:** größeres Startfenster (1000×920), damit das komplette Dashboard beim Start passt
-
-### v2.1.1 — 05.07.2026
-- 🐛 **Fix: Launcher-Fenster** — ein `-WindowStyle Hidden` am inneren `Start-Process` startete das ganze App-Fenster unsichtbar (nur Beheben durch Prozess-Kill)
-- 🐛 **Fix: Registry-Tweaks** — doppelter Backslash im Pfad ließ „Disable Power Throttling" & „Process Count Reduction" jedes Mal mit „ungültiger Schlüsselname" scheitern
-- 🔊 **Fix: Audio-Tweaks** — „Disable Audio Enhancements" & „Disable Exclusive Audio Lock" haben jetzt volle Statusverifizierung **und** Revert
-- 🛡 **Fix:** „Block Telemetry Hosts" wird jetzt präzise zurückgesetzt (entfernt nur die hinzugefügten hosts-Einträge)
-- 🔒 **Härtung:** Profilnamen/-notizen bereinigt (keine `.cfg`-Injection); Game-Profil-Schreibzugriffe jetzt thread-sicher (Lock)
-- 🎯 **Neue Tweaks (4):** Disable Consumer Features, Disable Hibernation, End Task per Rechtsklick, Disable Delivery Optimization
-- 📚 **Docs/CI:** deutsche README (`README.de.md`) + GitHub-Actions-CI (Syntax- & Registry-Pfad-Prüfung)
-
-### v2.1 — 02.07.2026
-- ✨ **3 neue Tweaks:** Disable Power Throttling (Gaming), Process Count Reduction / Svchost (Gaming), Disable Bing in Windows Search (Privacy) — alle mit Revert + Verifizierung
-- 🛡 **Sicherheits-Review:** riskante Drittanbieter-Tweaks bewusst weggelassen (AMD Crash Defender aus, C-States aus, ULPS aus, modifizierte Treiber) — reduzieren Stabilität/Sicherheit ohne echten Gewinn
-
-### v2.0 — 25.05.2026
-- 🎮 **Neu: Per-Game-Profile** — Hintergrund-Prozessmonitor lädt beim Spielstart automatisch ein GPU-Profil, stellt beim Beenden das Standard wieder her
-- 📋 **Neu: Tune-Verlauf**, 🌡 **GPU-Temperatur-Toast** (≥90 °C, 5-Min-Cooldown), 🔄 **GitHub-Update-Checker**
-- 🖥 **Neu: BIOS-Guide-Tab** — hardware-bewusste Empfehlungen mit Live-Zustandserkennung
-- 🚀 **Neu: Startup Manager**, 🔀 **Profilvergleich-Tab**, 💾 **Export/Import** als `.nextune`
-- ✅ **Neu: Tweak-Statusverifizierung** — liest echten Registry-/Dienst-Zustand (3-stufige Punkte), **7 integrierte Presets**
-- 🌐 **Neu: DE/EN-Umschaltung**, ℹ️ Tooltips an jedem Tweak, 📈 Live-Spannungs-/Takt-/Temp-Diagramm
-- ⚡ **GPU-Tuner:** 3 Modi (OC / UV / OC+UV), Generationserkennung, TDR-Erkennung (Event ID 4101), Crash-Recovery
-- 🏗 **Rewrite:** thread-sichere Architektur — `tkinter mainloop()` im Haupt-Thread, Tray im Daemon-Thread (behebt Freezes/Crashes)
-
-### v1.0 — 23.05.2026 *(Erstveröffentlichung)*
-- 🎮 **GPU-Auto-Tuner** (automatisches OC + UV via MSI Afterburner)
-- 🛠 **Windows-Optimizer** (50 Tweaks: Windows, Gaming, Network)
-- 📊 **Dashboard** (Live-GPU-Telemetrie), 🔥 **Stresstest** + FurMark-Launcher
-- 🖥 **Hardware-Erkennung** (WMI), 💾 **Profil-Manager**, 🖲 **System-Tray** mit Live-Stats
-
-> Vollständige technische Details zu jedem Release: [CHANGELOG.md](CHANGELOG.md)
-
----
-
 ## ✨ Features
 
 ### 🎮 GPU Auto-Tuner
@@ -208,6 +136,78 @@ Für Spannungswerte und GPU-Overclocking:
 `GameOptimizerPro.bat` doppelklicken
 
 > Der Launcher nutzt einen versteckten PowerShell-`Start-Process -Verb RunAs`-Aufruf, um `pythonw.exe` unsichtbar zu starten und über UAC Administrator-Rechte anzufordern. Es erscheint kein CMD-Fenster.
+
+---
+
+## 📜 Änderungsverlauf
+
+### v2.4.1 ⭐ **AKTUELL** — 22.08.2026 *(Bugfix-Release)*
+- 🐛 **Fix: Autostart nervt nicht mehr mit UAC bei jedem Boot** — „Mit Windows starten" nutzt jetzt eine Task-Scheduler-Aufgabe mit *höchsten Rechten* (`schtasks /RL HIGHEST`) statt eines `HKCU\Run`-Eintrags; die Admin-App startet damit still erhöht. Alter Run-Eintrag wird automatisch entfernt
+- ⚡ **BIOS-Erkennung ~5–8× schneller** — die ~8 einzelnen PowerShell-Kaltstarts beim Öffnen des BIOS-Guides sind jetzt ein gebündelter JSON-Aufruf (~1,9 s statt ~5–8 s). Die Status-Punkte erscheinen viel früher (die Erkennung lief eh im Hintergrund-Thread, es fror also nie ein)
+- 🐛 **Fix: ehrliche PBO-Erkennung** — WMI `MaxClockSpeed` ist der gemeldete Max-Takt, kein Live-Boost; ältere CPUs (z.B. Ryzen 5 3600) zeigten fälschlich „inaktiv". Schwelle gesenkt, als Low-Confidence markiert, Hinweis sagt jetzt klar dass PBO aus Windows nicht sicher auslesbar ist
+- 🧹 Netzwerk-Test nutzt `utf-8`/replace statt `latin-1` (Konvention; `latin-1` crasht faktisch nie)
+
+### v2.4 — 20.08.2026
+- 🎚 **Neu: abgestufte Ein-Klick-Presets — 🟢 Minimal → 🟡 Mittel → 🔴 Hart (Debloat)** — kumulative Intensitätsstufen im Optimizer, die ein kuratiertes, ansteigendes Tweak-Set anwenden (10 → 33 → 65), jeweils über den normalen Bestätigen-+-Verifizieren-Ablauf. Minimal = nur grundsolide sichere Tweaks; Mittel ergänzt Performance/Gaming/Netzwerk + leichten Debloat; Hart ergänzt aggressiven Debloat (Cortana/Copilot/Recall/Teams/OneDrive), volle Performance/Netzwerk/Audio und die W11-Classic-UI
+- Situative/Geschmack-Tweaks bleiben bewusst einzeln (Disable MPO, Dark Mode, die anderen Energiepläne, Google DNS)
+
+### v2.3.1 — 14.08.2026 *(Bugfix-Release)*
+- 🐛 **Fix: Dead-Man's-Switch im Stress-Worker** *(als v2.3.2 ausgeliefert)* — der CPU-Fallback prüfte den Elternprozess über `psutil`; ließ sich das nicht importieren, schaltete sich die Prüfung lautlos ab und ein Burner konnte ewig weiterlaufen. Nutzt jetzt einen abhängigkeitsfreien `ctypes`-`OpenProcess`-Check (zuverlässig auf Windows), mit `psutil` als Fallback und „beenden wenn nicht prüfbar". (`os.getppid()` funktioniert hier nicht — Windows hängt Waisen nie um, per Test bestätigt)
+- 🐛 **Fix: Installer/Launcher-Python-Konflikt** — `install.bat` konnte die Abhängigkeiten in die Microsoft-Store-Python installieren, während der Launcher das klassische `C:\PythonXX\pythonw.exe` startet → `ModuleNotFoundError`. Der Installer nutzt jetzt **dieselbe** Suche nach der klassischen Python wie der Launcher (`"%PY%" -m pip …`)
+- 🐛 **Fix: Arbeitsverzeichnis beim Hochstufen** — `relaunch_admin()` übergibt jetzt `str(BASE)` an `ShellExecuteW`, damit UAC die App nicht in `System32` startet
+- 🐛 **Fix: CPU-Stresstest lastete nur einen Kern aus** — der Fallback ohne numpy startet jetzt einen Prozess pro Kern (`multiprocessing`); jedes Kind beendet sich selbst, wenn der Test gestoppt wird (keine verwaisten CPU-Brenner)
+- 🐛 **Fix: Launcher fand keine All-Users-Installation** — `C:\Program Files\PythonXX\`-Pfade zu Launcher + Installer ergänzt
+- 🐛 **Fix: Tray-Menü konnte einklappen** — Menü wird jetzt alle 60 s statt 20 s neu aufgebaut (bekanntes pystray-Verhalten)
+- 🧹 `requirements.txt` mit moderateren Untergrenzen (`numpy>=1.26` etc.); `.gitignore` deckt jetzt venv-Ordner ab
+
+### v2.3 — 10.08.2026
+- 🛟 **Neu: Wiederherstellungspunkt erstellen** (Einstellungen) — Ein-Klick-Windows-Wiederherstellungspunkt als Sicherheitsnetz vor dem Anwenden von Tweaks (klare Meldungen bei deaktiviertem Schutz / 24-h-Limit / fehlenden Admin-Rechten)
+- 🖥 **Neuer Tweak: Multiplane Overlay (MPO) deaktivieren** — bekannter Fix gegen Bild-Flackern / Mikroruckler (NVIDIA + Multi-Monitor); ehrlich als „nur bei Flacker-Problemen" markiert, neuere Treiber haben's großteils behoben
+- 🛡 **Neuer Tweak: WPBT deaktivieren** — blockt, dass Firmware/Mainboard beim Start Programme ins Windows einschleust
+- 🗂 **Neue Tweaks: Dateiendungen anzeigen + Versteckte Dateien anzeigen** — Explorer-Komfort, hilft auch getarnte Dateien zu erkennen
+- 🧹 **Neuer Tweak: Storage Sense deaktivieren** — verhindert automatisches Löschen von Dateien im Hintergrund
+- ➡️ **70 Tweaks gesamt.** Aus der Chris-Titus-WinUtil-Liste — bewusst die unsicheren/unpassenden weggelassen (BitLocker aus, Services→Manual, IPv6/Teredo aus, Edge-Entfernung, Kosmetik-Toggles)
+
+### v2.2 — 05.08.2026
+- 🌐 **Neu: Netzwerk-Latenz-Test** (Dashboard) — Ein-Klick-Ping zu Gateway + Cloudflare (1.1.1.1) & Google (8.8.8.8) mit Ø/min/max-Latenz, Jitter und Paketverlust (rein lesend, läuft im Hintergrund)
+- 📊 **Neu: Live-Systemüberwachung** — CPU-, RAM- und Disk-C:-Auslastung als Tiles neben der GPU-Telemetrie (via psutil), farbcodiert nach Last
+- 🧹 **Neu: System Cleaner** (Einstellungen) — scannt & leert nur dedizierte Temp-/Dump-Ordner (`%TEMP%`, `Windows\Temp`, `CrashDumps`); ein Schutzgitter sorgt dafür, dass nie Dokumente, Browserprofile oder der Papierkorb angefasst werden, Dateien in Benutzung werden übersprungen
+- 🖥 **Neu: iGPU-Abschalt-Tipp** für AM5 (Zen 4/5) — im BIOS-Guide mit exakten ASUS-/Gigabyte-Menüpfaden und ehrlichen Vor-/Nachteilen (gibt reservierten RAM frei, deaktiviert aber die Mainboard-Bildausgänge + iGPU-Encoder)
+- ⚡ **Neue Tweaks (2):** PCIe Link State Power Management aus, Festplatte nie schlafen → **65 Tweaks gesamt**
+- 🐛 **Fix: Verifier-Engine** — ein PowerShell-Gruppierungsbug (`$__r=(cmd)` statt `$__r=$(cmd)`) ließ die meisten Registry-Statuschecks still auf Amber „ungeprüft" stehen; die grünen/amber/grauen Punkte zeigen jetzt für **alle** Tweaks den echten Zustand
+- 🐛 **Fix:** Ping-Test crasht nicht mehr bei nicht-englischer `ping`-Ausgabe (latin-1-Dekodierung)
+- 🪟 **UI:** größeres Startfenster (1000×920), damit das komplette Dashboard beim Start passt
+
+### v2.1.1 — 05.07.2026
+- 🐛 **Fix: Launcher-Fenster** — ein `-WindowStyle Hidden` am inneren `Start-Process` startete das ganze App-Fenster unsichtbar (nur Beheben durch Prozess-Kill)
+- 🐛 **Fix: Registry-Tweaks** — doppelter Backslash im Pfad ließ „Disable Power Throttling" & „Process Count Reduction" jedes Mal mit „ungültiger Schlüsselname" scheitern
+- 🔊 **Fix: Audio-Tweaks** — „Disable Audio Enhancements" & „Disable Exclusive Audio Lock" haben jetzt volle Statusverifizierung **und** Revert
+- 🛡 **Fix:** „Block Telemetry Hosts" wird jetzt präzise zurückgesetzt (entfernt nur die hinzugefügten hosts-Einträge)
+- 🔒 **Härtung:** Profilnamen/-notizen bereinigt (keine `.cfg`-Injection); Game-Profil-Schreibzugriffe jetzt thread-sicher (Lock)
+- 🎯 **Neue Tweaks (4):** Disable Consumer Features, Disable Hibernation, End Task per Rechtsklick, Disable Delivery Optimization
+- 📚 **Docs/CI:** deutsche README (`README.de.md`) + GitHub-Actions-CI (Syntax- & Registry-Pfad-Prüfung)
+
+### v2.1 — 02.07.2026
+- ✨ **3 neue Tweaks:** Disable Power Throttling (Gaming), Process Count Reduction / Svchost (Gaming), Disable Bing in Windows Search (Privacy) — alle mit Revert + Verifizierung
+- 🛡 **Sicherheits-Review:** riskante Drittanbieter-Tweaks bewusst weggelassen (AMD Crash Defender aus, C-States aus, ULPS aus, modifizierte Treiber) — reduzieren Stabilität/Sicherheit ohne echten Gewinn
+
+### v2.0 — 25.05.2026
+- 🎮 **Neu: Per-Game-Profile** — Hintergrund-Prozessmonitor lädt beim Spielstart automatisch ein GPU-Profil, stellt beim Beenden das Standard wieder her
+- 📋 **Neu: Tune-Verlauf**, 🌡 **GPU-Temperatur-Toast** (≥90 °C, 5-Min-Cooldown), 🔄 **GitHub-Update-Checker**
+- 🖥 **Neu: BIOS-Guide-Tab** — hardware-bewusste Empfehlungen mit Live-Zustandserkennung
+- 🚀 **Neu: Startup Manager**, 🔀 **Profilvergleich-Tab**, 💾 **Export/Import** als `.nextune`
+- ✅ **Neu: Tweak-Statusverifizierung** — liest echten Registry-/Dienst-Zustand (3-stufige Punkte), **7 integrierte Presets**
+- 🌐 **Neu: DE/EN-Umschaltung**, ℹ️ Tooltips an jedem Tweak, 📈 Live-Spannungs-/Takt-/Temp-Diagramm
+- ⚡ **GPU-Tuner:** 3 Modi (OC / UV / OC+UV), Generationserkennung, TDR-Erkennung (Event ID 4101), Crash-Recovery
+- 🏗 **Rewrite:** thread-sichere Architektur — `tkinter mainloop()` im Haupt-Thread, Tray im Daemon-Thread (behebt Freezes/Crashes)
+
+### v1.0 — 23.05.2026 *(Erstveröffentlichung)*
+- 🎮 **GPU-Auto-Tuner** (automatisches OC + UV via MSI Afterburner)
+- 🛠 **Windows-Optimizer** (50 Tweaks: Windows, Gaming, Network)
+- 📊 **Dashboard** (Live-GPU-Telemetrie), 🔥 **Stresstest** + FurMark-Launcher
+- 🖥 **Hardware-Erkennung** (WMI), 💾 **Profil-Manager**, 🖲 **System-Tray** mit Live-Stats
+
+> Vollständige technische Details zu jedem Release: [CHANGELOG.md](CHANGELOG.md)
 
 ---
 

@@ -93,6 +93,54 @@
 
 ---
 
+## 📋 Requirements
+
+| Requirement | Details |
+|---|---|
+| **OS** | Windows 10 / Windows 11 |
+| **Python** | 3.10 or newer |
+| **GPU** | NVIDIA (full support) or AMD (tweaks + BIOS guide) |
+| **MSI Afterburner** | Optional — required for voltage readings (mV) and OC profiles |
+| **Admin rights** | Required for Registry tweaks and GPU power control |
+
+---
+
+## 📦 Installation
+
+### 1. Install Python
+Download Python 3.10+ from [python.org/downloads](https://python.org/downloads).
+
+> ⚠️ **Important:** Check **"Add Python to PATH"** during installation.
+
+### 2. Download GameOptimizerPro
+Click **Code → Download ZIP** on this page, or clone the repo:
+```bash
+git clone https://github.com/FloDePin/GameOptimizerPro-v2.git
+```
+Extract to a permanent folder, e.g. `C:\Tools\GameOptimizerPro\`
+
+### 3. Install Dependencies
+Double-click `install.bat` — it installs everything automatically:
+```
+pystray, Pillow, nvidia-ml-py, numpy, wmi, psutil
+```
+
+### 4. (Optional) Set up MSI Afterburner
+For voltage readings and GPU overclocking:
+1. Download and install [MSI Afterburner](https://www.msi.com/Landing/afterburner/graphics-cards)
+2. Open Afterburner → Settings → **General** → check **"Unlock voltage control"**
+3. Settings → **General** → check **"Unlock voltage monitoring"**
+4. Settings → **Monitoring** → enable **GPU Core Voltage**
+5. Click the 🔒 lock icon on Profile Slot 2 to unlock it
+6. Leave Afterburner running in the system tray
+
+### 5. Launch
+Double-click **`GameOptimizerPro.bat`**
+
+> The launcher uses a hidden PowerShell `Start-Process -Verb RunAs` call to start `pythonw.exe` invisibly and requests Administrator rights via UAC. No CMD window will appear.
+
+---
+
 ## 📜 Changelog
 
 ### v2.4.1 ⭐ **CURRENT** — 2026-08-22 *(bug-fix release)*
@@ -162,54 +210,6 @@
 - 🖥 **Hardware Detection** (WMI), 💾 **Profile Manager**, 🖲 **System Tray** with live stats
 
 > Full technical detail for every release: [CHANGELOG.md](CHANGELOG.md)
-
----
-
-## 📋 Requirements
-
-| Requirement | Details |
-|---|---|
-| **OS** | Windows 10 / Windows 11 |
-| **Python** | 3.10 or newer |
-| **GPU** | NVIDIA (full support) or AMD (tweaks + BIOS guide) |
-| **MSI Afterburner** | Optional — required for voltage readings (mV) and OC profiles |
-| **Admin rights** | Required for Registry tweaks and GPU power control |
-
----
-
-## 📦 Installation
-
-### 1. Install Python
-Download Python 3.10+ from [python.org/downloads](https://python.org/downloads).
-
-> ⚠️ **Important:** Check **"Add Python to PATH"** during installation.
-
-### 2. Download GameOptimizerPro
-Click **Code → Download ZIP** on this page, or clone the repo:
-```bash
-git clone https://github.com/FloDePin/GameOptimizerPro-v2.git
-```
-Extract to a permanent folder, e.g. `C:\Tools\GameOptimizerPro\`
-
-### 3. Install Dependencies
-Double-click `install.bat` — it installs everything automatically:
-```
-pystray, Pillow, nvidia-ml-py, numpy, wmi, psutil
-```
-
-### 4. (Optional) Set up MSI Afterburner
-For voltage readings and GPU overclocking:
-1. Download and install [MSI Afterburner](https://www.msi.com/Landing/afterburner/graphics-cards)
-2. Open Afterburner → Settings → **General** → check **"Unlock voltage control"**
-3. Settings → **General** → check **"Unlock voltage monitoring"**
-4. Settings → **Monitoring** → enable **GPU Core Voltage**
-5. Click the 🔒 lock icon on Profile Slot 2 to unlock it
-6. Leave Afterburner running in the system tray
-
-### 5. Launch
-Double-click **`GameOptimizerPro.bat`**
-
-> The launcher uses a hidden PowerShell `Start-Process -Verb RunAs` call to start `pythonw.exe` invisibly and requests Administrator rights via UAC. No CMD window will appear.
 
 ---
 
