@@ -4,6 +4,18 @@ All notable changes to GameOptimizerPro are documented here.
 
 ---
 
+## [2.4.2] — 2026-08-28
+
+### 🐛 Bug Fixes
+- **Thread-safe log output (potential random Tkinter crash)** — `LogBox.append()` touched the Tk text widget directly, but it's called from worker threads (tweak apply / revert / preset). Tkinter is single-threaded, so this could randomly throw `RuntimeError: main thread is not in main loop` or corrupt the widget (verified: even `after()` from a worker thread raises on Python 3.14). `LogBox` now uses a thread-safe **queue** written by any thread and drained by a **main-thread poller** — every caller is safe automatically, no call sites had to change
+- **Consistency: verifier registry paths** — three verify commands (`disable_power_throttling`, `reduce_process_count`, `disable_bing_search`) used quadruple backslashes. They *worked* (PowerShell's registry provider tolerates `\\`, unlike `reg.exe`) but were inconsistent — normalised to the single form used everywhere else
+- **Hardening: `get_all_presets()` now populates "All Safe Tweaks"** so the preset has a valid tweak list even when called directly (the UI already populated it at render time, so this was not a live bug — just defence in depth)
+
+### ✔️ Reviewed, already fixed / not a bug
+- Autostart-via-Task-Scheduler and single-call BIOS detection were **already shipped in v2.4.1**. A reported "All Safe does nothing" was **not reproducible** — the UI populates that preset before use.
+
+---
+
 ## [2.4.1] — 2026-08-22
 
 ### 🐛 Bug Fixes (from a code review)

@@ -1,13 +1,13 @@
 <div align="center">
 
-# ⚡ GameOptimizerPro v2.4.1
+# ⚡ GameOptimizerPro v2.4.2
 
-**Windows & Gaming Optimizer v2.4.1 by FloDePin**
+**Windows & Gaming Optimizer v2.4.2 by FloDePin**
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python)](https://python.org)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D4?style=flat-square&logo=windows)](https://microsoft.com/windows)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-2.4.1-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
+[![Version](https://img.shields.io/badge/Version-2.4.2-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
 
 🇬🇧 **English** | 🇩🇪 [Deutsch](README.de.md)
 
@@ -143,7 +143,12 @@ Double-click **`GameOptimizerPro.bat`**
 
 ## 📜 Changelog
 
-### v2.4.1 ⭐ **CURRENT** — 2026-08-22 *(bug-fix release)*
+### v2.4.2 ⭐ **CURRENT** — 2026-08-28 *(bug-fix release)*
+- 🐛 **Fix: thread-safe log (potential random crash)** — the log box was written directly from worker threads (tweak apply/revert/preset), which can throw `RuntimeError: main thread is not in main loop` in Tkinter. It now uses a thread-safe queue drained by a main-thread poller — safe from any thread
+- 🧹 normalised 3 verifier registry paths that used quadruple backslashes (they worked — PowerShell tolerates it — but were inconsistent); `get_all_presets()` now self-populates "All Safe Tweaks"
+- ✔️ reviewed: autostart-via-Task-Scheduler and single-call BIOS detection were already fixed in v2.4.1; "All Safe does nothing" was not reproducible (the UI populates it before use)
+
+### v2.4.1 — 2026-08-22 *(bug-fix release)*
 - 🐛 **Fix: autostart no longer prompts UAC every boot** — "start with Windows" now uses a Task Scheduler task with *highest privileges* (`schtasks /RL HIGHEST`) instead of an `HKCU\Run` entry, so the admin app starts elevated silently. Old Run entry auto-removed
 - ⚡ **BIOS detection ~5–8× faster** — the ~8 separate PowerShell cold-starts on opening the BIOS Guide are now one bundled JSON call (~1.9 s vs ~5–8 s). State dots appear much sooner (detection already ran off the UI thread, so it never froze)
 - 🐛 **Fix: honest PBO detection** — WMI `MaxClockSpeed` is the reported max, not a live boost, so older CPUs (e.g. Ryzen 5 3600) showed a false "inactive". Threshold lowered, marked low-confidence, note now says PBO can't be reliably read from Windows

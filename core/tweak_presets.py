@@ -234,6 +234,11 @@ def get_preset(preset_id: str) -> Optional[TweakPreset]:
 
 def get_all_presets(user_presets: list[TweakPreset] = None) -> list[TweakPreset]:
     result = list(BUILTIN_PRESETS)
+    # "All Safe" wird dynamisch befüllt, damit es auch bei direktem Aufruf
+    # (nicht nur beim UI-Rendern) eine gültige Tweak-Liste hat.
+    for p in result:
+        if p.id == "all_safe":
+            p.tweak_ids = get_all_safe_ids()
     if user_presets:
         result.extend(user_presets)
     return result

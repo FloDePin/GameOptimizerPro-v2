@@ -4,6 +4,7 @@ GameOptimizerPro shared UI widgets and theme.
 
 import tkinter as tk
 from tkinter import ttk
+import queue
 
 # ── Palette ───────────────────────────────────────────────────────────────────
 BG0  = "#080b0f"
@@ -136,18 +137,49 @@ class LogBox(tk.Frame):
         self.txt.tag_config("header",  foreground=ACC)
         self.txt.tag_config("dim",     foreground=DIM)
 
+        # Thread-Safety: Worker-Threads (Tweak-Apply/Revert/Preset) dürfen Tkinter
+        # NICHT direkt anfassen — selbst self.after() aus einem Fremd-Thread wirft
+        # "RuntimeError: main thread is not in main loop". Daher: append()/clear()
+        # schreiben nur in eine thread-sichere Queue; ein Poller im Main-Thread
+        # (per after() gestartet, was hier sicher ist) leert sie und aktualisiert
+        # das Widget. So ist JEDER Aufrufer aus JEDEM Thread sicher.
+        self._q = queue.Queue()
+        self._alive = True
+        self.after(120, self._drain)
+
     def append(self, msg: str, tag: str = "info"):
         from datetime import datetime
-        self.txt.config(state="normal")
-        ts = datetime.now().strftime("%H:%M:%S")
-        self.txt.insert("end", f"[{ts}] {msg}\n", tag)
-        self.txt.see("end")
-        self.txt.config(state="disabled")
+        self._q.put(("append", datetime.now().strftime("%H:%M:%S"), msg, tag))
 
     def clear(self):
-        self.txt.config(state="normal")
-        self.txt.delete("1.0", "end")
-        self.txt.config(state="disabled")
+        self._q.put(("clear",))
+
+    def _drain(self):
+        try:
+            self.txt.config(state="normal")
+            wrote = False
+            while True:
+                try:
+                    item = self._q.get_nowait()
+                except queue.Empty:
+                    break
+                if item[0] == "append":
+                    _, ts, msg, tag = item
+                    self.txt.insert("end", f"[{ts}] {msg}\n", tag)
+                    wrote = True
+                elif item[0] == "clear":
+                    self.txt.delete("1.0", "end")
+            if wrote:
+                self.txt.see("end")
+            self.txt.config(state="disabled")
+        except tk.TclError:
+            self._alive = False
+            return   # Widget zerstört -> Poller stoppen
+        if self._alive:
+            try:
+                self.after(120, self._drain)
+            except (tk.TclError, RuntimeError):
+                self._alive = False
 
 
 def mk_btn(parent, text, cmd, bg=BG3, fg=TXT, bold=False, **kw):

@@ -343,17 +343,17 @@ VERIFY_MAP: dict[str, str] = {
         'if($v -eq 0){"1"}else{"0"}'
     ),
     "disable_power_throttling": (
-        '$v=(Get-ItemProperty "HKLM:\\\\SYSTEM\\\\CurrentControlSet\\\\Control\\\\Power\\\\PowerThrottling" '
+        '$v=(Get-ItemProperty "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Power\\PowerThrottling" '
         '-Name PowerThrottlingOff -EA SilentlyContinue).PowerThrottlingOff; '
         'if($v -eq 1){"1"}else{"0"}'
     ),
     "reduce_process_count": (
-        '$v=(Get-ItemProperty "HKLM:\\\\SYSTEM\\\\CurrentControlSet\\\\Control" '
+        '$v=(Get-ItemProperty "HKLM:\\SYSTEM\\CurrentControlSet\\Control" '
         '-Name SvcHostSplitThresholdInKB -EA SilentlyContinue).SvcHostSplitThresholdInKB; '
         'if($v -ne $null -and $v -gt 380000){"1"}else{"0"}'
     ),
     "disable_bing_search": (
-        '$v=(Get-ItemProperty "HKCU:\\\\Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Search" '
+        '$v=(Get-ItemProperty "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Search" '
         '-Name BingSearchEnabled -EA SilentlyContinue).BingSearchEnabled; '
         'if($v -eq 0){"1"}else{"0"}'
     ),

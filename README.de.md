@@ -1,13 +1,13 @@
 <div align="center">
 
-# ⚡ GameOptimizerPro v2.4.1
+# ⚡ GameOptimizerPro v2.4.2
 
-**Windows & Gaming Optimizer v2.4.1 von FloDePin**
+**Windows & Gaming Optimizer v2.4.2 von FloDePin**
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python)](https://python.org)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D4?style=flat-square&logo=windows)](https://microsoft.com/windows)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-2.4.1-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
+[![Version](https://img.shields.io/badge/Version-2.4.2-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
 
 🇬🇧 [English](README.md) | 🇩🇪 **Deutsch**
 
@@ -141,7 +141,12 @@ Für Spannungswerte und GPU-Overclocking:
 
 ## 📜 Änderungsverlauf
 
-### v2.4.1 ⭐ **AKTUELL** — 22.08.2026 *(Bugfix-Release)*
+### v2.4.2 ⭐ **AKTUELL** — 28.08.2026 *(Bugfix-Release)*
+- 🐛 **Fix: thread-sicheres Log (möglicher Zufalls-Crash)** — die Log-Box wurde direkt aus Worker-Threads beschrieben (Tweak Apply/Revert/Preset), was in Tkinter `RuntimeError: main thread is not in main loop` auslösen kann. Nutzt jetzt eine thread-sichere Queue, die ein Poller im Main-Thread leert — aus jedem Thread sicher
+- 🧹 3 Verifier-Registry-Pfade mit Vierfach-Backslash normalisiert (funktionierten — PowerShell toleriert das — waren aber inkonsistent); `get_all_presets()` befüllt jetzt „Alle sicheren Tweaks" selbst
+- ✔️ geprüft: Autostart-via-Task-Scheduler und der gebündelte BIOS-Call waren bereits in v2.4.1 gefixt; „All Safe macht nichts" war nicht reproduzierbar (die UI befüllt es vor der Nutzung)
+
+### v2.4.1 — 22.08.2026 *(Bugfix-Release)*
 - 🐛 **Fix: Autostart nervt nicht mehr mit UAC bei jedem Boot** — „Mit Windows starten" nutzt jetzt eine Task-Scheduler-Aufgabe mit *höchsten Rechten* (`schtasks /RL HIGHEST`) statt eines `HKCU\Run`-Eintrags; die Admin-App startet damit still erhöht. Alter Run-Eintrag wird automatisch entfernt
 - ⚡ **BIOS-Erkennung ~5–8× schneller** — die ~8 einzelnen PowerShell-Kaltstarts beim Öffnen des BIOS-Guides sind jetzt ein gebündelter JSON-Aufruf (~1,9 s statt ~5–8 s). Die Status-Punkte erscheinen viel früher (die Erkennung lief eh im Hintergrund-Thread, es fror also nie ein)
 - 🐛 **Fix: ehrliche PBO-Erkennung** — WMI `MaxClockSpeed` ist der gemeldete Max-Takt, kein Live-Boost; ältere CPUs (z.B. Ryzen 5 3600) zeigten fälschlich „inaktiv". Schwelle gesenkt, als Low-Confidence markiert, Hinweis sagt jetzt klar dass PBO aus Windows nicht sicher auslesbar ist
