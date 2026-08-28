@@ -4,6 +4,16 @@ All notable changes to GameOptimizerPro are documented here.
 
 ---
 
+## [2.4.1] — 2026-08-22
+
+### 🐛 Bug Fixes (from a code review)
+- **Autostart no longer triggers a UAC prompt on every boot** — the "start with Windows" option used an `HKCU\…\Run` entry, which can't launch the admin-required app silently, so Windows showed the yellow UAC dialog at every logon. It now registers a **Task Scheduler** task with *run with highest privileges* (`schtasks /RL HIGHEST /SC ONLOGON`), which starts elevated without a prompt. Any old `Run` entry is removed on toggle (migration)
+- **BIOS detection ~5–8× faster** — opening the BIOS Guide fired ~8 separate `powershell.exe` cold-starts (one per detector). They're now bundled into a **single** PowerShell call that returns one JSON snapshot (measured ~1.9 s instead of ~5–8 s). Detection already ran on a background thread, so the UI never froze — but the green/red state dots now appear much sooner
+- **Honest PBO detection** — `MaxClockSpeed` from WMI is the *reported* max, not a live boost reading, so the old `> 4500 MHz` heuristic showed a false "inactive" on older CPUs (e.g. Ryzen 5 3600). Lowered to `≥ 4200 MHz`, marked **low-confidence**, and the note now says plainly that PBO can't be reliably read from Windows — check the BIOS
+- **Ping decoding** — switched the network test from `latin-1` to `utf-8`/`errors=replace` for consistency with the rest of the codebase (note: `latin-1` never actually crashes — it maps every byte — so this is a convention change, not a crash fix)
+
+---
+
 ## [2.4] — 2026-08-20
 
 ### 🚀 New Features

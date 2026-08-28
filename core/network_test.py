@@ -39,7 +39,7 @@ def get_default_gateway() -> Optional[str]:
             ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
              "(Get-NetRoute -DestinationPrefix '0.0.0.0/0' -EA SilentlyContinue | "
              "Sort-Object RouteMetric | Select-Object -First 1).NextHop"],
-            capture_output=True, text=True, encoding="latin-1", timeout=8,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=8,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         gw = (out.stdout or "").strip().splitlines()
@@ -52,7 +52,7 @@ def get_default_gateway() -> Optional[str]:
     # Fallback: route print parsen
     try:
         out = subprocess.run(["route", "print", "0.0.0.0"],
-                             capture_output=True, text=True, encoding="latin-1", timeout=8,
+                             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=8,
                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         for line in (out.stdout or "").splitlines():
             m = re.search(r"0\.0\.0\.0\s+0\.0\.0\.0\s+(\d{1,3}(?:\.\d{1,3}){3})", line)
@@ -75,7 +75,7 @@ def ping(label: str, host: str, count: int = 10, timeout_ms: int = 1000) -> Ping
         else:
             cmd = ["ping", "-c", str(count), "-W", str(max(1, timeout_ms // 1000)), host]
         out = subprocess.run(
-            cmd, capture_output=True, text=True, encoding="latin-1",
+            cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=count * (timeout_ms / 1000) + 8,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )

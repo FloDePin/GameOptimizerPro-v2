@@ -5,7 +5,7 @@ GameOptimizerPro Startup Loader
 - Registriert / entfernt GameOptimizerPro aus Windows Autostart (HKCU Run)
 """
 
-import os, sys, json
+import os, sys, json, subprocess
 try:
     import winreg
 except ImportError:
@@ -16,6 +16,11 @@ from typing import Optional, Callable
 
 AUTOSTART_KEY  = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
 AUTOSTART_NAME = "GameOptimizerPro"
+TASK_NAME      = "GameOptimizerPro_Autostart"
+
+
+def _nw_flags():
+    return subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 
 
 class StartupLoader:
@@ -95,33 +100,65 @@ class StartupLoader:
             return True, f"Startup profile loaded: {profile.name}"
         return False, f"Failed to load startup profile: {err}"
 
-    # ── Windows Autostart ─────────────────────────────────────────────────────
+    # ── Windows Autostart (per Task Scheduler) ────────────────────────────────
+    # WICHTIG: NICHT über HKCU\Run. Da die App Admin-Rechte braucht, würde ein
+    # Run-Eintrag bei JEDEM Boot einen UAC-Prompt auslösen. Der Task Scheduler
+    # mit "/RL HIGHEST" startet die App still mit höchsten Rechten — kein UAC.
 
     def is_autostart_enabled(self) -> bool:
         try:
-            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, AUTOSTART_KEY,
-                                 0, winreg.KEY_READ)
-            val, _ = winreg.QueryValueEx(key, AUTOSTART_NAME)
-            winreg.CloseKey(key)
-            return bool(val)
-        except:
-            return False
+            r = subprocess.run(["schtasks", "/Query", "/TN", TASK_NAME],
+                               capture_output=True, text=True, creationflags=_nw_flags())
+            if r.returncode == 0:
+                return True
+        except Exception:
+            pass
+        # Migration: alter (UAC-verursachender) Run-Eintrag noch vorhanden?
+        return self._legacy_run_present()
 
     def set_autostart(self, enabled: bool) -> bool:
+        exe    = sys.executable   # pythonw.exe
+        script = str(Path(__file__).resolve().parent.parent / "GameOptimizerPro.py")
         try:
-            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, AUTOSTART_KEY,
-                                 0, winreg.KEY_SET_VALUE)
             if enabled:
-                exe = sys.executable
-                script = str(Path(__file__).resolve().parent.parent / "GameOptimizerPro.py")
-                value = f'"{exe}" "{script}"'
-                winreg.SetValueEx(key, AUTOSTART_NAME, 0, winreg.REG_SZ, value)
+                # /TR als EIN Argument — subprocess quoted es korrekt (Pfade mit Leerzeichen)
+                r = subprocess.run(
+                    ["schtasks", "/Create", "/TN", TASK_NAME,
+                     "/TR", f'"{exe}" "{script}"',
+                     "/SC", "ONLOGON", "/RL", "HIGHEST", "/F"],
+                    capture_output=True, text=True, creationflags=_nw_flags())
+                self._remove_legacy_run()   # alten Run-Eintrag entfernen
+                return r.returncode == 0
             else:
-                try:
-                    winreg.DeleteValue(key, AUTOSTART_NAME)
-                except FileNotFoundError:
-                    pass
+                subprocess.run(["schtasks", "/Delete", "/TN", TASK_NAME, "/F"],
+                               capture_output=True, text=True, creationflags=_nw_flags())
+                self._remove_legacy_run()
+                return True
+        except Exception:
+            return False
+
+    # ── Legacy HKCU\Run Migration/Cleanup ─────────────────────────────────────
+
+    def _legacy_run_present(self) -> bool:
+        if not winreg:
+            return False
+        try:
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, AUTOSTART_KEY, 0, winreg.KEY_READ)
+            winreg.QueryValueEx(key, AUTOSTART_NAME)
             winreg.CloseKey(key)
             return True
-        except Exception as e:
+        except Exception:
             return False
+
+    def _remove_legacy_run(self):
+        if not winreg:
+            return
+        try:
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, AUTOSTART_KEY, 0, winreg.KEY_SET_VALUE)
+            try:
+                winreg.DeleteValue(key, AUTOSTART_NAME)
+            except FileNotFoundError:
+                pass
+            winreg.CloseKey(key)
+        except Exception:
+            pass

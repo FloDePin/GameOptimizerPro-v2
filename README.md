@@ -1,13 +1,13 @@
 <div align="center">
 
-# ⚡ GameOptimizerPro v2.4
+# ⚡ GameOptimizerPro v2.4.1
 
-**Windows & Gaming Optimizer v2.4 by FloDePin**
+**Windows & Gaming Optimizer v2.4.1 by FloDePin**
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python)](https://python.org)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D4?style=flat-square&logo=windows)](https://microsoft.com/windows)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-2.4-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
+[![Version](https://img.shields.io/badge/Version-2.4.1-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
 
 🇬🇧 **English** | 🇩🇪 [Deutsch](README.de.md)
 
@@ -95,7 +95,13 @@
 
 ## 📜 Changelog
 
-### v2.4 ⭐ **CURRENT** — 2026-08-20
+### v2.4.1 ⭐ **CURRENT** — 2026-08-22 *(bug-fix release)*
+- 🐛 **Fix: autostart no longer prompts UAC every boot** — "start with Windows" now uses a Task Scheduler task with *highest privileges* (`schtasks /RL HIGHEST`) instead of an `HKCU\Run` entry, so the admin app starts elevated silently. Old Run entry auto-removed
+- ⚡ **BIOS detection ~5–8× faster** — the ~8 separate PowerShell cold-starts on opening the BIOS Guide are now one bundled JSON call (~1.9 s vs ~5–8 s). State dots appear much sooner (detection already ran off the UI thread, so it never froze)
+- 🐛 **Fix: honest PBO detection** — WMI `MaxClockSpeed` is the reported max, not a live boost, so older CPUs (e.g. Ryzen 5 3600) showed a false "inactive". Threshold lowered, marked low-confidence, note now says PBO can't be reliably read from Windows
+- 🧹 network test uses `utf-8`/replace instead of `latin-1` (convention; `latin-1` never actually crashed)
+
+### v2.4 — 2026-08-20
 - 🎚 **New: graduated one-click presets — 🟢 Minimal → 🟡 Medium → 🔴 Hard (Debloat)** — cumulative intensity tiers in the Optimizer that apply a curated, escalating set of tweaks (10 → 33 → 65), each through the normal confirm + verify flow. Minimal = only rock-solid safe tweaks; Medium adds performance/gaming/network + light debloat; Hard adds aggressive debloat (Cortana/Copilot/Recall/Teams/OneDrive), full performance/network/audio and the Win11-classic UI
 - Situational/preference tweaks stay separate on purpose (Disable MPO, Dark Mode, the other power plans, Google DNS)
 

@@ -1,13 +1,13 @@
 <div align="center">
 
-# ⚡ GameOptimizerPro v2.4
+# ⚡ GameOptimizerPro v2.4.1
 
-**Windows & Gaming Optimizer v2.4 von FloDePin**
+**Windows & Gaming Optimizer v2.4.1 von FloDePin**
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python)](https://python.org)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D4?style=flat-square&logo=windows)](https://microsoft.com/windows)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-2.4-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
+[![Version](https://img.shields.io/badge/Version-2.4.1-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
 
 🇬🇧 [English](README.md) | 🇩🇪 **Deutsch**
 
@@ -19,7 +19,13 @@
 
 ## 📜 Änderungsverlauf
 
-### v2.4 ⭐ **AKTUELL** — 20.08.2026
+### v2.4.1 ⭐ **AKTUELL** — 22.08.2026 *(Bugfix-Release)*
+- 🐛 **Fix: Autostart nervt nicht mehr mit UAC bei jedem Boot** — „Mit Windows starten" nutzt jetzt eine Task-Scheduler-Aufgabe mit *höchsten Rechten* (`schtasks /RL HIGHEST`) statt eines `HKCU\Run`-Eintrags; die Admin-App startet damit still erhöht. Alter Run-Eintrag wird automatisch entfernt
+- ⚡ **BIOS-Erkennung ~5–8× schneller** — die ~8 einzelnen PowerShell-Kaltstarts beim Öffnen des BIOS-Guides sind jetzt ein gebündelter JSON-Aufruf (~1,9 s statt ~5–8 s). Die Status-Punkte erscheinen viel früher (die Erkennung lief eh im Hintergrund-Thread, es fror also nie ein)
+- 🐛 **Fix: ehrliche PBO-Erkennung** — WMI `MaxClockSpeed` ist der gemeldete Max-Takt, kein Live-Boost; ältere CPUs (z.B. Ryzen 5 3600) zeigten fälschlich „inaktiv". Schwelle gesenkt, als Low-Confidence markiert, Hinweis sagt jetzt klar dass PBO aus Windows nicht sicher auslesbar ist
+- 🧹 Netzwerk-Test nutzt `utf-8`/replace statt `latin-1` (Konvention; `latin-1` crasht faktisch nie)
+
+### v2.4 — 20.08.2026
 - 🎚 **Neu: abgestufte Ein-Klick-Presets — 🟢 Minimal → 🟡 Mittel → 🔴 Hart (Debloat)** — kumulative Intensitätsstufen im Optimizer, die ein kuratiertes, ansteigendes Tweak-Set anwenden (10 → 33 → 65), jeweils über den normalen Bestätigen-+-Verifizieren-Ablauf. Minimal = nur grundsolide sichere Tweaks; Mittel ergänzt Performance/Gaming/Netzwerk + leichten Debloat; Hart ergänzt aggressiven Debloat (Cortana/Copilot/Recall/Teams/OneDrive), volle Performance/Netzwerk/Audio und die W11-Classic-UI
 - Situative/Geschmack-Tweaks bleiben bewusst einzeln (Disable MPO, Dark Mode, die anderen Energiepläne, Google DNS)
 
