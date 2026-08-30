@@ -147,6 +147,8 @@ TWEAK_DESC_EN: dict[str, str] = {
         "Prevents firmware/motherboard from injecting programs into Windows at boot (WPBT). Blocks vendor-preinstalled background software at the UEFI level. Safe, reversible.",
     "disable_storage_sense":
         "Turns off Windows' automatic Storage Sense, which can delete files in the background. Not needed if you clean up yourself (e.g. via the System Cleaner).",
+    "disable_ai_text_image_gen":
+        "Disables Windows' on-device generative AI (Settings → Privacy → Text and image generation). Stops Windows and apps from using local AI models. Does not affect cloud AI services. Reversible.",
 }
 
 # English names, only where the German name differs. Most names are already English.
@@ -157,6 +159,7 @@ TWEAK_NAME_EN: dict[str, str] = {
     "disable_mpo":          "Disable Multiplane Overlay (MPO)",
     "disable_wpbt":         "Disable Windows Platform Binary Table (WPBT)",
     "disable_storage_sense": "Disable Storage Sense",
+    "disable_ai_text_image_gen": "Disable Text & Image Generation (on-device AI)",
 }
 
 

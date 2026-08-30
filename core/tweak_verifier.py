@@ -409,6 +409,10 @@ VERIFY_MAP: dict[str, str] = {
         '$v=(Get-ItemProperty "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\StorageSense" '
         '-Name AllowStorageSenseGlobal -EA SilentlyContinue).AllowStorageSenseGlobal; if($v -eq 0){"1"}else{"0"}'
     ),
+    "disable_ai_text_image_gen": (
+        '$v=(Get-ItemProperty "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\systemAIModels" '
+        '-Name Value -EA SilentlyContinue).Value; if($v -eq "Deny"){"1"}else{"0"}'
+    ),
 }
 
 

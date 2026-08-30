@@ -4,6 +4,14 @@ All notable changes to GameOptimizerPro are documented here.
 
 ---
 
+## [2.5] — 2026-09-02
+
+### 🚀 New Features
+- **New tweak: Disable Text & Image Generation (on-device AI)** (Windows/Privacy) — turns off Windows' on-device generative AI (Settings → Privacy → Text and image generation) via `…\CapabilityAccessManager\ConsentStore\systemAIModels\Value = Deny`. The exact key was verified live on a machine where the setting was already off. Added to the Privacy and Hard presets. **71 tweaks total**
+- **BIOS Guide: "Disable motherboard auto-install utilities"** — added to the AMD (Zen 3/4/5) and Intel (Raptor/Alder Lake) profiles, with the exact per-vendor paths (ASUS Auto Install ASUS Utilities, MSI Driver Utility Installer, Gigabyte Utilities Downloader, ASRock Auto Driver Installer). Stops the board from silently installing vendor bloatware (Armoury Crate, MSI Center, App Center …) at first boot
+
+---
+
 ## [2.4.2] — 2026-08-28
 
 ### 🐛 Bug Fixes

@@ -46,7 +46,7 @@ _MEDIUM_EXTRA = [
 _HARD_EXTRA = [
     # + aggressiver Debloat + volle Performance/Netzwerk/Audio + W11-Classic + moderate Tweaks
     "remove_cortana", "remove_copilot", "remove_recall", "remove_teams", "remove_onedrive",
-    "block_telemetry_hosts", "disable_wpbt",
+    "block_telemetry_hosts", "disable_wpbt", "disable_ai_text_image_gen",
     "disable_prefetch", "disable_search_indexing", "disable_usb_suspend", "disable_hpet",
     "disable_power_throttling", "disable_wu_gaming", "reduce_process_count", "clear_shader_cache",
     "dns_cloudflare", "flush_dns", "disable_tcp_autotuning", "disable_lso",
@@ -133,6 +133,7 @@ BUILTIN_PRESETS: list[TweakPreset] = [
             "remove_copilot",
             "remove_recall",
             "disable_wpbt",
+            "disable_ai_text_image_gen",
         ],
     ),
 

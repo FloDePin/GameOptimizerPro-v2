@@ -1,13 +1,13 @@
 <div align="center">
 
-# ⚡ GameOptimizerPro v2.4.2
+# ⚡ GameOptimizerPro v2.5
 
-**Windows & Gaming Optimizer v2.4.2 von FloDePin**
+**Windows & Gaming Optimizer v2.5 von FloDePin**
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python)](https://python.org)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D4?style=flat-square&logo=windows)](https://microsoft.com/windows)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-2.4.2-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
+[![Version](https://img.shields.io/badge/Version-2.5-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
 
 🇬🇧 [English](README.md) | 🇩🇪 **Deutsch**
 
@@ -48,7 +48,7 @@
 - **Wiederherstellungspunkt erstellen** — Ein-Klick-Sicherheitsnetz vor dem Anwenden von Tweaks
 
 ### 🛠 Windows Optimizer
-- **70 Tweaks** in den Kategorien Windows, Gaming, Network, Audio
+- **71 Tweaks** in den Kategorien Windows, Gaming, Network, Audio
 - Live-Statusverifizierung — liest den tatsächlichen Registry-/Dienst-Zustand (nicht nur die JSON-Datei)
 - 3-stufige Statusanzeige: ● Grün (verifiziert aktiv) / ◑ Amber (angewendet, ungeprüft) / ○ Grau (inaktiv)
 - **Abgestufte Ein-Klick-Presets — 🟢 Minimal → 🟡 Mittel → 🔴 Hart (Debloat)** — kumulative Intensitätsstufen, die ein kuratiertes, ansteigendes Tweak-Set anwenden
@@ -141,7 +141,11 @@ Für Spannungswerte und GPU-Overclocking:
 
 ## 📜 Änderungsverlauf
 
-### v2.4.2 ⭐ **AKTUELL** — 28.08.2026 *(Bugfix-Release)*
+### v2.5 ⭐ **AKTUELL** — 02.09.2026
+- 🤖 **Neuer Tweak: Text- & Bildgenerierung (On-Device-KI) deaktivieren** (Privacy) — schaltet die geräteinterne generative KI von Windows ab (Einstellungen → Datenschutz → Text- und Bildgenerierung). In den Privacy- & Hart-Presets. **71 Tweaks gesamt**
+- 🖥 **BIOS-Guide: „Mainboard-Auto-Install deaktivieren"** — in die AMD- (Zen 3/4/5) und Intel-Profile (Raptor/Alder Lake) mit exakten Hersteller-Pfaden (ASUS / MSI / Gigabyte / ASRock). Verhindert, dass das Board beim ersten Boot still Hersteller-Bloatware installiert (Armoury Crate, MSI Center, App Center …)
+
+### v2.4.2 — 28.08.2026 *(Bugfix-Release)*
 - 🐛 **Fix: thread-sicheres Log (möglicher Zufalls-Crash)** — die Log-Box wurde direkt aus Worker-Threads beschrieben (Tweak Apply/Revert/Preset), was in Tkinter `RuntimeError: main thread is not in main loop` auslösen kann. Nutzt jetzt eine thread-sichere Queue, die ein Poller im Main-Thread leert — aus jedem Thread sicher
 - 🧹 3 Verifier-Registry-Pfade mit Vierfach-Backslash normalisiert (funktionierten — PowerShell toleriert das — waren aber inkonsistent); `get_all_presets()` befüllt jetzt „Alle sicheren Tweaks" selbst
 - ✔️ geprüft: Autostart-via-Task-Scheduler und der gebündelte BIOS-Call waren bereits in v2.4.1 gefixt; „All Safe macht nichts" war nicht reproduzierbar (die UI befüllt es vor der Nutzung)

@@ -272,6 +272,17 @@ foreach($t in $tasks){schtasks /Change /TN $t /Disable 2>$null}
         revert_cmd='reg delete "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager" /v DisableWpbtExecution /f 2>$null',
         risk="safe",
     ),
+    Tweak(
+        id="disable_ai_text_image_gen",
+        name="Text- & Bildgenerierung (On-Device-KI) deaktivieren",
+        desc="Schaltet die geräteinterne generative KI von Windows ab (Einstellungen → Datenschutz → "
+             "Text- und Bildgenerierung). Verhindert, dass Windows und Apps lokale KI-Modelle nutzen. "
+             "Betrifft nicht Cloud-KI-Dienste. Reversibel.",
+        category="Windows", group="Privacy",
+        ps_command='reg add "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\systemAIModels" /v Value /t REG_SZ /d Deny /f',
+        revert_cmd='reg add "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\systemAIModels" /v Value /t REG_SZ /d Allow /f',
+        risk="safe",
+    ),
 
     # ══════════════════════════════════════════════════════════════
     # WINDOWS — PERFORMANCE

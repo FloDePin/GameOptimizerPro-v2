@@ -87,7 +87,28 @@ def _amd_extra_latency() -> list:
             risk=MODERATE,
             impact="medium",
         ),
+        _vendor_autoinstall(),
     ]
+
+
+def _vendor_autoinstall():
+    """Herstellerübergreifend (ASUS/MSI/Gigabyte/ASRock) — verhindert Mainboard-Bloatware."""
+    return BiosSetting(
+        category="Boot",
+        name="Auto-Install von Mainboard-Utilities deaktivieren",
+        recommended="Disabled",
+        default="Enabled",
+        path="ASUS: Tool → Auto Install ASUS Utilities = Disabled  |  "
+             "MSI: Settings → Advanced → MSI Driver Utility Installer = Disabled  |  "
+             "Gigabyte: Settings → Gigabyte Utilities Downloader Configuration = Disabled  |  "
+             "ASRock: Tool → Auto Driver Installer = Disabled",
+        explanation="Verhindert, dass das Mainboard beim ersten Windows-Start automatisch "
+                    "Hersteller-Software, Hintergrunddienste und Treiber-Downloader installiert "
+                    "(Armoury Crate, MSI Center, App Center …) — ungefragte Bloatware auf UEFI-Ebene. "
+                    "Treiber bei Bedarf sauber direkt von der Hersteller-Website ziehen.",
+        risk=SAFE,
+        impact="medium",
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -462,6 +483,7 @@ PROFILES: list[BiosProfile] = [
                 risk=SAFE,
                 impact="medium",
             ),
+            _vendor_autoinstall(),
         ],
     ),
 
@@ -512,6 +534,7 @@ PROFILES: list[BiosProfile] = [
                 impact="high",
                 detect_key="rebar_intel"
             ),
+            _vendor_autoinstall(),
         ],
     ),
 

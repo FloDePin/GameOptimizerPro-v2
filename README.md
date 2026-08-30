@@ -1,13 +1,13 @@
 <div align="center">
 
-# ⚡ GameOptimizerPro v2.4.2
+# ⚡ GameOptimizerPro v2.5
 
-**Windows & Gaming Optimizer v2.4.2 by FloDePin**
+**Windows & Gaming Optimizer v2.5 by FloDePin**
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python)](https://python.org)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D4?style=flat-square&logo=windows)](https://microsoft.com/windows)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-2.4.2-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
+[![Version](https://img.shields.io/badge/Version-2.5-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
 
 🇬🇧 **English** | 🇩🇪 [Deutsch](README.de.md)
 
@@ -49,7 +49,7 @@
 - **Create Restore Point** — one-click Windows System Restore Point as a safety net before applying tweaks
 
 ### 🛠 Windows Optimizer
-- **70 Tweaks** across Windows, Gaming, Network, Audio categories
+- **71 Tweaks** across Windows, Gaming, Network, Audio categories
 - Live status verification — reads actual Registry/Service state (not just JSON)
 - 3-state indicators: ● Green (verified active) / ◑ Amber (applied, unverified) / ○ Grey (inactive)
 - **Graduated one-click presets — 🟢 Minimal → 🟡 Medium → 🔴 Hard (Debloat)** — cumulative intensity tiers that apply a curated, escalating set of tweaks
@@ -143,7 +143,11 @@ Double-click **`GameOptimizerPro.bat`**
 
 ## 📜 Changelog
 
-### v2.4.2 ⭐ **CURRENT** — 2026-08-28 *(bug-fix release)*
+### v2.5 ⭐ **CURRENT** — 2026-09-02
+- 🤖 **New tweak: Disable Text & Image Generation (on-device AI)** (Privacy) — turns off Windows' on-device generative AI (Settings → Privacy → Text and image generation). Added to the Privacy & Hard presets. **71 tweaks total**
+- 🖥 **BIOS Guide: "Disable motherboard auto-install utilities"** — added to the AMD (Zen 3/4/5) and Intel (Raptor/Alder Lake) profiles with exact per-vendor paths (ASUS / MSI / Gigabyte / ASRock). Stops the board silently installing vendor bloatware (Armoury Crate, MSI Center, App Center …) at first boot
+
+### v2.4.2 — 2026-08-28 *(bug-fix release)*
 - 🐛 **Fix: thread-safe log (potential random crash)** — the log box was written directly from worker threads (tweak apply/revert/preset), which can throw `RuntimeError: main thread is not in main loop` in Tkinter. It now uses a thread-safe queue drained by a main-thread poller — safe from any thread
 - 🧹 normalised 3 verifier registry paths that used quadruple backslashes (they worked — PowerShell tolerates it — but were inconsistent); `get_all_presets()` now self-populates "All Safe Tweaks"
 - ✔️ reviewed: autostart-via-Task-Scheduler and single-call BIOS detection were already fixed in v2.4.1; "All Safe does nothing" was not reproducible (the UI populates it before use)

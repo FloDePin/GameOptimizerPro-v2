@@ -117,7 +117,7 @@ class SettingsTab(tk.Frame):
         about_f = tk.Frame(self, bg=BG2, padx=12, pady=10)
         about_f.pack(fill="x", padx=14)
         tk.Label(about_f,
-                 text="GameOptimizerPro v2.4.2\n"
+                 text="GameOptimizerPro v2.5\n"
                       "All-in-one Windows & GPU Optimizer\n"
                       "GPU Tuner (NVML + MAHM + Afterburner)\n"
                       "by FloDePin",
