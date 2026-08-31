@@ -1,13 +1,13 @@
 <div align="center">
 
-# ⚡ GameOptimizerPro v2.6
+# ⚡ GameOptimizerPro v2.6.1
 
-**Windows & Gaming Optimizer v2.6 von FloDePin**
+**Windows & Gaming Optimizer v2.6.1 von FloDePin**
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python)](https://python.org)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D4?style=flat-square&logo=windows)](https://microsoft.com/windows)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-2.6-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
+[![Version](https://img.shields.io/badge/Version-2.6.1-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
 
 🇬🇧 [English](README.md) | 🇩🇪 **Deutsch**
 
@@ -142,7 +142,10 @@ Für Spannungswerte und GPU-Overclocking:
 
 ## 📜 Änderungsverlauf
 
-### v2.6 ⭐ **AKTUELL** — 03.09.2026
+### v2.6.1 ⭐ **AKTUELL** — 04.09.2026
+- 🛡️ **CPU-Pinning: Sicherheit & Ehrlichkeit** — die Caveats ergänzt, die wirklich für unsere Umsetzung gelten: eine **Anti-Cheat-Warnung** (Pinning greift von außen in den Spielprozess ein; Kernel-Anti-Cheats wie EAC/BattlEye/Vanguard *könnten* das flaggen), eine **CCD-Parking-Konflikt-Warnung** bei Multi-CCD (AMDs 3D-V-Cache-Optimizer / Game Bar kann unser CPU-Set überschreiben oder ignorieren) und **Pin-Verifikation** (`GetProcessDefaultCpuSets`-Rücklesung bestätigt, dass das Set griff — fängt Treiber-Überschreibung & Rechte-Fehler ab — live im Per-Game-Tab angezeigt). Ehrliche Grenze vermerkt: Die Rücklesung bestätigt, dass das Set *registriert* ist, nicht dass der Scheduler geparkte Kerne berücksichtigt
+
+### v2.6 — 03.09.2026
 - 🧩 **Neu: Per-Game-CPU-Pinning (CPU Sets)** — der Per-Game-Tab kann ein Spiel samt Kind-Prozessen beim Start auf bestimmte CPU-Kerne lenken: das **X3D-Cache-Chiplet** bei Dual-CCD-AMD (erkannt am größeren L3) oder die **P-Cores / E-Cores** bei Intel Hybrid. Nutzt die Windows-CPU-Sets-API (`SetProcessDefaultCpuSets`) — ein *weicher* Hinweis, der das Spiel nie ausbremst — mit `psutil`-Affinity als Fallback. Auf einer Single-Chiplet-CPU ohne P/E-Split (z.B. Ryzen 7 9800X3D) sagt es ehrlich, dass Pinning nichts bringt, statt eine Auswahl vorzutäuschen
 
 ### v2.5 — 02.09.2026

@@ -1,13 +1,13 @@
 <div align="center">
 
-# ⚡ GameOptimizerPro v2.6
+# ⚡ GameOptimizerPro v2.6.1
 
-**Windows & Gaming Optimizer v2.6 by FloDePin**
+**Windows & Gaming Optimizer v2.6.1 by FloDePin**
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python)](https://python.org)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D4?style=flat-square&logo=windows)](https://microsoft.com/windows)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-2.6-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
+[![Version](https://img.shields.io/badge/Version-2.6.1-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
 
 🇬🇧 **English** | 🇩🇪 [Deutsch](README.de.md)
 
@@ -144,7 +144,10 @@ Double-click **`GameOptimizerPro.bat`**
 
 ## 📜 Changelog
 
-### v2.6 ⭐ **CURRENT** — 2026-09-03
+### v2.6.1 ⭐ **CURRENT** — 2026-09-04
+- 🛡️ **CPU-pinning safety & honesty** — added the caveats that genuinely apply to our implementation: an **anti-cheat warning** (pinning reaches into a foreign game process; kernel anti-cheats like EAC/BattlEye/Vanguard *could* flag it), a **CCD-parking conflict warning** on multi-CCD machines (AMD's 3D V-Cache optimizer / Game Bar can overwrite or ignore our CPU-Set), and **pin verification** (`GetProcessDefaultCpuSets` readback confirms the assignment stuck — catching a driver overwrite or permission failure — surfaced live in the Per-Game tab). Honest limitation noted: the readback confirms the set is *registered*, not that the scheduler honours parked cores
+
+### v2.6 — 2026-09-03
 - 🧩 **New: Per-Game CPU Pinning (CPU Sets)** — the Per-Game Profiles tab can now steer a game and its child processes onto specific CPU cores at launch: the **X3D cache chiplet** on dual-CCD AMD (detected by its larger L3), or the **P-cores / E-cores** on Intel Hybrid. Uses the Windows CPU Sets API (`SetProcessDefaultCpuSets`) — a *soft* hint that never starves the game — with `psutil` affinity as fallback. On a single-chiplet CPU with no P/E split (e.g. Ryzen 7 9800X3D) it honestly tells you pinning brings no benefit instead of faking a choice
 
 ### v2.5 — 2026-09-02

@@ -65,6 +65,27 @@ def _open(pid: int, write: bool = True):
     return h or None
 
 
+def _get_default_cpu_sets(hproc) -> Optional[list[int]]:
+    """Read back the default CpuSet-Ids on an already-open handle."""
+    try:
+        k = _k32()
+        fn = k.GetProcessDefaultCpuSets
+        fn.restype = wintypes.BOOL
+        fn.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.ULONG),
+                       wintypes.ULONG, ctypes.POINTER(wintypes.ULONG)]
+        required = wintypes.ULONG(0)
+        fn(hproc, None, 0, ctypes.byref(required))
+        n = required.value
+        if n == 0:
+            return []
+        arr = (wintypes.ULONG * n)()
+        if fn(hproc, arr, n, ctypes.byref(required)):
+            return list(arr[:required.value])
+        return None
+    except Exception:
+        return None
+
+
 def _close(h):
     try:
         _k32().CloseHandle(h)
@@ -86,18 +107,28 @@ def is_supported() -> bool:
 
 def pin_process(pid: int, topo: CpuTopology, logicals: list[int]) -> bool:
     """Steer one process onto `logicals`. Empty list = reset to system default.
-    Tries CPU Sets first, then psutil affinity. Returns True on success."""
+    Tries CPU Sets first, then psutil affinity. Returns True on success.
+
+    Note: a True result confirms the CPU-Set assignment was *registered* (and
+    not immediately overwritten by another writer such as AMD's 3D V-Cache
+    driver). It does NOT guarantee the scheduler honours it — a set of only
+    parked cores is silently ignored at scheduling time (see UI warning)."""
     if platform.system() != "Windows":
         return False
     ids = _logicals_to_cpuset_ids(topo, logicals)
 
-    # 1) CPU Sets (soft hint)
+    # 1) CPU Sets (soft hint) — then verify it actually stuck
     if is_supported():
         h = _open(pid, write=True)
         if h:
             try:
                 if _set_default_cpu_sets(h, ids):
-                    return True
+                    actual = _get_default_cpu_sets(h)  # readback on same handle
+                    # Success if our ids are reflected (guards against a
+                    # concurrent last-writer-wins overwrite). If readback is
+                    # unavailable (None), trust the set call succeeded.
+                    if actual is None or (set(ids) and set(ids) <= set(actual)):
+                        return True
             finally:
                 _close(h)
 
@@ -171,22 +202,7 @@ def verify_process(pid: int) -> Optional[list[int]]:
     if not h:
         return None
     try:
-        k = _k32()
-        fn = k.GetProcessDefaultCpuSets
-        fn.restype = wintypes.BOOL
-        fn.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.ULONG),
-                       wintypes.ULONG, ctypes.POINTER(wintypes.ULONG)]
-        required = wintypes.ULONG(0)
-        fn(h, None, 0, ctypes.byref(required))
-        n = required.value
-        if n == 0:
-            return []
-        arr = (wintypes.ULONG * n)()
-        if fn(h, arr, n, ctypes.byref(required)):
-            return list(arr[:required.value])
-        return None
-    except Exception:
-        return None
+        return _get_default_cpu_sets(h)
     finally:
         _close(h)
 

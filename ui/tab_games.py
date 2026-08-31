@@ -137,8 +137,10 @@ class GamesTab(tk.Frame):
         self.lbl_active_game.pack(fill="x", padx=14, pady=(2, 8))
 
         # Wire game monitor callbacks
+        self._pending_pin = None  # (name, ok, detail) set from monitor thread
         self.gm.on_game_start(self._on_game_start)
         self.gm.on_game_stop(self._on_game_stop)
+        self.gm.on_cpu_pin(self._on_cpu_pin_result)
 
         self._refresh_games()
 
@@ -288,7 +290,7 @@ class GamesTab(tk.Frame):
         win = tk.Toplevel(self)
         win.title("CPU-Kerne zuweisen")
         win.configure(bg=DARK)
-        win.geometry("460x340")
+        win.geometry("470x470")
         win.resizable(False, False)
 
         tk.Label(win, text=f"🧩  CPU-Kerne für: {exe}",
@@ -309,11 +311,30 @@ class GamesTab(tk.Frame):
             ).pack(fill="x", anchor="w", pady=1)
 
         tk.Label(win,
-                 text="CPU Sets sind ein weicher Hinweis: Das Spiel läuft "
+                 text="ℹ CPU Sets sind ein weicher Hinweis: Das Spiel läuft "
                       "bevorzugt auf den gewählten Kernen, kann bei Bedarf aber "
                       "ausweichen — es kann also nie ausgebremst werden.",
                  font=("Segoe UI", 7), fg="#6b7280", bg=DARK,
-                 wraplength=430, justify="left").pack(padx=14, pady=(6, 0), anchor="w")
+                 wraplength=440, justify="left").pack(padx=14, pady=(6, 0), anchor="w")
+
+        # Anti-cheat caveat (always) — we modify a foreign game process
+        tk.Label(win,
+                 text="⚠ Anti-Cheat: Das Pinnen greift von außen in den Spielprozess "
+                      "ein. Kernel-Anti-Cheats (EAC, BattlEye, Vanguard) könnten das "
+                      "theoretisch als Manipulation werten — mit Anti-Cheat-Spielen "
+                      "auf eigenes Risiko nutzen.",
+                 font=("Segoe UI", 7), fg="#d08770", bg=DARK,
+                 wraplength=440, justify="left").pack(padx=14, pady=(4, 0), anchor="w")
+
+        # CCD-parking conflict — only relevant on multi-CCD machines
+        if topo and len(topo.ccds) > 1:
+            tk.Label(win,
+                     text="⚠ CCD-Parking: Ist AMDs 3D-V-Cache-Optimizer bzw. das "
+                          "Game-Bar-CCD-Parking aktiv, kann es unser Pinning "
+                          "überschreiben oder geparkte Kerne stillschweigend ignorieren. "
+                          "Für zuverlässiges Pinning diese in Windows/BIOS deaktivieren.",
+                     font=("Segoe UI", 7), fg="#d08770", bg=DARK,
+                     wraplength=440, justify="left").pack(padx=14, pady=(4, 0), anchor="w")
 
         def _confirm():
             chosen = sel_var.get()
@@ -361,8 +382,27 @@ class GamesTab(tk.Frame):
             self._update_monitor_status()
         ))
 
+    def _on_cpu_pin_result(self, game, ok, detail):
+        """Called from the monitor thread — only store; the main-thread poller
+        (_periodic_update) renders it. Never touch Tk from here."""
+        try:
+            self._pending_pin = (game.display_name, bool(ok), detail)
+        except Exception:
+            pass
+
     def _periodic_update(self):
         self._update_monitor_status()
+        # Surface a pending CPU-pin result (set from the monitor thread)
+        pending = self._pending_pin
+        if pending:
+            self._pending_pin = None
+            name, ok, detail = pending
+            if ok:
+                self.lbl_active_game.config(
+                    text=f"🧩 {name}: CPU-Pinning aktiv ({detail})", fg="#3b82f6")
+            else:
+                self.lbl_active_game.config(
+                    text=f"⚠ {name}: {detail}", fg="#f59e0b")
         self.after(3000, self._periodic_update)
 
     # ── Tune History ──────────────────────────────────────────────────────────

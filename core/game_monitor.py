@@ -68,6 +68,8 @@ class GameMonitor:
         # Callbacks
         self._on_game_start: Optional[Callable] = None
         self._on_game_stop:  Optional[Callable] = None
+        self._on_cpu_pin:    Optional[Callable] = None
+        self._pin_reported = False  # report the main-process pin result only once
 
         self._load_games()
 
@@ -158,6 +160,7 @@ class GameMonitor:
 
     def on_game_start(self, cb: Callable): self._on_game_start = cb
     def on_game_stop(self,  cb: Callable): self._on_game_stop  = cb
+    def on_cpu_pin(self,    cb: Callable): self._on_cpu_pin    = cb
 
     def start(self):
         if self._running:
@@ -205,6 +208,7 @@ class GameMonitor:
                     # New game started
                     self._active_game = found_game.exe.lower()
                     self._pinned_pids.clear()
+                    self._pin_reported = False
                     self._apply_profile(found_game.profile_name)
                     self._apply_cpu_pin(found_game)
                     if self._on_game_start:
@@ -268,12 +272,30 @@ class GameMonitor:
                         procs.append(p)
                 except Exception:
                     continue
+            main_ok = None  # pin result of the game's own process (for reporting)
             for proc in procs:
-                for pr in [proc] + cpu_pinning._safe_children(proc):
+                # The exe-matching process itself is the "main" one; children follow
+                for is_main, pr in ([(True, proc)] +
+                                    [(False, c) for c in cpu_pinning._safe_children(proc)]):
                     if pr.pid in self._pinned_pids:
                         continue
                     self._pinned_pids.add(pr.pid)
-                    cpu_pinning.pin_process(pr.pid, self._topo, logicals)
+                    ok = cpu_pinning.pin_process(pr.pid, self._topo, logicals)
+                    if is_main and main_ok is None:
+                        main_ok = ok
+
+            # Report the main-process result once (UI surfaces overwrite/failure)
+            if main_ok is not None and not self._pin_reported:
+                self._pin_reported = True
+                if self._on_cpu_pin:
+                    label = self._topo.target_logicals(game.cpu_target) or []
+                    detail = (f"{len(label)} Kerne" if main_ok else
+                              "Pinning wurde nicht übernommen (evtl. überschrieben "
+                              "oder Kerne geparkt)")
+                    try:
+                        self._on_cpu_pin(game, main_ok, detail)
+                    except Exception:
+                        pass
         except Exception:
             pass
 

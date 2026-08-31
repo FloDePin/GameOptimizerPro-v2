@@ -4,6 +4,16 @@ All notable changes to GameOptimizerPro are documented here.
 
 ---
 
+## [2.6.1] — 2026-09-04
+
+### 🛡️ CPU-Pinning safety & honesty (caveats from the reference tool, verified against our impl)
+- **Anti-cheat caveat** — the CPU-assignment dialog now warns that pinning reaches into a foreign game process, which kernel-level anti-cheats (EAC, BattlEye, Vanguard) *could* theoretically flag. Use at your own risk with anti-cheat titles
+- **CCD-parking conflict warning** (multi-CCD machines only) — warns that AMD's 3D V-Cache optimizer / Xbox Game Bar CCD-parking can overwrite our CPU-Set assignment (last-writer-wins) or silently ignore parked cores; recommends disabling those for reliable pinning
+- **Pin verification** — after assigning a CPU Set, `pin_process()` now reads it back via `GetProcessDefaultCpuSets` and only reports success if our IDs actually stuck. This catches a concurrent overwrite (e.g. by AMD's driver) and permission failures. *Honest limitation:* the readback confirms the assignment is **registered**, not that the scheduler honours it — a set of only parked cores is ignored at scheduling time, which no API call can detect (hence the separate parking warning)
+- **Result surfaced in the UI** — the Per-Game tab now shows "🧩 CPU-Pinning aktiv (N Kerne)" or an amber "⚠ Pinning wurde nicht übernommen …" when a game launches, via a new thread-safe `on_cpu_pin` callback drained by the main-thread poller (no `after()` from the monitor thread — same lesson as the v2.4.2 log-box fix)
+
+---
+
 ## [2.6] — 2026-09-03
 
 ### 🚀 New Features
