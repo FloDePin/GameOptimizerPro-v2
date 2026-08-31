@@ -59,10 +59,18 @@ class GamesTab(tk.Frame):
         self._update_monitor_status()
 
         tk.Label(p,
-                 text="Weist jedem Spiel automatisch ein GPU-Profil zu. "
+                 text="Weist jedem Spiel automatisch ein GPU-Profil und/oder CPU-Kerne zu. "
                       "GameOptimizerPro überwacht im Hintergrund welche Prozesse laufen.",
                  font=("Segoe UI", 8), fg=DIM, bg=DARK,
                  wraplength=800).pack(padx=14, anchor="w")
+
+        # CPU topology note (honest guidance — e.g. single-CCD = pinning useless)
+        topo = self.gm.topology
+        if topo is not None and topo.note:
+            icon = "🧩" if (topo.ok and len(self.gm.cpu_pin_targets()) > 1) else "ℹ"
+            tk.Label(p, text=f"{icon}  {topo.note}",
+                     font=("Segoe UI", 8), fg="#7c8794", bg=DARK,
+                     wraplength=800).pack(padx=14, anchor="w", pady=(2, 0))
 
         # Game list
         style = ttk.Style()
@@ -80,18 +88,19 @@ class GamesTab(tk.Frame):
         tree_f.pack(fill="both", expand=True, padx=14, pady=6)
 
         sb = ttk.Scrollbar(tree_f, orient="vertical")
-        cols = ("status", "game", "exe", "profile", "restore")
+        cols = ("status", "game", "exe", "profile", "restore", "cpu")
         self.game_tree = ttk.Treeview(
             tree_f, columns=cols, show="headings",
             style="GM.Treeview", height=14, yscrollcommand=sb.set)
         sb.config(command=self.game_tree.yview)
 
         for col, label, w in [
-            ("status",  "Status",          60),
-            ("game",    "Spiel",           160),
-            ("exe",     "Prozess (.exe)",  200),
-            ("profile", "Profil bei Start",160),
-            ("restore", "Profil danach",   150),
+            ("status",  "Status",          55),
+            ("game",    "Spiel",           150),
+            ("exe",     "Prozess (.exe)",  180),
+            ("profile", "Profil bei Start",140),
+            ("restore", "Profil danach",   130),
+            ("cpu",     "CPU-Kerne",       150),
         ]:
             self.game_tree.heading(col, text=label)
             self.game_tree.column(col, width=w,
@@ -111,6 +120,7 @@ class GamesTab(tk.Frame):
         for text, cmd, bg, fg in [
             ("+ Spiel hinzufügen",     self._add_game,    GAME_COLOR, "#000"),
             ("✏ Profil zuweisen",      self._assign_profile, DARK3,   TXT),
+            ("🧩 CPU-Kerne zuweisen",  self._assign_cpu,  "#3b82f6", WHT),
             ("⊘ Deaktivieren/Aktivieren", self._toggle_game, "#f59e0b", "#000"),
             ("🗑 Entfernen",            self._remove_game,  ERR,      WHT),
         ]:
@@ -156,13 +166,21 @@ class GamesTab(tk.Frame):
         profiles = [p.name for p in self.pm.list_all()
                     if not p.name.startswith("__")]
 
+        # Map cpu_target keys → short labels for display
+        cpu_labels = {t.key: t.label for t in self.gm.cpu_pin_targets()}
+
         for game in self.gm.get_games():
             is_active  = game.exe.lower() == active
             has_profile = bool(game.profile_name)
-            status = "▶ AKTIV" if is_active else ("✓" if has_profile else "○")
+            status = "▶ AKTIV" if is_active else ("✓" if (has_profile or game.cpu_target) else "○")
 
             tag = "active" if is_active else ("disabled" if not game.enabled else
-                  ("no_profile" if not has_profile else ""))
+                  ("no_profile" if not (has_profile or game.cpu_target) else ""))
+
+            if game.cpu_target and game.cpu_target != "all":
+                cpu_disp = cpu_labels.get(game.cpu_target, game.cpu_target)
+            else:
+                cpu_disp = "—"
 
             self.game_tree.insert("", "end",
                 iid=game.exe,
@@ -172,6 +190,7 @@ class GamesTab(tk.Frame):
                     game.exe,
                     game.profile_name or "(nicht gesetzt)",
                     game.restore_profile.replace("__tray_default__", "← Standard"),
+                    cpu_disp,
                 ),
                 tags=(tag,)
             )
@@ -235,6 +254,77 @@ class GamesTab(tk.Frame):
                   font=FM, bg=GAME_COLOR, fg="#000",
                   relief="flat", padx=12, pady=6, cursor="hand2"
                   ).pack(pady=8)
+
+    def _assign_cpu(self):
+        sel = self.game_tree.selection()
+        if not sel:
+            messagebox.showwarning("", "Kein Spiel ausgewählt.")
+            return
+        exe = sel[0]
+
+        targets = self.gm.cpu_pin_targets()
+        topo = self.gm.topology
+        if not targets or (topo and not topo.ok):
+            messagebox.showinfo("CPU-Pinning nicht verfügbar",
+                (topo.note if topo and topo.note else
+                 "CPU-Topologie konnte nicht gelesen werden."))
+            return
+        if len(targets) <= 1:
+            # Only "all" available → nothing meaningful to pin
+            messagebox.showinfo("Kein CPU-Pinning nötig",
+                (topo.note if topo and topo.note else "") +
+                "\n\nDeine CPU bietet keine sinnvolle Kern-Aufteilung "
+                "(z.B. nur ein Chiplet). Das Zuweisen einzelner Kerne würde "
+                "hier keinen Vorteil bringen.")
+            return
+
+        # Current target for this game
+        cur = ""
+        for g in self.gm.get_games():
+            if g.exe == exe:
+                cur = g.cpu_target or "all"
+                break
+
+        win = tk.Toplevel(self)
+        win.title("CPU-Kerne zuweisen")
+        win.configure(bg=DARK)
+        win.geometry("460x340")
+        win.resizable(False, False)
+
+        tk.Label(win, text=f"🧩  CPU-Kerne für: {exe}",
+                 font=FL, fg="#3b82f6", bg=DARK).pack(padx=14, pady=(12, 2), anchor="w")
+        if topo and topo.note:
+            tk.Label(win, text=topo.note, font=("Segoe UI", 8), fg=DIM, bg=DARK,
+                     wraplength=430, justify="left").pack(padx=14, anchor="w", pady=(0, 6))
+
+        sel_var = tk.StringVar(value=cur)
+        opt_frame = tk.Frame(win, bg=DARK)
+        opt_frame.pack(fill="both", expand=True, padx=14)
+        for t in targets:
+            tk.Radiobutton(
+                opt_frame, text=t.label, value=t.key, variable=sel_var,
+                font=FM, fg=TXT, bg=DARK, selectcolor=DARK3,
+                activebackground=DARK, activeforeground=WHT,
+                anchor="w", highlightthickness=0
+            ).pack(fill="x", anchor="w", pady=1)
+
+        tk.Label(win,
+                 text="CPU Sets sind ein weicher Hinweis: Das Spiel läuft "
+                      "bevorzugt auf den gewählten Kernen, kann bei Bedarf aber "
+                      "ausweichen — es kann also nie ausgebremst werden.",
+                 font=("Segoe UI", 7), fg="#6b7280", bg=DARK,
+                 wraplength=430, justify="left").pack(padx=14, pady=(6, 0), anchor="w")
+
+        def _confirm():
+            chosen = sel_var.get()
+            # store "" for the no-op "all" so the column shows a clean "—"
+            self.gm.set_cpu_target(exe, "" if chosen == "all" else chosen)
+            self._refresh_games()
+            win.destroy()
+
+        tk.Button(win, text="Zuweisen", command=_confirm,
+                  font=FM, bg="#3b82f6", fg=WHT,
+                  relief="flat", padx=12, pady=6, cursor="hand2").pack(pady=10)
 
     def _toggle_game(self):
         sel = self.game_tree.selection()

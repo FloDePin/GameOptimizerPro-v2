@@ -4,6 +4,18 @@ All notable changes to GameOptimizerPro are documented here.
 
 ---
 
+## [2.6] — 2026-09-03
+
+### 🚀 New Features
+- **Per-Game CPU Pinning (CPU Sets)** — the Per-Game Profiles tab can now steer a game (and its child processes) onto a chosen set of CPU cores when it launches, on top of the existing GPU-profile assignment. Targets are derived from the *actual* detected topology:
+  - **AMD X3D / dual-CCD** → pin to the **cache chiplet** (the CCD carrying the extra 3D V-Cache, identified by its larger L3), or to either chiplet individually
+  - **Intel Hybrid** → pin to the **P-cores** (or E-cores), keeping the other core type free for background work
+  - Uses the Windows **CPU Sets** API (`SetProcessDefaultCpuSets`) — a *soft* scheduler hint, not a hard affinity mask: the game runs preferentially on the chosen cores but can still spill over under load, so it can never be accidentally starved. Falls back to `psutil` affinity if CPU Sets are unavailable
+  - **Honest by design:** on a single-chiplet CPU with no P/E split (e.g. Ryzen 7 9800X3D — one CCD), the tab tells you plainly that pinning brings no benefit and offers nothing to assign, instead of faking a choice
+  - New `core/cpu_topology.py` (read-only detection via `GetSystemCpuSetInformation` + `GetLogicalProcessorInformationEx`) and `core/cpu_pinning.py`. Game assignments persist in `game_profiles.json` (old files load unchanged). Child processes spawned mid-session are re-pinned automatically
+
+---
+
 ## [2.5] — 2026-09-02
 
 ### 🚀 New Features

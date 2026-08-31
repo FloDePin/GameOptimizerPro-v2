@@ -19,6 +19,7 @@ class GameEntry:
     profile_name: str    # Name des GOP GPU-Profils
     restore_profile: str = "__tray_default__"  # Profil nach Spielende
     enabled:      bool = True
+    cpu_target:   str = ""   # CPU-Pinning-Ziel (Key aus cpu_topology.pin_targets), "" = kein Pinning
 
 
 class GameMonitor:
@@ -55,6 +56,14 @@ class GameMonitor:
         self._thread: Optional[threading.Thread] = None
         self._last_procs: set[str] = set()
         self._apply_lock = threading.Lock()
+        self._pinned_pids: set[int] = set()  # PIDs already pinned for the active game
+
+        # CPU topology — detected once, read-only
+        try:
+            from core import cpu_topology
+            self._topo = cpu_topology.detect()
+        except Exception:
+            self._topo = None
 
         # Callbacks
         self._on_game_start: Optional[Callable] = None
@@ -72,7 +81,10 @@ class GameMonitor:
         if path.exists():
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
-                self._games = [GameEntry(**g) for g in data]
+                # Tolerate unknown/legacy keys so old files still load
+                fields = set(GameEntry.__dataclass_fields__.keys())
+                self._games = [GameEntry(**{k: v for k, v in g.items() if k in fields})
+                               for g in data]
                 return
             except:
                 pass
@@ -106,14 +118,37 @@ class GameMonitor:
         self._save_games()
 
     def update_game(self, exe: str, profile_name: str,
-                    enabled: bool = True, restore: str = "__tray_default__"):
+                    enabled: bool = True, restore: str = "__tray_default__",
+                    cpu_target: Optional[str] = None):
         for g in self._games:
             if g.exe.lower() == exe.lower():
                 g.profile_name  = profile_name
                 g.enabled       = enabled
                 g.restore_profile = restore
+                if cpu_target is not None:
+                    g.cpu_target = cpu_target
                 self._save_games()
                 return
+
+    def set_cpu_target(self, exe: str, cpu_target: str):
+        """Set only the CPU-pinning target for a game (keeps other fields)."""
+        for g in self._games:
+            if g.exe.lower() == exe.lower():
+                g.cpu_target = cpu_target
+                self._save_games()
+                return
+
+    # ── CPU topology accessors (for UI) ───────────────────────────────────────
+
+    @property
+    def topology(self):
+        return self._topo
+
+    def cpu_pin_targets(self):
+        """Available pin targets for this machine, or [] if unsupported."""
+        if self._topo and self._topo.ok:
+            return self._topo.pin_targets()
+        return []
 
     def remove_game(self, exe: str):
         self._games = [g for g in self._games if g.exe.lower() != exe.lower()]
@@ -154,10 +189,13 @@ class GameMonitor:
                     continue
                 self._last_procs = procs
 
-                # Check each enabled game
+                # Check each enabled game — qualifies if it has a GPU profile
+                # OR a CPU-pinning target assigned
                 found_game = None
                 for game in self._games:
-                    if not game.enabled or not game.profile_name:
+                    if not game.enabled:
+                        continue
+                    if not game.profile_name and not game.cpu_target:
                         continue
                     if game.exe.lower() in procs:
                         found_game = game
@@ -166,14 +204,21 @@ class GameMonitor:
                 if found_game and self._active_game != found_game.exe.lower():
                     # New game started
                     self._active_game = found_game.exe.lower()
+                    self._pinned_pids.clear()
                     self._apply_profile(found_game.profile_name)
+                    self._apply_cpu_pin(found_game)
                     if self._on_game_start:
                         self._on_game_start(found_game)
+
+                elif found_game and self._active_game == found_game.exe.lower():
+                    # Still running — re-pin any newly spawned child processes
+                    self._apply_cpu_pin(found_game)
 
                 elif not found_game and self._active_game:
                     # Active game stopped
                     stopped_exe = self._active_game
                     self._active_game = None
+                    self._pinned_pids.clear()
                     # Find restore profile
                     for game in self._games:
                         if game.exe.lower() == stopped_exe:
@@ -201,6 +246,35 @@ class GameMonitor:
                             self.cr.save_last_applied(p.to_dict())
                 threading.Thread(target=_do, daemon=True).start()
         except:
+            pass
+
+    def _apply_cpu_pin(self, game: GameEntry):
+        """Pin the game process + its children onto the chosen cores.
+        Runs on the monitor thread; best-effort, never raises. Only pins PIDs
+        not seen yet this session so repeated calls are cheap."""
+        if not game.cpu_target or not self._topo or not self._topo.ok:
+            return
+        logicals = self._topo.target_logicals(game.cpu_target)
+        if not logicals:
+            return
+        try:
+            import psutil
+            from core import cpu_pinning
+            exe_low = game.exe.lower()
+            procs = []
+            for p in psutil.process_iter(["name", "pid"]):
+                try:
+                    if (p.info["name"] or "").lower() == exe_low:
+                        procs.append(p)
+                except Exception:
+                    continue
+            for proc in procs:
+                for pr in [proc] + cpu_pinning._safe_children(proc):
+                    if pr.pid in self._pinned_pids:
+                        continue
+                    self._pinned_pids.add(pr.pid)
+                    cpu_pinning.pin_process(pr.pid, self._topo, logicals)
+        except Exception:
             pass
 
     @property

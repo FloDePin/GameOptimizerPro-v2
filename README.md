@@ -1,13 +1,13 @@
 <div align="center">
 
-# ⚡ GameOptimizerPro v2.5
+# ⚡ GameOptimizerPro v2.6
 
-**Windows & Gaming Optimizer v2.5 by FloDePin**
+**Windows & Gaming Optimizer v2.6 by FloDePin**
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python)](https://python.org)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D4?style=flat-square&logo=windows)](https://microsoft.com/windows)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-2.5-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
+[![Version](https://img.shields.io/badge/Version-2.6-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
 
 🇬🇧 **English** | 🇩🇪 [Deutsch](README.de.md)
 
@@ -67,6 +67,7 @@
 ### 🎮 Per-Game Profiles
 - Background process monitor (psutil, ~3s interval, resource-light)
 - Auto-loads GPU profile when a game starts, restores default when it closes
+- **Per-Game CPU Pinning (CPU Sets)** — optionally steer a game onto specific cores: the **X3D cache chiplet** on dual-CCD AMD, or the **P-cores** on Intel Hybrid. Soft scheduler hint (never starves the game); honestly disabled on single-chiplet CPUs where it wouldn't help
 - 15 pre-configured games (CS2, Cyberpunk 2077, Apex Legends, Valorant, Fortnite...)
 - Add any `.exe` process manually
 
@@ -143,7 +144,10 @@ Double-click **`GameOptimizerPro.bat`**
 
 ## 📜 Changelog
 
-### v2.5 ⭐ **CURRENT** — 2026-09-02
+### v2.6 ⭐ **CURRENT** — 2026-09-03
+- 🧩 **New: Per-Game CPU Pinning (CPU Sets)** — the Per-Game Profiles tab can now steer a game and its child processes onto specific CPU cores at launch: the **X3D cache chiplet** on dual-CCD AMD (detected by its larger L3), or the **P-cores / E-cores** on Intel Hybrid. Uses the Windows CPU Sets API (`SetProcessDefaultCpuSets`) — a *soft* hint that never starves the game — with `psutil` affinity as fallback. On a single-chiplet CPU with no P/E split (e.g. Ryzen 7 9800X3D) it honestly tells you pinning brings no benefit instead of faking a choice
+
+### v2.5 — 2026-09-02
 - 🤖 **New tweak: Disable Text & Image Generation (on-device AI)** (Privacy) — turns off Windows' on-device generative AI (Settings → Privacy → Text and image generation). Added to the Privacy & Hard presets. **71 tweaks total**
 - 🖥 **BIOS Guide: "Disable motherboard auto-install utilities"** — added to the AMD (Zen 3/4/5) and Intel (Raptor/Alder Lake) profiles with exact per-vendor paths (ASUS / MSI / Gigabyte / ASRock). Stops the board silently installing vendor bloatware (Armoury Crate, MSI Center, App Center …) at first boot
 
@@ -261,6 +265,8 @@ GameOptimizerPro/
 │   ├── bios_guide.py         ← BIOS recommendations database
 │   ├── bios_detector.py      ← Live BIOS state detection
 │   ├── game_monitor.py       ← Per-game profile monitor (psutil, thread-safe)
+│   ├── cpu_topology.py       ← CPU topology (CCDs, P/E cores, X3D cache die)
+│   ├── cpu_pinning.py        ← Per-game CPU pinning via CPU Sets API
 │   ├── crash_recovery.py     ← TDR detection, crash flag system
 │   ├── temp_monitor.py       ← GPU temp toast notifications
 │   ├── update_checker.py     ← GitHub releases API
