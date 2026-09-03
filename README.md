@@ -1,13 +1,13 @@
 <div align="center">
 
-# ⚡ GameOptimizerPro v2.6.1
+# ⚡ GameOptimizerPro v2.6.2
 
-**Windows & Gaming Optimizer v2.6.1 by FloDePin**
+**Windows & Gaming Optimizer v2.6.2 by FloDePin**
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python)](https://python.org)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D4?style=flat-square&logo=windows)](https://microsoft.com/windows)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-2.6.1-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
+[![Version](https://img.shields.io/badge/Version-2.6.2-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
 
 🇬🇧 **English** | 🇩🇪 [Deutsch](README.de.md)
 
@@ -144,7 +144,15 @@ Double-click **`GameOptimizerPro.bat`**
 
 ## 📜 Changelog
 
-### v2.6.1 ⭐ **CURRENT** — 2026-09-04
+### v2.6.2 ⭐ **CURRENT** — 2026-09-05 *(bug-fix release)*
+- 🔴 **Fix: stress-worker orphan on the numpy path** — the numpy CPU-burn loop had **no** parent-alive check (only the rarely-used no-numpy fallback did), so a hard GUI crash could leave a process pegging the CPU at 100% forever. The GUI PID is now passed to the worker and every burn loop self-terminates when the GUI is gone. *Verified live: worker exits ~1–2 s after its parent dies.* Completes the v2.3.2 fix
+- 🐛 **Fix: update checker missed suffixed tags** — `v2.7.0-beta` parsed to `(0,)` and was ranked older than the current version; now parses the numeric core before any `-`/`+` suffix
+- 🐛 **Fix: `disable_hpet` revert wasn't symmetric** — revert *set* `useplatformclock true` (never the original state); now deletes all three BCD values to restore the true Windows default
+- 🐛 **Fix: tweak-state file used a CWD-relative path** — `applied_tweaks.json` could diverge from the logs when started from another dir; anchored to the absolute logs dir
+- 🐛 **Fix: `wmic` CPU fallback mapped columns wrong** (alphabetical CSV order) — now maps by header name; **Fix: MAHM reader** could drop late sensor entries (buffer sized with nominal instead of max stride); **Fix: presets** no longer mutate shared module state; **Fix: `restore_point`** decodes as `utf-8` not `latin-1`
+- 🔎 Reviewed two external bug reports against the actual code first: several claims were **overstated or false** (the "critical" tray race is already caught by try/except; "no logging at all" was false — the tweak runner writes a daily logfile) and were correctly **not** changed
+
+### v2.6.1 — 2026-09-04
 - 🛡️ **CPU-pinning safety & honesty** — added the caveats that genuinely apply to our implementation: an **anti-cheat warning** (pinning reaches into a foreign game process; kernel anti-cheats like EAC/BattlEye/Vanguard *could* flag it), a **CCD-parking conflict warning** on multi-CCD machines (AMD's 3D V-Cache optimizer / Game Bar can overwrite or ignore our CPU-Set), and **pin verification** (`GetProcessDefaultCpuSets` readback confirms the assignment stuck — catching a driver overwrite or permission failure — surfaced live in the Per-Game tab). Honest limitation noted: the readback confirms the set is *registered*, not that the scheduler honours parked cores
 
 ### v2.6 — 2026-09-03

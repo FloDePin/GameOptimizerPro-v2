@@ -4,7 +4,7 @@ Vordefinierte Tweak-Kombinationen für häufige Anwendungsfälle.
 Jedes Preset hat eine Liste von Tweak-IDs + Metadaten.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Optional
 
 
@@ -227,19 +227,20 @@ def get_all_safe_ids() -> list[str]:
 def get_preset(preset_id: str) -> Optional[TweakPreset]:
     for p in BUILTIN_PRESETS:
         if p.id == preset_id:
+            # Return a COPY with the dynamic list for "all_safe" — never mutate
+            # the shared module-global object (that leaked state across callers).
             if preset_id == "all_safe":
-                p.tweak_ids = get_all_safe_ids()
+                return replace(p, tweak_ids=get_all_safe_ids())
             return p
     return None
 
 
 def get_all_presets(user_presets: list[TweakPreset] = None) -> list[TweakPreset]:
-    result = list(BUILTIN_PRESETS)
     # "All Safe" wird dynamisch befüllt, damit es auch bei direktem Aufruf
-    # (nicht nur beim UI-Rendern) eine gültige Tweak-Liste hat.
-    for p in result:
-        if p.id == "all_safe":
-            p.tweak_ids = get_all_safe_ids()
+    # (nicht nur beim UI-Rendern) eine gültige Tweak-Liste hat — als frische
+    # Kopie, ohne das Modul-globale BUILTIN_PRESETS zu verändern.
+    result = [replace(p, tweak_ids=get_all_safe_ids()) if p.id == "all_safe" else p
+              for p in BUILTIN_PRESETS]
     if user_presets:
         result.extend(user_presets)
     return result

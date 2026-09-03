@@ -1,13 +1,13 @@
 <div align="center">
 
-# ⚡ GameOptimizerPro v2.6.1
+# ⚡ GameOptimizerPro v2.6.2
 
-**Windows & Gaming Optimizer v2.6.1 von FloDePin**
+**Windows & Gaming Optimizer v2.6.2 von FloDePin**
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python)](https://python.org)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D4?style=flat-square&logo=windows)](https://microsoft.com/windows)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-2.6.1-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
+[![Version](https://img.shields.io/badge/Version-2.6.2-red?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
 
 🇬🇧 [English](README.md) | 🇩🇪 **Deutsch**
 
@@ -142,7 +142,15 @@ Für Spannungswerte und GPU-Overclocking:
 
 ## 📜 Änderungsverlauf
 
-### v2.6.1 ⭐ **AKTUELL** — 04.09.2026
+### v2.6.2 ⭐ **AKTUELL** — 05.09.2026 *(Bugfix-Release)*
+- 🔴 **Fix: Stress-Worker-Waise im numpy-Pfad** — der numpy-CPU-Burn-Loop hatte **keinen** Parent-Alive-Check (nur der selten genutzte Fallback), sodass ein harter GUI-Absturz einen Prozess dauerhaft auf 100 % CPU laufen lassen konnte. Die GUI-PID wird jetzt an den Worker übergeben und **jeder** Burn-Loop beendet sich, sobald die GUI weg ist. *Live getestet: Worker beendet sich ~1–2 s nach dem Parent-Tod.* Vervollständigt den v2.3.2-Fix
+- 🐛 **Fix: Update-Checker übersah Suffix-Tags** — `v2.7.0-beta` wurde zu `(0,)` geparst und als älter gewertet; parst jetzt den Zahlen-Kern vor jedem `-`/`+`-Suffix
+- 🐛 **Fix: `disable_hpet`-Revert war unsymmetrisch** — der Revert *setzte* `useplatformclock true` (nie der Originalzustand); löscht jetzt alle drei BCD-Werte → echter Windows-Default
+- 🐛 **Fix: Tweak-State-Datei mit CWD-relativem Pfad** — `applied_tweaks.json` konnte bei Start aus anderem Verzeichnis von den Logs abweichen; jetzt am absoluten Logs-Pfad verankert
+- 🐛 **Fix: `wmic`-CPU-Fallback ordnete Spalten falsch zu** (alphabetische CSV-Reihenfolge) — jetzt per Header-Namen; **Fix: MAHM-Reader** konnte späte Sensor-Einträge verlieren (Puffer mit nominaler statt maximaler Eintragsgröße); **Fix: Presets** mutieren nicht mehr das Modul-Global; **Fix: `restore_point`** dekodiert als `utf-8` statt `latin-1`
+- 🔎 Zwei externe Bug-Reports zuerst gegen den echten Code geprüft: mehrere Behauptungen waren **übertrieben oder falsch** (die „kritische" Tray-Race wird bereits vom try/except abgefangen; „gar kein Logging" war falsch — der Tweak-Runner schreibt ein Tages-Logfile) und wurden bewusst **nicht** geändert
+
+### v2.6.1 — 04.09.2026
 - 🛡️ **CPU-Pinning: Sicherheit & Ehrlichkeit** — die Caveats ergänzt, die wirklich für unsere Umsetzung gelten: eine **Anti-Cheat-Warnung** (Pinning greift von außen in den Spielprozess ein; Kernel-Anti-Cheats wie EAC/BattlEye/Vanguard *könnten* das flaggen), eine **CCD-Parking-Konflikt-Warnung** bei Multi-CCD (AMDs 3D-V-Cache-Optimizer / Game Bar kann unser CPU-Set überschreiben oder ignorieren) und **Pin-Verifikation** (`GetProcessDefaultCpuSets`-Rücklesung bestätigt, dass das Set griff — fängt Treiber-Überschreibung & Rechte-Fehler ab — live im Per-Game-Tab angezeigt). Ehrliche Grenze vermerkt: Die Rücklesung bestätigt, dass das Set *registriert* ist, nicht dass der Scheduler geparkte Kerne berücksichtigt
 
 ### v2.6 — 03.09.2026

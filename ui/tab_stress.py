@@ -198,7 +198,7 @@ class StressTab(tk.Frame):
             if os.path.exists(worker):
                 flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
                 self._worker_proc = subprocess.Popen(
-                    [sys.executable, worker],
+                    [sys.executable, worker, str(os.getpid())],  # GUI PID → dead-man switch
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                     creationflags=flags
                 )

@@ -4,6 +4,23 @@ All notable changes to GameOptimizerPro are documented here.
 
 ---
 
+## [2.6.2] — 2026-09-05
+
+### 🐛 Bug Fixes (from two external code-review reports, each verified against the actual code first)
+- **🔴 Stress-worker orphan on the numpy path (real, could peg the CPU forever)** — `cpu_stress()`'s numpy branch ran a `while True` BLAS loop with **no** parent-alive check; only the rarely-used no-numpy fallback (`_burn`) had one. Since numpy ships in `requirements.txt`, the *unprotected* path was the active one — so a hard GUI crash (not the clean Stop button) left a process at 100% CPU indefinitely. The GUI PID is now passed to the worker as `argv[1]`, and **every** burn loop (cupy, numpy, and the multiprocessing children) checks it and self-terminates when the GUI is gone. *Verified with a live test: worker exits within ~1–2 s of its parent dying.* This completes the v2.3.2 fix, which only covered the fallback
+- **Update checker missed pre-release-style tags** — `_parse_version("v2.7.0-beta")` collapsed to `(0,)` (via `int("0-beta")`), so a suffixed tag was ranked *older* than the current version and never offered. Now parses the numeric core before any `-`/`+` suffix → `(2, 7, 0)`. Also split the redundant `except (URLError, Exception)` into real offline vs. other-error handling
+- **`disable_hpet` revert wasn't symmetric** — the apply *deletes* `useplatformclock`, but the revert *set it to `true`* (a value that was never there, and potentially worse for timer latency than the default). Revert now deletes all three BCD values, restoring the true Windows default
+- **Tweak-state file was a CWD-relative path** — `applied_tweaks.json` used `"logs/…"` (relative to the working dir) while the logs use an absolute path; launched from another dir (autostart / UAC relaunch) the two diverged and the applied-state looked lost. Anchored to the same absolute logs dir
+- **`wmic` CPU fallback mapped columns wrong** — `wmic /format:csv` returns columns **alphabetically**, not in the requested order, so the positional parse put the CPU *name* into the core-count field and a *number* into the name. Now maps columns by header name (only affects the no-`wmi`-module fallback)
+- **MAHM reader could drop late sensor entries** — the shared-memory buffer was sized with the nominal 260-byte stride while the real per-entry stride (from the header) can be 284, truncating the last entries when many sensors are active. Buffer now sized with the maximum entry size
+- **Presets no longer mutate shared module state** — `get_preset()/get_all_presets()` assigned `tweak_ids` onto the global `BUILTIN_PRESETS` objects (a shallow copy of the list still shares the objects); the "All Safe" preset is now returned as a fresh copy via `dataclasses.replace`
+- **`restore_point.py` decoded PowerShell output as `latin-1`** → switched to `utf-8`/`errors="replace"`, consistent with the rest of the project (prevents garbled umlauts in status messages)
+
+### 🔎 Reviewed, not changed (verified NOT a bug, or overstated)
+- Two reports contradicted each other on GUI threading — the "critical race condition" in the tray `_open()` is already caught by its `try/except` and cannot crash the GUI; not a real bug. Claims of "no logging at all" were false (the tweak runner writes a daily logfile). "NVML shutdown memory leak" and "Afterburner lock-check reads 1–2 MB" were overstated. The bare-`except:` prevalence and default-English language are code-style/opinion, not defects, and were left as-is
+
+---
+
 ## [2.6.1] — 2026-09-04
 
 ### 🛡️ CPU-Pinning safety & honesty (caveats from the reference tool, verified against our impl)

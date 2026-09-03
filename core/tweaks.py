@@ -311,7 +311,7 @@ bcdedit /set useplatformtick yes
 bcdedit /set disabledynamictick yes
 ''',
         revert_cmd='''
-bcdedit /set useplatformclock true
+bcdedit /deletevalue useplatformclock 2>$null
 bcdedit /deletevalue useplatformtick 2>$null
 bcdedit /deletevalue disabledynamictick 2>$null
 ''',

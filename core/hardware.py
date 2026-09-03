@@ -139,12 +139,28 @@ def detect() -> HardwareInfo:
                 ["wmic", "cpu", "get", "Name,NumberOfCores,NumberOfLogicalProcessors,MaxClockSpeed", "/format:csv"],
                 capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5
             )
-            for line in result.stdout.splitlines():
-                parts = line.strip().split(",")
-                if len(parts) >= 5 and parts[1]:
-                    info.cpu_freq_mhz = int(parts[1]) if parts[1].isdigit() else 0
-                    info.cpu_cores    = int(parts[2]) if parts[2].isdigit() else 0
-                    info.cpu_name     = parts[4].strip() if parts[4] else info.cpu_name
+            # wmic /format:csv sorts columns ALPHABETICALLY, not in the requested
+            # order (Node,MaxClockSpeed,Name,NumberOfCores,NumberOfLogicalProcessors),
+            # so parse the header row and map columns BY NAME instead of by position.
+            lines = [l.strip() for l in result.stdout.splitlines() if l.strip()]
+            if len(lines) >= 2:
+                header = [h.strip() for h in lines[0].split(",")]
+                idx = {name: i for i, name in enumerate(header)}
+                for line in lines[1:]:
+                    parts = line.split(",")
+                    def _col(name):
+                        i = idx.get(name, -1)
+                        return parts[i].strip() if 0 <= i < len(parts) else ""
+                    name = _col("Name")
+                    if not name:
+                        continue
+                    info.cpu_name     = name
+                    freq              = _col("MaxClockSpeed")
+                    cores             = _col("NumberOfCores")
+                    threads           = _col("NumberOfLogicalProcessors")
+                    info.cpu_freq_mhz = int(freq) if freq.isdigit() else 0
+                    info.cpu_cores    = int(cores) if cores.isdigit() else 0
+                    info.cpu_threads  = int(threads) if threads.isdigit() else info.cpu_threads
                     break
         except: pass
 

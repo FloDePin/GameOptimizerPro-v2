@@ -102,7 +102,7 @@ class StressTester:
             try:
                 flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
                 self._proc = subprocess.Popen(
-                    [sys.executable, wp],
+                    [sys.executable, wp, str(os.getpid())],  # GUI PID → dead-man switch
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                     creationflags=flags

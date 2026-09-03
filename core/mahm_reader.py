@@ -23,7 +23,10 @@ from typing import Optional
 MAHM_SHARED_MEMORY_NAME    = "MAHMSharedMemory"
 MAHM_MAX_SOURCES           = 256
 MAHM_GPU_ENTRY_SIZE        = 688   # sizeof(MAHM_SHARED_MEMORY_GPU_ENTRY)
-MAHM_ENTRY_SIZE            = 260   # sizeof(MAHM_SHARED_MEMORY_ENTRY)
+MAHM_ENTRY_SIZE            = 260   # nominal sizeof(MAHM_SHARED_MEMORY_ENTRY)
+MAHM_MAX_ENTRY_SIZE        = 512   # upper bound used to size the read buffer, so
+                                   # a larger real stride (e.g. 284) never truncates
+                                   # the last sensor entries
 
 # Header: dwSignature(4) + dwVersion(4) + dwNumEntries(4) + dwNumGpuEntries(4)
 #       + time(8) + dwEntrySize(4) + dwGpuEntrySize(4)  = 32 bytes
@@ -137,7 +140,10 @@ class MAHMReader:
 
         try:
             self._mm.seek(0)
-            raw = self._mm.read(MAHM_HEADER_SIZE + MAHM_MAX_SOURCES * MAHM_ENTRY_SIZE)
+            # Size the buffer with the MAX possible entry size — the real stride
+            # (read from the header below) can be larger than the nominal 260, and
+            # a too-small buffer would silently drop the last entries.
+            raw = self._mm.read(MAHM_HEADER_SIZE + MAHM_MAX_SOURCES * MAHM_MAX_ENTRY_SIZE)
 
             # Parse header
             sig, ver, n_entries, n_gpu_entries = struct.unpack_from("<IIII", raw, 0)

@@ -30,7 +30,7 @@ def create(description: str = "GameOptimizerPro Tweaks") -> tuple[bool, str]:
         r = subprocess.run(
             ["powershell.exe", "-NoProfile", "-NonInteractive",
              "-ExecutionPolicy", "Bypass", "-Command", ps],
-            capture_output=True, text=True, encoding="latin-1", timeout=180,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=180,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         out = ((r.stdout or "") + (r.stderr or "")).strip()

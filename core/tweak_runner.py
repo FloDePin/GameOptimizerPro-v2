@@ -11,12 +11,13 @@ from core.tweaks import Tweak, get_by_id
 
 
 class TweakRunner:
-    STATE_FILE = "logs/applied_tweaks.json"
-
     def __init__(self, log_dir: str = "logs"):
         self._log_dir = Path(log_dir)
         self._log_dir.mkdir(parents=True, exist_ok=True)
-        self._state_file = Path(self.STATE_FILE)
+        # Keep the state file next to the logs (absolute) — NOT a CWD-relative
+        # path, which would land elsewhere when the app is started from another
+        # working dir (autostart / UAC relaunch) and lose the applied-state.
+        self._state_file = self._log_dir / "applied_tweaks.json"
         self._applied: dict[str, str] = self._load_state()
 
         logfile = self._log_dir / f"tweaks_{datetime.now().strftime('%Y%m%d')}.log"

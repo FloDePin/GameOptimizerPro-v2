@@ -4,22 +4,23 @@ Prüft beim Start ob eine neue Version auf GitHub verfügbar ist.
 Non-blocking, läuft im Hintergrund-Thread.
 """
 
-import threading, json, urllib.request, urllib.error
+import threading, json, re, urllib.request, urllib.error
 from typing import Optional, Callable
 
-CURRENT_VERSION = "2.6.1"
+CURRENT_VERSION = "2.6.2"
 GITHUB_REPO     = "FloDePin/GameOptimizerPro-v2"
 GITHUB_API_URL  = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 GITHUB_RELEASE  = f"https://github.com/{GITHUB_REPO}/releases/latest"
 
 
 def _parse_version(ver: str) -> tuple[int, ...]:
-    """Parse 'v2.1' or '2.0' into (2, 0)."""
-    ver = ver.lstrip("v").strip()
-    try:
-        return tuple(int(x) for x in ver.split("."))
-    except:
-        return (0,)
+    """Parse 'v2.1', '2.0' or 'v2.7.0-beta' into a numeric tuple.
+    Only the core before any '-'/'+' suffix is used, so pre-release tags like
+    'v2.7.0-beta' parse to (2, 7, 0) instead of collapsing to (0,)."""
+    ver = ver.lstrip("vV").strip()
+    core = re.split(r"[-+]", ver, maxsplit=1)[0]   # drop '-beta', '+build' etc.
+    nums = re.findall(r"\d+", core)
+    return tuple(int(x) for x in nums) if nums else (0,)
 
 
 def _is_newer(remote: str, local: str) -> bool:
@@ -66,8 +67,14 @@ class UpdateChecker:
                 if self._on_result:
                     self._on_result(self._update_available, tag, dl_url)
 
-        except (urllib.error.URLError, Exception):
-            # Silent fail — no internet or repo doesn't exist yet
+        except urllib.error.URLError:
+            # Offline / no network — expected, stay quiet
+            self._checked = True
+            if self._on_result:
+                self._on_result(False, CURRENT_VERSION, GITHUB_RELEASE)
+        except Exception:
+            # Anything else (JSON/parse/attr error): don't crash the check,
+            # but treat it as "no update" rather than silently hiding a URLError
             self._checked = True
             if self._on_result:
                 self._on_result(False, CURRENT_VERSION, GITHUB_RELEASE)
