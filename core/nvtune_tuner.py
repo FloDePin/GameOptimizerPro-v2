@@ -870,7 +870,9 @@ class AutoTuner:
 
     def _score(self, r: StressResult) -> int:
         score  = 100
-        margin = 85 - r.max_temp
+        # Use the user-configured temperature limit, not a hardcoded 85 —
+        # otherwise a lower max_temp_c (e.g. 75) still scores against 85.
+        margin = self.config.max_temp_c - r.max_temp
         if margin < 5:
             score -= 20
         elif margin < 10:

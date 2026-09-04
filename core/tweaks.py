@@ -424,6 +424,11 @@ reg add "HKCU\\Control Panel\\Accessibility\\StickyKeys" /v Flags /t REG_SZ /d 5
 reg add "HKCU\\Control Panel\\Accessibility\\Keyboard Response" /v Flags /t REG_SZ /d 122 /f
 reg add "HKCU\\Control Panel\\Accessibility\\ToggleKeys" /v Flags /t REG_SZ /d 58 /f
 ''',
+        revert_cmd='''
+reg add "HKCU\\Control Panel\\Accessibility\\StickyKeys" /v Flags /t REG_SZ /d 510 /f
+reg add "HKCU\\Control Panel\\Accessibility\\Keyboard Response" /v Flags /t REG_SZ /d 126 /f
+reg add "HKCU\\Control Panel\\Accessibility\\ToggleKeys" /v Flags /t REG_SZ /d 62 /f
+''',
     ),
     Tweak(
         id="enable_dark_mode",
@@ -528,6 +533,11 @@ reg add "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\Syst
 reg add "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile\\Tasks\\Games" /v "Priority" /t REG_DWORD /d 6 /f
 reg add "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile\\Tasks\\Games" /v "Scheduling Category" /t REG_SZ /d High /f
 ''',
+        revert_cmd='''
+reg add "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile\\Tasks\\Games" /v "GPU Priority" /t REG_DWORD /d 8 /f
+reg add "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile\\Tasks\\Games" /v "Priority" /t REG_DWORD /d 2 /f
+reg add "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile\\Tasks\\Games" /v "Scheduling Category" /t REG_SZ /d High /f
+''',
     ),
     Tweak(
         id="disable_fullscreen_opt",
@@ -538,6 +548,11 @@ reg add "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\Syst
 reg add "HKCU\\System\\GameConfigStore" /v GameDVR_FSEBehaviorMode /t REG_DWORD /d 2 /f
 reg add "HKCU\\System\\GameConfigStore" /v GameDVR_HonorUserFSEBehaviorMode /t REG_DWORD /d 1 /f
 reg add "HKCU\\System\\GameConfigStore" /v GameDVR_FSEBehavior /t REG_DWORD /d 2 /f
+''',
+        revert_cmd='''
+reg delete "HKCU\\System\\GameConfigStore" /v GameDVR_FSEBehaviorMode /f 2>$null
+reg delete "HKCU\\System\\GameConfigStore" /v GameDVR_HonorUserFSEBehaviorMode /f 2>$null
+reg delete "HKCU\\System\\GameConfigStore" /v GameDVR_FSEBehavior /f 2>$null
 ''',
     ),
     Tweak(
@@ -563,6 +578,10 @@ reg delete "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU" /v 
         ps_command='''
 reg add "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\kernel" /v DisableLowQosTimerResolution /t REG_DWORD /d 1 /f
 reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\BackgroundAccessApplications" /v GlobalUserDisabled /t REG_DWORD /d 1 /f
+''',
+        revert_cmd='''
+reg delete "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\kernel" /v DisableLowQosTimerResolution /f 2>$null
+reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\BackgroundAccessApplications" /v GlobalUserDisabled /t REG_DWORD /d 0 /f
 ''',
     ),
     Tweak(
@@ -615,6 +634,13 @@ if($dev){
   reg add $p /v MSISupported /t REG_DWORD /d 1 /f
 }
 ''',
+        revert_cmd='''
+$dev=Get-WmiObject Win32_VideoController|Where-Object{$_.Name -notmatch "Microsoft"}|Select-Object -First 1
+if($dev){
+  $p="HKLM\\SYSTEM\\CurrentControlSet\\Enum\\$($dev.PNPDeviceID)\\Device Parameters\\Interrupt Management\\MessageSignaledInterruptProperties"
+  reg add $p /v MSISupported /t REG_DWORD /d 0 /f
+}
+''',
         requires_reboot=True,
     ),
     Tweak(
@@ -639,13 +665,18 @@ foreach($p in $paths){if(Test-Path $p){Remove-Item "$p\\*" -Recurse -Force -Erro
     ),
     Tweak(
         id="dx12_optimization",
-        name="Enable DirectX 12 Optimization",
-        desc="Optimiert DX12 Multi-Threading, reduziert Draw-Call-Overhead. Wirksam bei modernen AAA-Spielen.",
+        name="GPU-Timeout erhöhen (TDR-Delay)",
+        desc="Erhöht den GPU-Watchdog-Timeout (TdrDelay/TdrDdiDelay auf 10s), damit anspruchsvolle "
+             "DX12-Szenen unter Last nicht fälschlich einen Treiber-Reset (TDR) auslösen. "
+             "KEIN FPS-Boost — verhindert nur unnötige Timeouts/Freezes. Reversibel.",
         category="Gaming", group="GPU & Driver",
         ps_command='''
-reg add "HKLM\\SOFTWARE\\Microsoft\\DirectX" /v D3D12_ENABLE_UNSAFE_COMMAND_BUFFER_REUSE /t REG_DWORD /d 1 /f
 reg add "HKLM\\SYSTEM\\CurrentControlSet\\Control\\GraphicsDrivers" /v TdrDelay /t REG_DWORD /d 10 /f
 reg add "HKLM\\SYSTEM\\CurrentControlSet\\Control\\GraphicsDrivers" /v TdrDdiDelay /t REG_DWORD /d 10 /f
+''',
+        revert_cmd='''
+reg delete "HKLM\\SYSTEM\\CurrentControlSet\\Control\\GraphicsDrivers" /v TdrDelay /f 2>$null
+reg delete "HKLM\\SYSTEM\\CurrentControlSet\\Control\\GraphicsDrivers" /v TdrDdiDelay /f 2>$null
 ''',
     ),
     Tweak(
@@ -677,6 +708,13 @@ foreach($a in $adapters){
   Set-ItemProperty -Path $a.PSPath -Name "TCPNoDelay" -Value 1 -Type DWord -ErrorAction SilentlyContinue
 }
 ''',
+        revert_cmd='''
+$adapters=Get-ItemProperty "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces\\*"
+foreach($a in $adapters){
+  Remove-ItemProperty -Path $a.PSPath -Name "TcpAckFrequency" -ErrorAction SilentlyContinue
+  Remove-ItemProperty -Path $a.PSPath -Name "TCPNoDelay" -ErrorAction SilentlyContinue
+}
+''',
     ),
     Tweak(
         id="disable_lso",
@@ -686,6 +724,10 @@ foreach($a in $adapters){
         ps_command='''
 $adapters=Get-NetAdapter|Where-Object{$_.Status -eq "Up"}
 foreach($a in $adapters){Disable-NetAdapterLso -Name $a.Name -ErrorAction SilentlyContinue}
+''',
+        revert_cmd='''
+$adapters=Get-NetAdapter|Where-Object{$_.Status -eq "Up"}
+foreach($a in $adapters){Enable-NetAdapterLso -Name $a.Name -ErrorAction SilentlyContinue}
 ''',
     ),
     Tweak(
@@ -726,6 +768,10 @@ reg add "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\Syst
 $adapters=Get-NetAdapter|Where-Object{$_.Status -eq "Up"}
 foreach($a in $adapters){Set-DnsClientServerAddress -InterfaceIndex $a.InterfaceIndex -ServerAddresses ("1.1.1.1","1.0.0.1") -ErrorAction SilentlyContinue}
 ''',
+        revert_cmd='''
+$adapters=Get-NetAdapter|Where-Object{$_.Status -eq "Up"}
+foreach($a in $adapters){Set-DnsClientServerAddress -InterfaceIndex $a.InterfaceIndex -ResetServerAddresses -ErrorAction SilentlyContinue}
+''',
     ),
     Tweak(
         id="dns_google",
@@ -735,6 +781,10 @@ foreach($a in $adapters){Set-DnsClientServerAddress -InterfaceIndex $a.Interface
         ps_command='''
 $adapters=Get-NetAdapter|Where-Object{$_.Status -eq "Up"}
 foreach($a in $adapters){Set-DnsClientServerAddress -InterfaceIndex $a.InterfaceIndex -ServerAddresses ("8.8.8.8","8.8.4.4") -ErrorAction SilentlyContinue}
+''',
+        revert_cmd='''
+$adapters=Get-NetAdapter|Where-Object{$_.Status -eq "Up"}
+foreach($a in $adapters){Set-DnsClientServerAddress -InterfaceIndex $a.InterfaceIndex -ResetServerAddresses -ErrorAction SilentlyContinue}
 ''',
     ),
     Tweak(
@@ -766,6 +816,10 @@ foreach($a in $adapters){Set-DnsClientServerAddress -InterfaceIndex $a.Interface
         ps_command='''
 $adapters=Get-NetAdapter|Where-Object{$_.Status -eq "Up"}
 foreach($a in $adapters){Enable-NetAdapterRss -Name $a.Name -ErrorAction SilentlyContinue}
+''',
+        revert_cmd='''
+$adapters=Get-NetAdapter|Where-Object{$_.Status -eq "Up"}
+foreach($a in $adapters){Disable-NetAdapterRss -Name $a.Name -ErrorAction SilentlyContinue}
 ''',
     ),
 
@@ -845,6 +899,11 @@ exit 0
 powercfg -change -standby-timeout-ac 0
 $guid=(powercfg -getactivescheme).Split()[3]
 powercfg -setacvalueindex $guid 2a737441-1930-4402-8d77-b2bebba308a3 48e6b7a6-50f5-4782-a5d4-53bb8f07e226 0
+powercfg -setactive $guid
+''',
+        revert_cmd='''
+$guid=(powercfg -getactivescheme).Split()[3]
+powercfg -setacvalueindex $guid 2a737441-1930-4402-8d77-b2bebba308a3 48e6b7a6-50f5-4782-a5d4-53bb8f07e226 1
 powercfg -setactive $guid
 ''',
     ),

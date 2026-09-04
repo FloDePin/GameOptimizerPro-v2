@@ -190,9 +190,9 @@ VERIFY_MAP: dict[str, str] = {
         'if($v -eq 1){"1"}else{"0"}'
     ),
     "dx12_optimization": (
-        '$v=(Get-ItemProperty "HKLM:\\SOFTWARE\\Microsoft\\DirectX" '
-        '-Name D3D12_ENABLE_UNSAFE_COMMAND_BUFFER_REUSE -EA SilentlyContinue).D3D12_ENABLE_UNSAFE_COMMAND_BUFFER_REUSE; '
-        'if($v -eq 1){"1"}else{"0"}'
+        '$v=(Get-ItemProperty "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\GraphicsDrivers" '
+        '-Name TdrDelay -EA SilentlyContinue).TdrDelay; '
+        'if($v -eq 10){"1"}else{"0"}'
     ),
 
     # ── Network ───────────────────────────────────────────────────────────────
@@ -287,8 +287,14 @@ VERIFY_MAP: dict[str, str] = {
         'if($v -eq ".None"){"1"}else{"0"}'
     ),
     "disable_nahimic": (
-        '$s=Get-Service -Name "NahimicService" -EA SilentlyContinue;'
-        'if($s -and $s.StartType -eq "Disabled"){"1"}else{"0"}'
+        # Goal = "no Nahimic interfering". If none of the Nahimic services exist,
+        # that goal is already satisfied → "1" (green), instead of a permanent
+        # amber mismatch on the majority of PCs that never had Nahimic.
+        '$svcs=@("NahimicService","A-Volute","nahimicSvc");'
+        '$found=$false;$active=$false;'
+        'foreach($n in $svcs){$s=Get-Service -Name $n -EA SilentlyContinue;'
+        'if($s){$found=$true;if($s.StartType -ne "Disabled"){$active=$true}}}'
+        'if(-not $found){"1"}elseif(-not $active){"1"}else{"0"}'
     ),
     "set_mmcss_audio": (
         r'$p="HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Pro Audio";'

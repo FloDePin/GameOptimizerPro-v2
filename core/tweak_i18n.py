@@ -75,7 +75,9 @@ TWEAK_DESC_EN: dict[str, str] = {
     "clear_shader_cache":
         "Clears the NVIDIA/AMD shader cache. Useful after driver updates or on graphics glitches.",
     "dx12_optimization":
-        "Optimises DX12 multi-threading and reduces draw call overhead. Effective in modern AAA games.",
+        "Raises the GPU watchdog timeout (TdrDelay/TdrDdiDelay to 10s) so demanding DX12 scenes "
+        "don't trigger a false driver reset (TDR) under load. NOT an FPS boost — only prevents "
+        "needless timeouts/freezes. Reversible.",
     "disable_nagle":
         "Disables Nagle's algorithm on all network adapters. Less latency in online games, a noticeable ping difference.",
     "disable_lso":
@@ -160,6 +162,7 @@ TWEAK_NAME_EN: dict[str, str] = {
     "disable_wpbt":         "Disable Windows Platform Binary Table (WPBT)",
     "disable_storage_sense": "Disable Storage Sense",
     "disable_ai_text_image_gen": "Disable Text & Image Generation (on-device AI)",
+    "dx12_optimization":    "Raise GPU Timeout (TDR Delay)",
 }
 
 
