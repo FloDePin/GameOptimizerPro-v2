@@ -625,7 +625,7 @@ reg add "HKLM\\SYSTEM\\CurrentControlSet\\Control" /v SvcHostSplitThresholdInKB 
     Tweak(
         id="enable_msi_mode",
         name="Enable MSI Mode (Interrupts)",
-        desc="Aktiviert Message Signaled Interrupts für GPU und NVMe. Reduziert Interrupt-Latenz erheblich. Reboot nötig.",
+        desc="Aktiviert Message Signaled Interrupts für die GPU. Reduziert Interrupt-Latenz. Reboot nötig.",
         category="Gaming", group="GPU & Driver",
         ps_command='''
 $dev=Get-WmiObject Win32_VideoController|Where-Object{$_.Name -notmatch "Microsoft"}|Select-Object -First 1
@@ -638,7 +638,7 @@ if($dev){
 $dev=Get-WmiObject Win32_VideoController|Where-Object{$_.Name -notmatch "Microsoft"}|Select-Object -First 1
 if($dev){
   $p="HKLM\\SYSTEM\\CurrentControlSet\\Enum\\$($dev.PNPDeviceID)\\Device Parameters\\Interrupt Management\\MessageSignaledInterruptProperties"
-  reg add $p /v MSISupported /t REG_DWORD /d 0 /f
+  reg delete $p /v MSISupported /f 2>$null
 }
 ''',
         requires_reboot=True,
@@ -817,9 +817,12 @@ foreach($a in $adapters){Set-DnsClientServerAddress -InterfaceIndex $a.Interface
 $adapters=Get-NetAdapter|Where-Object{$_.Status -eq "Up"}
 foreach($a in $adapters){Enable-NetAdapterRss -Name $a.Name -ErrorAction SilentlyContinue}
 ''',
+        # RSS is enabled by default on virtually all modern adapters, so the
+        # honest "revert" is to leave it enabled (the Windows default) rather
+        # than force it off — which would leave the PC worse than before.
         revert_cmd='''
 $adapters=Get-NetAdapter|Where-Object{$_.Status -eq "Up"}
-foreach($a in $adapters){Disable-NetAdapterRss -Name $a.Name -ErrorAction SilentlyContinue}
+foreach($a in $adapters){Enable-NetAdapterRss -Name $a.Name -ErrorAction SilentlyContinue}
 ''',
     ),
 

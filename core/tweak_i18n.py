@@ -69,7 +69,7 @@ TWEAK_DESC_EN: dict[str, str] = {
     "nvidia_low_latency":
         "Enables NVIDIA Ultra Low Latency Mode. Reduces the render queue to 1 frame. NVIDIA GPUs only.",
     "enable_msi_mode":
-        "Enables Message Signaled Interrupts for GPU and NVMe. Significantly reduces interrupt latency. Reboot required.",
+        "Enables Message Signaled Interrupts for the GPU. Reduces interrupt latency. Reboot required.",
     "enable_hags":
         "Hands GPU scheduling directly to the hardware. Less CPU overhead and lower input lag. Needs RTX 2000+ or RX 5000+.",
     "clear_shader_cache":
