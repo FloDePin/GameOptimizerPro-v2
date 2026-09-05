@@ -272,14 +272,20 @@ class GameOptimizerWindow(tk.Tk):
 
     def _open_services(self):
         import subprocess as sp
-        sp.Popen(["services.msc"],
-                 shell=True,
-                 creationflags=sp.CREATE_NO_WINDOW if hasattr(sp, 'CREATE_NO_WINDOW') else 0)
+        try:
+            sp.Popen(["services.msc"],
+                     shell=True,
+                     creationflags=sp.CREATE_NO_WINDOW if hasattr(sp, 'CREATE_NO_WINDOW') else 0)
+        except Exception as e:
+            messagebox.showerror("Fehler", f"services.msc konnte nicht geöffnet werden:\n{e}")
 
     def _open_log(self):
         import subprocess as sp
         log_dir = Path(__file__).resolve().parent.parent / "logs"
-        sp.Popen(["explorer.exe", str(log_dir)])
+        try:
+            sp.Popen(["explorer.exe", str(log_dir)])
+        except Exception as e:
+            messagebox.showerror("Fehler", f"Log-Ordner konnte nicht geöffnet werden:\n{e}")
 
     # ── Updater ───────────────────────────────────────────────────────────────
 

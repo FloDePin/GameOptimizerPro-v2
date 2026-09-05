@@ -208,7 +208,7 @@ class BiosDetector:
         if data is None:
             data = self._gather()
         try:
-            val = int(data.get("procmin"))
+            val = int(data.get("procmin") or -1)  # missing key -> -1 (handled below)
             if val < 0:
                 raise ValueError
             active = val == 0   # 0% min = C-states fully allowed

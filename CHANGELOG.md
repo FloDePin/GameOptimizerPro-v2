@@ -81,6 +81,12 @@ verified bug from those reviews is fixed.
   uses the configured max-temp instead of a hardcoded 85 °C; **tweak-state file**
   is anchored to an absolute path; **CPU-topology / MAHM / wmic / presets /
   restore-point** edge cases fixed; consistent `utf-8` decoding throughout.
+- **Round-3 hardening:** CPU-pin reset (empty set) now reports success
+  correctly; GPU-profile offsets get sanity guard-rails so a hand-edited/corrupt
+  profile can't push an absurd overclock to Afterburner; `.nextune` import
+  rejects implausibly large files (>10 MB); the admin-elevation prompt is now
+  localized (DE/EN) instead of German-only; tray tooltip trimmed and
+  de-versioned; friendly errors when launching services.msc / the log folder.
 
 ### 🔎 Reviewed, verified NOT a bug
 

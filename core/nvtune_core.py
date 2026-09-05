@@ -386,9 +386,22 @@ class AfterburnerController:
                             existing[k.strip()] = v.strip()
             except: pass
 
+        # Sanity guard-rails against absurd offsets — protects against a
+        # hand-edited/corrupt profile JSON (e.g. core=9999) that Afterburner
+        # would apply verbatim and crash the GPU. Bounds are far beyond any
+        # real overclock, so legitimate (even aggressive) profiles are never
+        # touched; only garbage is clamped.
+        def _clamp(v, lo, hi):
+            try:
+                return max(lo, min(hi, int(v)))
+            except (TypeError, ValueError):
+                return 0
+        core_off = _clamp(profile.core_offset_mhz, -1500, 1500)
+        mem_off  = _clamp(profile.mem_offset_mhz,  -6000, 6000)
+
         # Apply our values
-        existing["CoreClockOffset"]   = str(profile.core_offset_mhz)
-        existing["MemoryClockOffset"] = str(profile.mem_offset_mhz)
+        existing["CoreClockOffset"]   = str(core_off)
+        existing["MemoryClockOffset"] = str(mem_off)
 
         if profile.fan_mode == "manual" and profile.fan_speed_pct > 0:
             existing["FanSpeed"] = str(profile.fan_speed_pct)
@@ -406,19 +419,19 @@ class AfterburnerController:
                 curve    = builder.build_flatline_curve(
                     target_freq_mhz=profile.lock_freq_mhz,
                     lock_voltage_mv=profile.lock_voltage_mv,
-                    base_core_offset=profile.core_offset_mhz,
+                    base_core_offset=core_off,
                 )
                 if curve.curve_offsets:
                     # Write the curve as VFPoints array in Afterburner format
                     existing["VFCurveEnabled"]      = "1"
-                    existing["CoreClockOffset"]     = str(profile.core_offset_mhz)
+                    existing["CoreClockOffset"]     = str(core_off)
                     # Afterburner stores VF curve as "VoltagePoints" CSV
                     existing["VoltagePoints"]       = curve.to_afterburner_string()
                     existing["VFLockVoltage"]       = str(profile.lock_voltage_mv)
                     existing["VFLockFrequency"]     = str(profile.lock_freq_mhz)
             except Exception as vf_err:
                 # Non-fatal: fall back to simple offset without curve
-                existing["CoreClockOffset"] = str(profile.core_offset_mhz)
+                existing["CoreClockOffset"] = str(core_off)
 
         try:
             os.makedirs(self.profile_dir, exist_ok=True)

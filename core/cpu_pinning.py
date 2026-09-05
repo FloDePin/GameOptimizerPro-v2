@@ -127,7 +127,10 @@ def pin_process(pid: int, topo: CpuTopology, logicals: list[int]) -> bool:
                     # Success if our ids are reflected (guards against a
                     # concurrent last-writer-wins overwrite). If readback is
                     # unavailable (None), trust the set call succeeded.
-                    if actual is None or (set(ids) and set(ids) <= set(actual)):
+                    # NOTE: no "set(ids) and" guard — an empty ids (reset/unpin)
+                    # is a subset of anything, so the reset case returns True
+                    # correctly instead of falling through to False.
+                    if actual is None or set(ids) <= set(actual):
                         return True
             finally:
                 _close(h)

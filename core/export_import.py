@@ -91,6 +91,16 @@ class ExportImport:
           user_presets: [list of preset dicts]
           meta:         {version, created, host}
         """
+        # Reject implausibly large files before parsing — a .nextune is a small
+        # JSON (tweaks + a handful of GPU profiles); anything above 10 MB is
+        # corrupt or hostile and shouldn't be handed to json.load.
+        MAX_IMPORT_SIZE = 10 * 1024 * 1024
+        try:
+            if os.path.getsize(path) > MAX_IMPORT_SIZE:
+                return False, {}, "Datei zu groß (>10 MB) — vermutlich beschädigt."
+        except OSError as e:
+            return False, {}, f"Datei nicht gefunden: {e}"
+
         try:
             with open(path, "r", encoding="utf-8") as f:
                 raw = json.load(f)

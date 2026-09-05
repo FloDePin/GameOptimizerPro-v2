@@ -40,6 +40,19 @@ STRINGS = {
     # ── App general ───────────────────────────────────────────────────────────
     "app_subtitle":       {"de": "Windows & Gaming Optimizer v2.0 -- by FloDePin",
                            "en": "Windows & Gaming Optimizer v2.0 -- by FloDePin"},
+    "admin_required_title": {"de": "GameOptimizerPro v2.0 — Admin erforderlich",
+                             "en": "GameOptimizerPro v2.0 — Admin required"},
+    "admin_required_msg": {
+        "de": ("GameOptimizerPro benötigt Administrator-Rechte für:\n\n"
+               "  • Windows Registry Tweaks\n"
+               "  • GPU Power Limit Kontrolle\n"
+               "  • Afterburner Profil-Schreiben\n\n"
+               "Als Administrator neu starten?"),
+        "en": ("GameOptimizerPro needs administrator rights for:\n\n"
+               "  • Windows registry tweaks\n"
+               "  • GPU power-limit control\n"
+               "  • Writing Afterburner profiles\n\n"
+               "Restart as administrator?")},
     "btn_status_check":   {"de": "⟳ Status prüfen",        "en": "⟳ Check Status"},
     "btn_apply_selected": {"de": ">> Apply Selected",       "en": ">> Apply Selected"},
     "btn_revert_all":     {"de": "↩ Revert All",            "en": "↩ Revert All"},

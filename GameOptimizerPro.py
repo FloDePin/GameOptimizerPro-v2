@@ -60,18 +60,12 @@ def is_admin() -> bool:
 
 
 def ask_admin_msgbox() -> bool:
-    """Show admin prompt via Win32 MessageBox — no tkinter needed."""
-    msg = (
-        "GameOptimizerPro benötigt Administrator-Rechte für:\n\n"
-        "  • Windows Registry Tweaks\n"
-        "  • GPU Power Limit Kontrolle\n"
-        "  • Afterburner Profil-Schreiben\n\n"
-        "Als Administrator neu starten?"
-    )
+    """Show admin prompt via Win32 MessageBox — no tkinter needed.
+    Localised: main() calls i18n.init_lang() before this runs."""
+    msg   = i18n.t("admin_required_msg")
+    title = i18n.t("admin_required_title")
     # MB_YESNO | MB_ICONQUESTION | MB_TOPMOST = 0x4 | 0x20 | 0x40000 = 0x40024
-    result = ctypes.windll.user32.MessageBoxW(
-        0, msg, "GameOptimizerPro v2.1 — Admin erforderlich", 0x40024
-    )
+    result = ctypes.windll.user32.MessageBoxW(0, msg, title, 0x40024)
     return result == 6  # IDYES = 6
 
 
@@ -314,11 +308,14 @@ class GameOptimizerApp:
                 if self._tray:
                     volt_s = f" | {s.voltage_mv:.0f}mV" if s.voltage_mv > 0 else ""
                     try:
-                        self._tray.title = (
-                            f"GameOptimizerPro v2.1 | {self._gpu}\n"
+                        # Keep the tray tooltip compact — Windows caps szTip at
+                        # ~127 chars; GPU name is already trimmed to 22.
+                        title = (
+                            f"GameOptimizerPro | {self._gpu}\n"
                             f"{s.temp}°C | {s.core_mhz:.0f}MHz"
                             f"{volt_s} | {s.gpu_power_w:.0f}W"
                         )
+                        self._tray.title = title[:120]
                     except:
                         pass
             except:
