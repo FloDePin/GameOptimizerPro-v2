@@ -28,6 +28,10 @@
 - Integration mit **MSI Afterburner** (MAHM Shared Memory für echte mV-Werte)
 - Automatische GPU-Generationserkennung (Pascal → Ada Lovelace, RDNA 1–3)
 
+### ⚡ Stress Test
+- **Interner Stabilitätstest** — eingebauter GPU/CPU-Stress-Worker mit einstellbarer Dauer und **Auto-Abbruch bei Max-Temperatur**; inkl. Dead-Man-Switch, damit nie ein verwaister 100%-CPU-Prozess zurückbleibt
+- **FurMark-Launcher** — erkennt eine FurMark-Installation automatisch, Auflösung wählen, Ein-Klick-Start für einen härteren GPU-Burn-in
+
 ### 🔊 Audio-Optimierung
 - **Low-Latency-Audio-Tweaks** für Gaming — Audio-Verbesserungen deaktivieren, exklusive Audio-Sperre aufheben
 - **System-Sound-Optimierung** — Nahimic-Dienst deaktivieren, Windows-Soundschema deaktivieren
@@ -74,6 +78,9 @@
 - **Health Report** — read-only-Übersicht dessen, was Windows in den letzten 30 Tagen schon protokolliert hat: WHEA-Hardwarefehler, Bluescreens, unerwartete Neustarts, GPU-Treiber-Timeouts (TDR), Datenträgerfehler, App-Abstürze — mit Schweregrad und letztem Auftreten
 - **Remnant-Scan** — read-only-Erkennung von Resten *anderer* Tweak-Tools (WinRing0-/inpout-Treiber, ISLC, TimerResolution-Autostarts, Fremd-Energiepläne, Razer Cortex). Meldet nur — entfernt nichts
 
+### 📊 Profil-Vergleich
+- Vergleicht bis zu **4 gespeicherte GPU-Profile nebeneinander** (Core-/Memory-Offset, Power-Limit, Spannungs-Lock, Stabilitäts-Score) — das beste auf einen Blick
+
 ### 📋 Tune-Verlauf
 - Protokolliert jeden Auto-Tune-Durchlauf (Datum, Modus, Core-Offset, Power, Spannung, Score)
 - Klick auf einen Durchlauf zeigt das vollständige Log
@@ -89,6 +96,10 @@
 ### 🌐 Sprachunterstützung
 - **Englisch** (Standard) und **Deutsch** — Umschaltung per `EN/DE`-Button in der Titelleiste
 - Sofortiger Wechsel, kein Neustart nötig
+
+### 🔽 System-Tray
+- Minimiert in den Tray statt zu schließen; der Tray-Tooltip zeigt **live GPU-Temp / Takt / Spannung / Power**
+- Gespeicherte GPU-Profile schnell anwenden, GPU auf Stock zurücksetzen oder öffnen/beenden — alles aus dem Tray-Menü
 
 ### 🚀 Startup Manager
 - Eigenes Fenster mit allen Autostart-Einträgen aus der Registry

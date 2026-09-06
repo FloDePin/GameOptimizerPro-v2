@@ -28,6 +28,10 @@
 - Integrates with **MSI Afterburner** (MAHM Shared Memory for real mV readings)
 - GPU generation auto-detection (Pascal → Ada Lovelace, RDNA 1–3)
 
+### ⚡ Stress Test
+- **Internal stability test** — built-in GPU/CPU stress worker with configurable duration and a **max-temp auto-abort**; includes a dead-man switch so it never leaves an orphaned 100%-CPU process behind
+- **FurMark launcher** — auto-detects a FurMark install, pick the resolution, one-click launch for a heavier GPU burn-in
+
 ### 🔊 Audio Optimization
 - **Low-latency audio tweaks** for gaming — disable audio enhancements, exclusive audio lock
 - **System sound optimization** — disable Nahimic service, disable Windows sound scheme
@@ -75,6 +79,9 @@
 - **Health Report** — read-only summary of what Windows already recorded in the last 30 days: WHEA hardware errors, bluescreens, unexpected shutdowns, GPU driver timeouts (TDR), disk errors, app crashes — with severity and last occurrence
 - **Remnant Scan** — read-only detection of leftovers from *other* tweak tools (WinRing0 / inpout drivers, ISLC, TimerResolution autostarts, third-party power plans, Razer Cortex). Reports only — removes nothing
 
+### 📊 Profile Compare
+- Compare up to **4 saved GPU profiles side-by-side** (core/memory offset, power limit, voltage lock, stability score) to pick the best one at a glance
+
 ### 📋 Tune History
 - Logs every Auto-Tune run (date, mode, core offset, power, voltage, score)
 - Click any run to view the full log
@@ -90,6 +97,10 @@
 ### 🌐 Language Support
 - **English** (default) and **German** — toggle with `EN/DE` button in the title bar
 - Instant switch, no restart required
+
+### 🔽 System Tray
+- Minimizes to the tray instead of closing; the tray tooltip shows **live GPU temp / clock / voltage / power**
+- Quick-apply any saved GPU profile, reset the GPU to stock, or open/exit — all from the tray menu
 
 ### 🚀 Startup Manager
 - Separate window listing all autostart entries from Registry
