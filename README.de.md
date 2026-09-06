@@ -69,6 +69,11 @@
 - 15 vorkonfigurierte Spiele (CS2, Cyberpunk 2077, Apex Legends, Valorant, Fortnite …)
 - Beliebige `.exe`-Prozesse können manuell hinzugefügt werden
 
+### 🩺 Diagnose & Messung
+- **FPS-/Frametime-Messung** — miss den *echten* Effekt deiner Tweaks: **Ø FPS, 1%- und 0.1%-Lows, Stutters** und ein gemessenes **CPU-vs-GPU-Bottleneck**-Urteil. Live via [PresentMon](https://github.com/GameTechDev/PresentMon) (optional, in `tools/` legen) oder Auswertung einer vorhandenen PresentMon-/CapFrameX-/OCAT-CSV — für die CSV-Analyse ist keine Binary nötig
+- **Health Report** — read-only-Übersicht dessen, was Windows in den letzten 30 Tagen schon protokolliert hat: WHEA-Hardwarefehler, Bluescreens, unerwartete Neustarts, GPU-Treiber-Timeouts (TDR), Datenträgerfehler, App-Abstürze — mit Schweregrad und letztem Auftreten
+- **Remnant-Scan** — read-only-Erkennung von Resten *anderer* Tweak-Tools (WinRing0-/inpout-Treiber, ISLC, TimerResolution-Autostarts, Fremd-Energiepläne, Razer Cortex). Meldet nur — entfernt nichts
+
 ### 📋 Tune-Verlauf
 - Protokolliert jeden Auto-Tune-Durchlauf (Datum, Modus, Core-Offset, Power, Spannung, Score)
 - Klick auf einen Durchlauf zeigt das vollständige Log
@@ -146,6 +151,7 @@ Für Spannungswerte und GPU-Overclocking:
 GameOptimizerPro **2.0** ist der finalisierte Release: der komplette Funktionsumfang unten, gehärtet über viele interne Iterationen und **zwei vollständige externe Code-Review-Runden** — jeder verifizierte Bug ehrlich gefixt.
 
 **Highlights**
+- 🩺 **Diagnose-Tab (messen statt raten):** FPS-/Frametime-Capture mit **1%- & 0.1%-Lows**, Stutters und gemessenem **CPU-vs-GPU-Bottleneck** (PresentMon live oder CSV); ein 30-Tage-**Health-Report** aus Windows' eigenen Logs; und ein **Remnant-Scan** für Reste anderer Tweak-Tools. Alles read-only. *(Nebenbei einen latenten Bug gefixt, der die Games-/Settings-Tab-Buttons versteckte.)*
 - 🎮 **GPU Auto-Tuner** (OC / UV / OC+UV) mit automatischem Stabilitätstest, Live-Graph, TDR-Erkennung und Crash-Recovery — plus MSI-Afterburner-(MAHM)-Integration
 - 🛠 **71 verifizierte Tweaks** mit Live-Status (grün/amber/grau), abgestuften Minimal→Mittel→Hart-Presets und kuratierten Gaming/Privacy/Debloat/Network/Performance/Win11-Presets
 - 🎮 **Per-Game-Profile + CPU-Pinning (CPU Sets)** — lenkt Spiele auf das X3D-Cache-Chiplet (AMD) oder die P-Cores (Intel), mit Anti-Cheat- & CCD-Parking-Warnungen und ehrlichem "bringt nichts" auf Single-Chiplet-CPUs
@@ -193,6 +199,9 @@ GameOptimizerPro/
 │   ├── game_monitor.py       ← Per-Game-Profil-Monitor (psutil)
 │   ├── cpu_topology.py       ← CPU-Topologie (CCDs, P/E-Cores, X3D-Cache-Die)
 │   ├── cpu_pinning.py        ← Per-Game-CPU-Pinning via CPU Sets API
+│   ├── fps_capture.py        ← FPS/Frametime-Metriken (PresentMon + CSV)
+│   ├── health_report.py      ← 30-Tage Windows-Health-Report
+│   ├── remnant_detector.py   ← Erkennung von Tweak-Tool-Resten
 │   ├── crash_recovery.py     ← TDR-Erkennung, Crash-Flag-System
 │   ├── temp_monitor.py       ← GPU-Temperatur-Toast-Benachrichtigungen
 │   ├── update_checker.py     ← GitHub-Releases-API
@@ -212,6 +221,7 @@ GameOptimizerPro/
     ├── tab_compare.py        ← Profilvergleich
     ├── tab_bios.py           ← BIOS-Guide mit Live-Erkennung
     ├── tab_games.py          ← Per-Game-Profile + Tune-Verlauf
+    ├── tab_diagnose.py       ← FPS-Capture + Health-Report + Remnant-Scan
     ├── tab_settings.py       ← Autostart, Setup-Checker, Über
     ├── live_graph.py         ← Rollierendes Spannungs-/Takt-/Temperatur-Diagramm
     └── startup_manager.py    ← Startup-Manager-Fenster

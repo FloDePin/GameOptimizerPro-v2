@@ -18,6 +18,7 @@ from ui.tab_stress     import StressTab
 from ui.tab_compare    import CompareTab
 from ui.tab_bios       import BiosGuideTab
 from ui.tab_games      import GamesTab
+from ui.tab_diagnose   import DiagnoseTab
 from ui.startup_manager import StartupManagerWindow
 from ui.tab_settings   import SettingsTab
 from core.hardware     import HardwareInfo
@@ -37,6 +38,7 @@ TAB_DEFS = [
     ("compare",   "[CMP]  Compare",     "#7c3aed", "#100a1a"),
     ("bios",      "[BIOS] BIOS Guide",  "#f59e0b", "#1a1200"),
     ("games",     "[GME]  Games & History", "#22c55e", "#001a0a"),
+    ("diagnose",  "[DIAG] Diagnose",    "#00d9ff", "#001a20"),
     ("settings",  "[SET]  Settings",    "#6b7280", "#0f0f0f"),
 ]
 
@@ -155,23 +157,17 @@ class GameOptimizerWindow(tk.Tk):
     # ── Tab bar (colored buttons like v1.0) ───────────────────────────────────
 
     def _build_tab_bar(self):
-        # Two rows of 4 buttons each (like v1.0 layout)
+        # Colored tab buttons, laid out in rows of PER_ROW. Rendered from the full
+        # TAB_DEFS so EVERY tab (incl. Games/Settings/Diagnose) gets a button —
+        # the old fixed 2-row layout silently dropped the last row.
+        PER_ROW = 3
         tab_bar = tk.Frame(self, bg="#161b22")
         tab_bar.pack(fill="x")
 
-        row1 = tk.Frame(tab_bar, bg="#161b22")
-        row1.pack(fill="x")
-        row2 = tk.Frame(tab_bar, bg="#161b22")
-        row2.pack(fill="x")
-
-        rows = [
-            [TAB_DEFS[0], TAB_DEFS[2], TAB_DEFS[4]],   # Dashboard, GPU, Compare
-            [TAB_DEFS[1], TAB_DEFS[3], TAB_DEFS[5]],   # Optimizer, Stress, BIOS
-            [TAB_DEFS[6], TAB_DEFS[7]],                 # Games, Settings
-        ]
-
-        for row_frame, tab_list in [(row1, rows[0]), (row2, rows[1])]:
-            for key, label, color, _ in tab_list:
+        for i in range(0, len(TAB_DEFS), PER_ROW):
+            row_frame = tk.Frame(tab_bar, bg="#161b22")
+            row_frame.pack(fill="x")
+            for key, label, color, _ in TAB_DEFS[i:i + PER_ROW]:
                 btn = tk.Button(
                     row_frame,
                     text=label,
@@ -214,6 +210,7 @@ class GameOptimizerWindow(tk.Tk):
         self._tab_frames["games"]     = GamesTab(
             self._content, self.game_monitor, self.pm,
             str(Path(__file__).resolve().parent.parent / "logs"))
+        self._tab_frames["diagnose"]  = DiagnoseTab(self._content)
         self._tab_frames["settings"]  = SettingsTab(
             self._content, self.ab, self.monitor, self.startup_loader)
 

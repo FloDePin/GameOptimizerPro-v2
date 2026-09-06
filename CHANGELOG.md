@@ -13,6 +13,22 @@ verified bug from those reviews is fixed.
 
 ### ✨ Features
 
+- **Diagnose tab — measure, don't guess.** Three read-only diagnostics:
+  - **FPS / Frametime capture** — average FPS, **1% and 0.1% lows**, stutter
+    count, and a measured **CPU-vs-GPU bottleneck** (from per-frame GPU-busy
+    time). Live via Intel's open-source **PresentMon** (optional, dropped in
+    `tools/`) or by analyzing any existing PresentMon / CapFrameX / OCAT CSV —
+    the CSV path needs no external binary.
+  - **Health Report** — a 30-day summary of what Windows already logged: WHEA
+    hardware errors, bluescreens, unexpected shutdowns, GPU driver timeouts
+    (TDR), disk errors and app crashes, each with severity + last occurrence.
+  - **Remnant Scan** — finds leftovers of *other* tweak tools (WinRing0 / inpout
+    drivers, ISLC, TimerResolution autostarts, third-party/duplicate power
+    plans, Razer Cortex). Reports only — never removes anything, and never
+    flags GameOptimizerPro's own tweaks.
+  - Also fixed a **latent UI bug**: the tab bar only rendered its first two rows,
+    so the **Games and Settings tab buttons were unreachable** — it now renders
+    every tab.
 - **GPU Auto-Tuner** — Overclock-only / Undervolt-only / OC+UV modes with an
   automated, step-by-step stability test, live voltage/clock/temp graph, TDR
   (driver-timeout) detection via the Windows Event Log, and crash recovery that
