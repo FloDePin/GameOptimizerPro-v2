@@ -176,7 +176,11 @@ class GameMonitor:
         """Get current process names (lowercase). Lightweight psutil call."""
         try:
             import psutil
-            return {p.name().lower() for p in psutil.process_iter(['name'])
+            # Use the pre-filled p.info['name'] rather than p.name(): the latter
+            # re-queries the process and raises NoSuchProcess if it died mid-scan,
+            # which would bubble out of the comprehension and blank the WHOLE scan
+            # for this cycle (briefly mis-reading a running game as "stopped").
+            return {p.info['name'].lower() for p in psutil.process_iter(['name'])
                     if p.info['name']}
         except:
             return set()

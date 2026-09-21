@@ -6,7 +6,6 @@ compact header, status bar at bottom.
 
 import tkinter as tk
 from tkinter import ttk, messagebox
-import threading, time
 from datetime import datetime
 from pathlib import Path
 
@@ -302,16 +301,21 @@ class GameOptimizerWindow(tk.Tk):
         )
 
     def _start_updater(self):
+        # Runs entirely on the main thread. Tk is not thread-safe, and after()
+        # from a worker thread raises "main thread is not in main loop" on
+        # Python 3.14 when it fires before mainloop() has started — which is
+        # exactly when a thread launched from __init__ does. The old worker-based
+        # version caught that RuntimeError with `except: break` and so killed the
+        # updater on its first tick, freezing the clock and the AB/NVML/MAHM
+        # indicators permanently. A self-rescheduling after() avoids threads.
         def tick():
-            while True:
-                ts = datetime.now().strftime("%H:%M:%S")
-                try:
-                    self.after(0, lambda t=ts: self.lbl_time.config(text=t))
-                    self.after(0, self._refresh_indicators)
-                except:
-                    break
-                time.sleep(5)
-        threading.Thread(target=tick, daemon=True).start()
+            try:
+                self.lbl_time.config(text=datetime.now().strftime("%H:%M:%S"))
+                self._refresh_indicators()
+            except tk.TclError:
+                return   # window destroyed → stop the poller cleanly
+            self.after(5000, tick)
+        self.after(1000, tick)
 
     def _toggle_lang(self):
         """

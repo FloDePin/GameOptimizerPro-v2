@@ -174,6 +174,9 @@ GameOptimizerPro **2.0** is the finalized release: the complete feature set belo
 - Honest per-tweak reverts (incl. 12 tweaks that were previously one-way) so "Revert All" truly reverts
 - DX12 tweak rewritten honestly as "Raise GPU Timeout (TDR Delay)" (the old value was a no-op placebo); Nahimic verifier no longer false-ambers on PCs without Nahimic
 - Robust update-checker version parsing, config-driven stability score, absolute state-file path, and assorted topology / MAHM / wmic / encoding edge-case fixes
+- Auto-Tuner **final verification now tests the exact profile it saves** — including the V/F-curve undervolt and memory OC (previously the final run used stock voltage, so the saved undervolt was never verified as a whole)
+- Header **clock and the AB / NVML / MAHM indicators now refresh reliably** — the old background updater could die on its first tick (Tk `after()` from a worker thread before mainloop on Python 3.14); it now runs on the main thread
+- Per-game process scan reads the cached process name (no whole-scan blackout if a process dies mid-scan); FPS-CSV GPU column stays index-aligned on short rows
 - Reviewed-and-verified-not-a-bug items were left unchanged rather than papered over
 
 See [CHANGELOG.md](CHANGELOG.md) for the full detail.

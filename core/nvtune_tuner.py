@@ -754,14 +754,25 @@ class AutoTuner:
 
         # ── Final Test ─────────────────────────────────────────────────────────
         self._set_state(TunerState.FINAL_TEST)
+        vf_note  = f" | VF {best_volt_mv}mV" if best_volt_mv > 0 else ""
+        mem_note = f" | Mem+{best_mem_offset}MHz" if best_mem_offset else ""
         self._log(
-            f"Final test: +{best_core}MHz | {best_pwr}% pwr | {cfg.final_test_s}s")
+            f"Final test: +{best_core}MHz | {best_pwr}% pwr{vf_note}{mem_note} "
+            f"| {cfg.final_test_s}s")
         self._progress(
             75,
-            f"Final verification: +{best_core}MHz | {best_pwr}% ({cfg.final_test_s}s)"
+            f"Final verification: +{best_core}MHz | {best_pwr}%{vf_note}{mem_note} "
+            f"({cfg.final_test_s}s)"
         )
 
-        self._apply(best_core, cfg.mem_offset_mhz, best_pwr)
+        # Verify the EXACT configuration that will be saved — including the
+        # Stage-3 V/F undervolt and the Stage-4 memory OC. Testing only core+power
+        # (as before) meant the saved profile's undervolt/mem-OC were never
+        # verified as a whole, and the stability score reflected a milder setup.
+        if best_volt_mv > 0:
+            self._apply_vf(best_core, best_volt_mv, target_freq, best_mem_offset)
+        else:
+            self._apply(best_core, best_mem_offset, best_pwr)
         time.sleep(2)
 
         def _tick_final(e, d, s):

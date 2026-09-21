@@ -103,6 +103,27 @@ verified bug from those reviews is fixed.
   rejects implausibly large files (>10 MB); the admin-elevation prompt is now
   localized (DE/EN) instead of German-only; tray tooltip trimmed and
   de-versioned; friendly errors when launching services.msc / the log folder.
+- **Round-4 bug hunt (verified fixes):**
+  - **Auto-Tuner final verification now tests the exact profile it saves.** In
+    FULL / VF_ONLY / MEM_ONLY modes the 2-minute final run previously applied
+    only core-offset + power (`_apply(best_core, cfg.mem_offset_mhz, best_pwr)`)
+    — so the Stage-3 **V/F-curve undervolt** and Stage-4 **memory OC** that get
+    written into the saved profile were never verified together, and the
+    stability score was measured on a milder (stock-voltage) setup. The final
+    test now applies the V/F undervolt + `best_mem_offset` (the values actually
+    saved). Default OC+UV mode was unaffected.
+  - **Header clock & AB/NVML/MAHM indicators no longer freeze.** The status
+    updater ran in a worker thread and called Tk `after()` from it; that thread
+    is started in `__init__`, so its first `after()` fires *before* `mainloop()`
+    and raises `RuntimeError: main thread is not in main loop` on Python 3.14 —
+    and the old `except: break` then killed the updater permanently. It now runs
+    as a self-rescheduling **main-thread** poller (no worker, no dead thread).
+  - **Per-game process scan** reads the pre-filled `p.info['name']` instead of
+    re-calling `p.name()`, which could raise `NoSuchProcess` for a process that
+    died mid-scan and blank the whole cycle (briefly mis-reading a running game
+    as stopped).
+  - **FPS-CSV parsing** keeps the GPU-busy column index-aligned with frametimes
+    even when a row is short, so the CPU-vs-GPU bottleneck verdict can't drift.
 
 ### 🔎 Reviewed, verified NOT a bug
 

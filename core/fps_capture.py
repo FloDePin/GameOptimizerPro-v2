@@ -199,9 +199,12 @@ def parse_csv(path: str) -> FrameStats:
             frametimes.append(float(row[ft_idx]))
         except (ValueError, IndexError):
             continue
-        if gb_idx >= 0 and len(row) > gb_idx:
+        # Keep gpu_busy index-aligned with frametimes: append a value for EVERY
+        # accepted frame (placeholder -1.0 for a missing/short cell), otherwise a
+        # short row would shift the two lists out of sync.
+        if gb_idx >= 0:
             try:
-                gpu_busy.append(float(row[gb_idx]))
+                gpu_busy.append(float(row[gb_idx]) if len(row) > gb_idx else -1.0)
             except (ValueError, IndexError):
                 gpu_busy.append(-1.0)
 
