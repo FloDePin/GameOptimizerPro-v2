@@ -107,18 +107,33 @@ class ExportImport:
         except Exception as e:
             return False, {}, f"Datei konnte nicht gelesen werden: {e}"
 
+        # Valides JSON heisst nicht "unser Format": eine Liste/Zahl/Zeichenkette
+        # hat kein .get() und liess den Import vorher mit einem ungefangenen
+        # AttributeError direkt im Button-Handler abstuerzen (keine Meldung).
+        if not isinstance(raw, dict):
+            return False, {}, "Ungültige Datei — kein GameOptimizerPro Export"
+
         if raw.get("_magic") != EXPORT_MAGIC:
             return False, {}, "Ungültige Datei — kein GameOptimizerPro Export"
 
+        # Typen erzwingen: der Inhalt stammt aus einer fremden Datei, und ein
+        # falscher Typ (z.B. "tweaks": [1,2]) wuerde sonst erst spaeter beim
+        # dict.update()/Slicing knallen.
+        def _as_dict(v):
+            return v if isinstance(v, dict) else {}
+
+        def _as_list(v):
+            return v if isinstance(v, list) else []
+
         result = {
             "meta": {
-                "version": raw.get("_version", "?"),
-                "created": raw.get("_created", "?"),
-                "host":    raw.get("_host", "?"),
+                "version": str(raw.get("_version", "?")),
+                "created": str(raw.get("_created", "?")),
+                "host":    str(raw.get("_host", "?")),
             },
-            "tweaks":       raw.get("tweaks", {}),
-            "gpu_profiles": raw.get("gpu_profiles", []),
-            "user_presets": raw.get("user_presets", []),
+            "tweaks":       _as_dict(raw.get("tweaks")),
+            "gpu_profiles": [p for p in _as_list(raw.get("gpu_profiles")) if isinstance(p, dict)],
+            "user_presets": [p for p in _as_list(raw.get("user_presets")) if isinstance(p, dict)],
         }
 
         n_tweaks   = len(result["tweaks"])

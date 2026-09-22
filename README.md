@@ -51,13 +51,16 @@
 - **Never** touches documents, browser profiles or the recycle bin; skips files in use
 - Scan first to see how much can be freed, then clean with one click
 - **Create Restore Point** — one-click Windows System Restore Point as a safety net before applying tweaks
+- **Registry Backup** — exports every registry branch the tweaks can touch as `.reg` files (double-click to restore). Runs **automatically before every batch-apply and every Revert All**, plus on demand; keeps the 10 newest backups and prunes older ones so it can't fill your disk
 
 ### 🛠 Windows Optimizer
-- **71 Tweaks** across Windows, Gaming, Network, Audio categories
+- **83 Tweaks** across Windows, Gaming, Network, Audio categories (incl. AMD GPU tweaks)
 - Live status verification — reads actual Registry/Service state (not just JSON)
 - 3-state indicators: ● Green (verified active) / ◑ Amber (applied, unverified) / ○ Grey (inactive)
 - **Graduated one-click presets — 🟢 Minimal → 🟡 Medium → 🔴 Hard (Debloat)** — cumulative intensity tiers that apply a curated, escalating set of tweaks
 - **10 built-in Presets:** the 3 intensity tiers + Gaming, Privacy & Anti-Telemetry, Debloat, Network, Performance, Windows 11 Classic, All Safe Tweaks
+- **AMD GPU tweaks** — disable ULPS, unlimited shader cache, Anti-Lag (low-latency mode); shown for AMD systems and honestly reported as inactive on NVIDIA
+- **Power Plan tweaks write to *every* power scheme** — Windows can activate a different plan after a reboot, which would otherwise make a setting look reverted. Plan GUIDs are read from `powercfg /L`, never the localized plan name, so it works in any language
 - Export / Import settings as `.nextune` files
 - Tooltips (hover `?`) on every single tweak
 
@@ -165,7 +168,7 @@ GameOptimizerPro **2.0** is the finalized release: the complete feature set belo
 **Highlights**
 - 🩺 **Diagnose tab (measure, don't guess):** FPS/frametime capture with **1% & 0.1% lows**, stutters and a measured **CPU-vs-GPU bottleneck** (PresentMon live or CSV); a 30-day **Health Report** from Windows' own logs; and a **Remnant Scan** for other tweak tools' leftovers. All read-only. *(Also fixed a latent bug that hid the Games/Settings tab buttons.)*
 - 🎮 **GPU Auto-Tuner** (OC / UV / OC+UV) with automated stability testing, live graph, TDR detection and crash recovery — plus MSI Afterburner (MAHM) integration
-- 🛠 **71 verified tweaks** with live status (green/amber/grey), graduated Minimal→Medium→Hard presets and curated Gaming/Privacy/Debloat/Network/Performance/Win11 presets
+- 🛠 **83 verified tweaks** with live status (green/amber/grey), graduated Minimal→Medium→Hard presets and curated Gaming/Privacy/Debloat/Network/Performance/Win11 presets
 - 🎮 **Per-Game Profiles + CPU Pinning (CPU Sets)** — steer games to the X3D cache chiplet (AMD) or P-cores (Intel), with anti-cheat & CCD-parking warnings and an honest "no benefit" note on single-chiplet CPUs
 - 🖥 **BIOS Guide**, 📊 **Live Dashboard** (GPU + CPU/RAM/Disk + latency test), 🧹 **System Cleaner & Restore Point**, 📋 **Tune History**, 🚀 **Startup Manager**, 🌐 **DE/EN**
 
@@ -212,6 +215,7 @@ GameOptimizerPro/
 │   ├── tweaks.py             ← 70 tweaks database (Windows, Gaming, Network, Audio)
 │   ├── network_test.py       ← Gateway/DNS ping latency test
 │   ├── system_cleaner.py     ← Safe temp/junk file cleaner
+│   ├── registry_backup.py    ← Exports affected registry branches as .reg
 │   ├── restore_point.py      ← System Restore Point creator
 │   ├── tweak_runner.py       ← PowerShell executor (hidden)
 │   ├── tweak_verifier.py     ← Registry verification (100% coverage)

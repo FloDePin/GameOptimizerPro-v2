@@ -12,6 +12,7 @@ import threading
 from ui.widgets import *
 from core import system_cleaner
 from core import restore_point
+from core import registry_backup
 
 
 class SettingsTab(tk.Frame):
@@ -94,6 +95,27 @@ class SettingsTab(tk.Frame):
                                     justify="left", anchor="w", wraplength=560)
         self.lbl_restore.pack(anchor="w", pady=(4, 0))
 
+        # ── Registry-Backup ───────────────────────────────────────────────────
+        SecHdr(self, "Registry-Backup").pack(fill="x", padx=14, pady=(8, 4))
+        rb_f = tk.Frame(self, bg=BG2, padx=12, pady=10)
+        rb_f.pack(fill="x", padx=14, pady=(0, 8))
+        tk.Label(rb_f,
+                 text="Exportiert alle Registry-Zweige, die die Tweaks anfassen können, als "
+                      ".reg-Dateien — zum Zurückspielen genügt ein Doppelklick. Vor jedem "
+                      "Stapel-Apply und jedem Revert-All passiert das automatisch; hier kannst "
+                      "du zusätzlich jederzeit von Hand sichern.",
+                 font=FM, fg=DIM, bg=BG2, justify="left", wraplength=560).pack(anchor="w")
+        rb_btns = tk.Frame(rb_f, bg=BG2)
+        rb_btns.pack(anchor="w", pady=(8, 2))
+        self.btn_regbackup = mk_btn(rb_btns, "💾 Registry sichern",
+                                    self._create_registry_backup, BG3, TXT)
+        self.btn_regbackup.pack(side="left", padx=(0, 6))
+        mk_btn(rb_btns, "📂 Backup-Ordner öffnen",
+               self._open_backup_folder, BG3, TXT).pack(side="left")
+        self.lbl_regbackup = tk.Label(rb_f, text="", font=FM, fg=DIM, bg=BG2,
+                                      justify="left", anchor="w", wraplength=560)
+        self.lbl_regbackup.pack(anchor="w", pady=(4, 0))
+
         # ── System Cleaner ────────────────────────────────────────────────────
         SecHdr(self, "System Cleaner (Temp-Dateien)").pack(fill="x", padx=14, pady=(8, 4))
         cln_f = tk.Frame(self, bg=BG2, padx=12, pady=10)
@@ -155,6 +177,27 @@ class SettingsTab(tk.Frame):
                 self.lbl_restore.config(text=msg, fg=OK if ok else WRN),
                 self.btn_restore.config(state="normal")))
         threading.Thread(target=work, daemon=True).start()
+
+    def _create_registry_backup(self):
+        self.btn_regbackup.config(state="disabled")
+        self.lbl_regbackup.config(text="Sichere Registry-Zweige … (kann einen Moment dauern)", fg=DIM)
+
+        def work():
+            res = registry_backup.create("Manual")
+            self.after(0, lambda: (
+                self.lbl_regbackup.config(text=res.summary(), fg=OK if res.ok else WRN),
+                self.btn_regbackup.config(state="normal")))
+        threading.Thread(target=work, daemon=True).start()
+
+    def _open_backup_folder(self):
+        import subprocess as sp
+        import os
+        root = registry_backup.backup_root()
+        try:
+            os.makedirs(root, exist_ok=True)
+            sp.Popen(["explorer.exe", root])
+        except Exception as e:
+            messagebox.showerror("Fehler", f"Backup-Ordner konnte nicht geöffnet werden:\n{e}")
 
     def _cleaner_scan(self):
         self.lbl_cleaner.config(text="Scanne…", fg=DIM)

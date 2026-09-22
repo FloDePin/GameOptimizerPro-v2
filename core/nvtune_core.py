@@ -374,17 +374,28 @@ class AfterburnerController:
 
         path = os.path.join(self.profile_dir, f"MSIAfterburner{slot}.cfg")
 
-        # Read existing to preserve unknown keys
+        # Read the existing profile. We keep the RAW lines (not just a key->value
+        # dict) because an Afterburner .cfg is an INI file: it has [Section]
+        # headers, comments and blank lines. The old version parsed only
+        # "key=value" lines and rewrote a flat list, which silently DELETED every
+        # section header — corrupting the very file it meant to preserve. Now the
+        # original structure is kept verbatim and only our own keys are replaced
+        # in place (unknown keys/sections are never touched).
+        orig_lines: list[str] = []
         existing = {}
         if os.path.exists(path):
             try:
                 with open(path, "r", encoding="utf-8", errors="ignore") as f:
-                    for line in f:
-                        l = line.strip()
-                        if "=" in l and not l.startswith(";"):
-                            k, _, v = l.partition("=")
-                            existing[k.strip()] = v.strip()
+                    orig_lines = f.read().splitlines()
+                for l in orig_lines:
+                    ls = l.strip()
+                    if "=" in ls and not ls.startswith(";") and not ls.startswith("["):
+                        k, _, v = ls.partition("=")
+                        existing[k.strip()] = v.strip()
             except: pass
+
+        # Keys THIS call sets (merged into the original structure further down).
+        updates: dict[str, str] = {}
 
         # Sanity guard-rails against absurd offsets — protects against a
         # hand-edited/corrupt profile JSON (e.g. core=9999) that Afterburner
@@ -400,14 +411,14 @@ class AfterburnerController:
         mem_off  = _clamp(profile.mem_offset_mhz,  -6000, 6000)
 
         # Apply our values
-        existing["CoreClockOffset"]   = str(core_off)
-        existing["MemoryClockOffset"] = str(mem_off)
+        updates["CoreClockOffset"]   = str(core_off)
+        updates["MemoryClockOffset"] = str(mem_off)
 
         if profile.fan_mode == "manual" and profile.fan_speed_pct > 0:
-            existing["FanSpeed"] = str(profile.fan_speed_pct)
-            existing["FanMode"]  = "1"
+            updates["FanSpeed"] = str(profile.fan_speed_pct)
+            updates["FanMode"]  = "1"
         else:
-            existing["FanMode"] = "0"
+            updates["FanMode"] = "0"
 
         # V/F curve (if set) — writes precise flatline undervolt curve
         if profile.lock_voltage_mv > 0 and profile.lock_freq_mhz > 0:
@@ -422,29 +433,53 @@ class AfterburnerController:
                     base_core_offset=core_off,
                 )
                 if curve.curve_offsets:
-                    # Write the curve as VFPoints array in Afterburner format
-                    existing["VFCurveEnabled"]      = "1"
-                    existing["CoreClockOffset"]     = str(core_off)
-                    # Afterburner stores VF curve as "VoltagePoints" CSV
-                    existing["VoltagePoints"]       = curve.to_afterburner_string()
-                    existing["VFLockVoltage"]       = str(profile.lock_voltage_mv)
-                    existing["VFLockFrequency"]     = str(profile.lock_freq_mhz)
+                    updates["VFCurveEnabled"]      = "1"
+                    updates["CoreClockOffset"]     = str(core_off)
+                    updates["VoltagePoints"]       = curve.to_afterburner_string()
+                    updates["VFLockVoltage"]       = str(profile.lock_voltage_mv)
+                    updates["VFLockFrequency"]     = str(profile.lock_freq_mhz)
             except Exception as vf_err:
                 # Non-fatal: fall back to simple offset without curve
-                existing["CoreClockOffset"] = str(core_off)
+                updates["CoreClockOffset"] = str(core_off)
+
+        def _sanitize(v) -> str:
+            # Strip CR/LF so a crafted name/notes (e.g. from an imported
+            # .nextune) can't inject extra key=value lines into the .cfg
+            return str(v).replace("\r", " ").replace("\n", " ")
 
         try:
             os.makedirs(self.profile_dir, exist_ok=True)
-            # Strip CR/LF so a crafted name/notes (e.g. from an imported
-            # .nextune) can't inject extra key=value lines into the .cfg
-            safe_pname = str(profile.name).replace("\r", " ").replace("\n", " ")
-            safe_notes = str(profile.notes).replace("\r", " ").replace("\n", " ")
+            safe_pname = _sanitize(profile.name)
+            safe_notes = _sanitize(profile.notes)
+
+            out_lines: list[str] = []
+            written: set[str] = set()
+
+            if orig_lines:
+                # Merge into the existing file: replace our keys where they already
+                # stand, and copy EVERYTHING else (sections, comments, blank lines,
+                # unknown keys) through untouched.
+                for l in orig_lines:
+                    ls = l.strip()
+                    if "=" in ls and not ls.startswith(";") and not ls.startswith("["):
+                        key = ls.partition("=")[0].strip()
+                        if key in updates and key not in written:
+                            out_lines.append(f"{key}={_sanitize(updates[key])}")
+                            written.add(key)
+                            continue
+                    out_lines.append(l)
+            else:
+                # Brand-new profile file — write our own header.
+                out_lines.append(f"; GameOptimizerPro v2.0 profile: {safe_pname}")
+                out_lines.append(f"; {safe_notes}")
+
+            # Any of our keys that weren't already in the file get appended.
+            for k, v in updates.items():
+                if k not in written:
+                    out_lines.append(f"{k}={_sanitize(v)}")
+
             with open(path, "w", encoding="utf-8") as f:
-                f.write(f"; GameOptimizerPro v2.1 profile: {safe_pname}\n")
-                f.write(f"; {safe_notes}\n")
-                for k, v in existing.items():
-                    line_v = str(v).replace("\r", " ").replace("\n", " ")
-                    f.write(f"{k}={line_v}\n")
+                f.write("\n".join(out_lines) + "\n")
         except Exception as e:
             return False, f"Write failed: {e}"
 

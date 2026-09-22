@@ -77,12 +77,27 @@ class TweakRunner:
         if on_result: on_result(tweak.id, ok, out)
         return ok, out
 
+    def backup_registry(self, label: str = "Backup"):
+        """Exportiert die betroffenen Registry-Zweige als .reg (wie in v1).
+        Best-effort: ein fehlgeschlagenes Backup blockiert nie das Anwenden."""
+        try:
+            from core import registry_backup
+            res = registry_backup.create(label)
+            self.logger.info(
+                f"REGBACKUP {label}: saved={res.saved} skipped={res.skipped} -> {res.path}")
+            return res
+        except Exception as e:
+            self.logger.warning(f"REGBACKUP {label} failed: {e}")
+            return None
+
     def apply_batch(
         self,
         tweaks: list[Tweak],
         on_each: Optional[Callable[[Tweak, bool, str], None]] = None,
         on_progress: Optional[Callable[[int, int], None]] = None
     ) -> dict[str, tuple[bool, str]]:
+        # Sicherheitsnetz vor einem Stapel-Apply (v1-Verhalten: PreApply)
+        self.backup_registry("PreApply")
         results = {}
         for i, tweak in enumerate(tweaks):
             ok, out = self.apply(tweak)
@@ -95,6 +110,8 @@ class TweakRunner:
         self,
         on_each: Optional[Callable[[Tweak, bool, str], None]] = None
     ) -> dict[str, tuple[bool, str]]:
+        # Sicherheitsnetz vor einem Massen-Revert (v1-Verhalten: PreRevert)
+        self.backup_registry("PreRevert")
         results = {}
         applied_ids = list(self._applied.keys())
         for tid in applied_ids:

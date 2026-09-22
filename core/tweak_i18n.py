@@ -151,6 +151,32 @@ TWEAK_DESC_EN: dict[str, str] = {
         "Turns off Windows' automatic Storage Sense, which can delete files in the background. Not needed if you clean up yourself (e.g. via the System Cleaner).",
     "disable_ai_text_image_gen":
         "Disables Windows' on-device generative AI (Settings → Privacy → Text and image generation). Stops Windows and apps from using local AI models. Does not affect cloud AI services. Reversible.",
+
+    # ── Ported from GameOptimizerPro v1 ──────────────────────────────────────
+    "prevent_device_companion":
+        "Stops Windows from pulling device metadata off the network and auto-installing or suggesting companion apps for connected devices. Saves background traffic and unwanted app installs.",
+    "start_menu_previous_layout":
+        "Enables the previous Start menu layout on supported Windows 11 builds via a feature override. Only has an effect on builds that know this flag — otherwise it does nothing.",
+    "explorer_folder_discovery":
+        "Sets every folder to 'General items'. File Explorer then stops wasting time auto-detecting folder types, so large folders open noticeably faster. Requires sign-out/restart.",
+    "store_no_recommended":
+        "Locks the Microsoft Store's store.db via file permissions, so the Store no longer shows recommended/sponsored search results. Fully reversible.",
+    "nic_power_saving":
+        "Turns off 'Allow the computer to turn off this device to save power' for every network adapter. Prevents dropouts and latency spikes caused by adapter power saving.",
+    "power_display_sleep_15":
+        "Sets the monitor sleep timer to 15 minutes (AC) and 5 minutes (battery). Keeps the display from switching off mid-game while still saving power during longer breaks.",
+    "power_sleep_off":
+        "Disables system sleep entirely — the PC no longer suspends after being idle. Recommended for desktops that should keep running in the background (downloads, servers).",
+    "power_cpu_min_100":
+        "Sets the minimum CPU state to 100%, so the CPU never clocks down. Removes the brief ramp-up delay coming out of idle — good for consistent FPS, but raises idle power draw and temperature.",
+    "power_cpu_max_100":
+        "Makes sure Windows never artificially caps the CPU. Relevant on laptops and systems with an aggressive thermal policy. 100% is also the Windows default — so there is honestly nothing to revert here.",
+    "amd_disable_ulps":
+        "AMD only: disables Ultra Low Power State. ULPS puts idle GPUs into an extreme power-saving mode and can cause stutter on wake-up. Worth disabling even on a single GPU.",
+    "amd_shader_cache":
+        "AMD only: sets the AMD shader cache to its maximum size. Prevents cache eviction and repeated shader recompilation — reduces stutter especially in OpenGL/Vulkan titles.",
+    "amd_antilag":
+        "AMD only: enables AMD Anti-Lag via the registry. Shortens the gap between CPU input and GPU output — similar to NVIDIA Reflex. Most effective in CPU-limited games (RX 5000+).",
 }
 
 # English names, only where the German name differs. Most names are already English.

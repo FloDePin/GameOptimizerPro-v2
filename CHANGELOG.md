@@ -35,7 +35,7 @@ verified bug from those reviews is fixed.
   restores the last stable profile on the next boot. Integrates with **MSI
   Afterburner** (MAHM shared memory for real mV readings); GPU-generation
   auto-detection (Pascal→Ada, RDNA 1–3).
-- **Windows Optimizer — 71 tweaks** across Windows, Gaming, Network and Audio,
+- **Windows Optimizer — 83 tweaks** across Windows, Gaming, Network and Audio,
   each with **live status verification** that reads the real registry/service
   state (not just a saved flag), shown as ● green (verified) / ◑ amber
   (applied, unverified) / ○ grey (inactive).
@@ -61,6 +61,36 @@ verified bug from those reviews is fixed.
 - **System Cleaner & Restore Point**, **Tune History**, **Temperature Warning**
   (toast at 90 °C), **Startup Manager**, **background Update Checker**, and full
   **DE/EN** language switching.
+
+### 🔁 Full v1 parity (ported from GameOptimizerPro v1)
+
+v2 is a Python rewrite of the PowerShell/WPF v1, and a handful of v1 features had
+never made it across. They are now ported, with v1's original commands as the
+reference:
+
+- **Registry Backup** — exports all **36** registry branches the tweaks can touch
+  as `.reg` files to `%LOCALAPPDATA%\GameOptimizerPro\RegistryBackups\`, so any
+  change can be undone with a double-click. Runs automatically before every
+  batch-apply (`PreApply`) and every Revert All (`PreRevert`), plus on demand from
+  Settings. **Improvement over v1:** a full export is tens of MB, so only the
+  **10 newest** backups are kept — v1 grew without bound.
+- **AMD GPU tweaks (3)** — `amd_disable_ulps`, `amd_shader_cache`, `amd_antilag`.
+  v2 previously had a `requires_amd` flag that no tweak used; AMD users now get
+  the same coverage NVIDIA users had.
+- **CTT Essentials (4)** — `prevent_device_companion`,
+  `start_menu_previous_layout`, `explorer_folder_discovery`,
+  `store_no_recommended`.
+- **Network adapter (1)** — `nic_power_saving` (disables "allow the computer to
+  turn off this device", a classic source of latency spikes and dropouts).
+- **Power Plan (4)** — `power_display_sleep_15`, `power_sleep_off`,
+  `power_cpu_min_100`, `power_cpu_max_100`. Like v1 these write to **every** power
+  scheme (GUIDs parsed from `powercfg /L`, never the localized plan name), because
+  Windows may activate a different plan after a reboot and the setting would look
+  reverted. `power_cpu_max_100` ships **without** a revert command on purpose —
+  100 % is the Windows default, so a "revert" would write the identical value.
+
+Tweak count: **71 → 83**, all with live verifiers (VERIFY_MAP stays 1:1) and full
+English descriptions.
 
 ### 🛡️ Safety & honesty
 
@@ -124,6 +154,33 @@ verified bug from those reviews is fixed.
     as stopped).
   - **FPS-CSV parsing** keeps the GPU-busy column index-aligned with frametimes
     even when a row is short, so the CPU-vs-GPU bottleneck verdict can't drift.
+- **Round-5 bug hunt (verified fixes):**
+  - **`set_mmcss_audio` no longer deletes a Windows-shipped registry key.** Its
+    revert ran `Remove-Item … 'Pro Audio' -Recurse`, but that MMCSS task ships
+    **with Windows**. A live read confirmed the key holds values the tweak never
+    sets (`Background Only`) and stock values it does change (`Priority` 1→6,
+    `SFIO Priority` Normal→High). Reverting therefore *removed* the Pro-Audio
+    scheduling profile instead of restoring it. The revert now writes the real
+    Windows defaults back.
+  - **Afterburner profile writes no longer destroy the file's INI structure.**
+    `write_and_apply` parsed only `key=value` lines, so every `[Section]` header
+    was dropped and the profile was rewritten as a flat key list — the opposite
+    of the "preserve unknown keys" intent. It now keeps the original lines
+    verbatim (sections, comments, unknown keys) and replaces only its own keys
+    in place, appending any that weren't present. *Honest caveat:* the
+    section-stripping is provable from the code and is covered by a test with a
+    sectioned `.cfg`, but MSI Afterburner was not installed on the machine this
+    was fixed on, so the exact key naming it expects could not be confirmed
+    against a real profile.
+  - **`.nextune` import no longer crashes on non-object JSON.** A valid JSON
+    array/number/string has no `.get()`, which raised an uncaught
+    `AttributeError` straight out of the button handler — no error message, the
+    button just did nothing. Import now type-checks the payload and coerces
+    `tweaks`/`gpu_profiles`/`user_presets` to the expected types.
+  - **System Cleaner safety guard compares path *segments*.** The old substring
+    check would also have accepted `…\Templates` or `…\temp_backup`. Unreachable
+    from the UI (only three fixed targets are passed), but a guard should hold
+    regardless.
 
 ### 🔎 Reviewed, verified NOT a bug
 

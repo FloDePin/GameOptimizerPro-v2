@@ -419,6 +419,82 @@ VERIFY_MAP: dict[str, str] = {
         '$v=(Get-ItemProperty "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\systemAIModels" '
         '-Name Value -EA SilentlyContinue).Value; if($v -eq "Deny"){"1"}else{"0"}'
     ),
+
+    # ── Portiert aus v1: CTT Essentials / Adapter / Power Plan / AMD ─────────
+    "prevent_device_companion": (
+        '$v=(Get-ItemProperty "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Device Metadata" '
+        '-Name PreventDeviceMetadataFromNetwork -EA SilentlyContinue).PreventDeviceMetadataFromNetwork; '
+        'if($v -eq 1){"1"}else{"0"}'
+    ),
+    "start_menu_previous_layout": (
+        '$v=(Get-ItemProperty "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\FeatureManagement\\Overrides\\8\\3036241548" '
+        '-Name EnabledState -EA SilentlyContinue).EnabledState; '
+        'if($v -eq 1){"1"}else{"0"}'
+    ),
+    "explorer_folder_discovery": (
+        '$v=(Get-ItemProperty "HKCU:\\Software\\Classes\\Local Settings\\Software\\Microsoft\\Windows\\Shell\\Bags\\AllFolders\\Shell" '
+        '-Name FolderType -EA SilentlyContinue).FolderType; '
+        'if($v -eq "NotSpecified"){"1"}else{"0"}'
+    ),
+    "store_no_recommended": (
+        '$db="$env:LocalAppData\\Packages\\Microsoft.WindowsStore_8wekyb3d8bbwe\\LocalState\\store.db"; '
+        'if(!(Test-Path $db)){"0"}else{ $a=(icacls "$db" 2>$null | Out-String); '
+        'if($a -match "\\(DENY\\)" -or $a -match "Jeder:\\(N\\)" -or $a -match "Everyone:\\(N\\)"){"1"}else{"0"} }'
+    ),
+    "nic_power_saving": (
+        '$c="HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e972-e325-11ce-bfc1-08002be10318}"; '
+        '$any=$false; $ok=$true; '
+        'Get-ChildItem $c -EA SilentlyContinue | ForEach-Object { '
+        'if(Get-ItemProperty $_.PSPath -Name NetCfgInstanceId -EA SilentlyContinue){ $any=$true; '
+        '$v=(Get-ItemProperty $_.PSPath -Name PnPCapabilities -EA SilentlyContinue).PnPCapabilities; '
+        'if($v -ne 24){$ok=$false} } }; '
+        'if($any -and $ok){"1"}else{"0"}'
+    ),
+    # powercfg: die LETZTEN zwei Hex-Werte der Ausgabe sind der aktuelle AC- bzw.
+    # DC-Index (die Zeilen davor sind statische "mögliche Einstellungen").
+    "power_display_sleep_15": (
+        '$o=(powercfg /query SCHEME_CURRENT SUB_VIDEO VIDEOIDLE 2>$null | Out-String); '
+        '$m=[regex]::Matches($o,"0x[0-9a-fA-F]{8}"); '
+        'if($m.Count -ge 2 -and [Convert]::ToInt32($m[$m.Count-2].Value.Substring(2),16) -eq 900){"1"}else{"0"}'
+    ),
+    "power_sleep_off": (
+        '$o=(powercfg /query SCHEME_CURRENT SUB_SLEEP STANDBYIDLE 2>$null | Out-String); '
+        '$m=[regex]::Matches($o,"0x[0-9a-fA-F]{8}"); '
+        'if($m.Count -ge 2 -and [Convert]::ToInt32($m[$m.Count-2].Value.Substring(2),16) -eq 0){"1"}else{"0"}'
+    ),
+    "power_cpu_min_100": (
+        '$o=(powercfg /query SCHEME_CURRENT SUB_PROCESSOR PROCTHROTTLEMIN 2>$null | Out-String); '
+        '$m=[regex]::Matches($o,"0x[0-9a-fA-F]{8}"); '
+        'if($m.Count -ge 2 -and [Convert]::ToInt32($m[$m.Count-2].Value.Substring(2),16) -eq 100){"1"}else{"0"}'
+    ),
+    "power_cpu_max_100": (
+        '$o=(powercfg /query SCHEME_CURRENT SUB_PROCESSOR PROCTHROTTLEMAX 2>$null | Out-String); '
+        '$m=[regex]::Matches($o,"0x[0-9a-fA-F]{8}"); '
+        'if($m.Count -ge 2 -and [Convert]::ToInt32($m[$m.Count-2].Value.Substring(2),16) -eq 100){"1"}else{"0"}'
+    ),
+    # AMD: ohne AMD-GPU existiert der Klassen-Zweig nicht -> "0" (nicht aktiv),
+    # statt fälschlich "aktiv" zu melden.
+    "amd_disable_ulps": (
+        '$c="HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}"; '
+        '$any=$false; $ok=$true; '
+        'Get-ChildItem $c -EA SilentlyContinue | ForEach-Object { '
+        '$v=(Get-ItemProperty $_.PSPath -Name EnableULPS -EA SilentlyContinue).EnableULPS; '
+        'if($v -ne $null){ $any=$true; if($v -ne 0){$ok=$false} } }; '
+        'if($any -and $ok){"1"}else{"0"}'
+    ),
+    "amd_shader_cache": (
+        '$v=(Get-ItemProperty "HKLM:\\SOFTWARE\\ATI Technologies\\CBT" '
+        '-Name ShaderCacheSizePC -EA SilentlyContinue).ShaderCacheSizePC; '
+        'if($v -ne $null){"1"}else{"0"}'
+    ),
+    "amd_antilag": (
+        '$c="HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}"; '
+        '$any=$false; '
+        'Get-ChildItem $c -EA SilentlyContinue | ForEach-Object { '
+        '$v=(Get-ItemProperty $_.PSPath -Name EnableAntiLag -EA SilentlyContinue).EnableAntiLag; '
+        'if($v -eq 1){$any=$true} }; '
+        'if($any){"1"}else{"0"}'
+    ),
 }
 
 

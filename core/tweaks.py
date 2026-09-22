@@ -24,6 +24,26 @@ class Tweak:
     tags:        list = field(default_factory=list)
 
 
+def _power_all(sub: str, setting: str, ac: int, dc: int) -> str:
+    """Baut ein PowerShell-Kommando, das eine powercfg-Einstellung in JEDES
+    Energieschema schreibt (portiert aus v1: Set-PowerAllSchemes).
+
+    Windows aktiviert nach einem Neustart auf vielen Systemen ein anderes
+    Schema — ein Wert, der nur ins aktive Schema geschrieben wurde, wirkt danach
+    "zurückgesetzt". Die GUIDs werden aus `powercfg /L` gelesen, nie der
+    lokalisierte Planname (dadurch sprachunabhängig)."""
+    return (
+        "$g=@(); foreach($l in (powercfg /L 2>$null)){ "
+        "if($l -match '([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})')"
+        "{$g+=$matches[1]} }; "
+        "if($g.Count -eq 0){$g=@('SCHEME_CURRENT')}; "
+        "foreach($s in $g){ "
+        f"powercfg /SETACVALUEINDEX $s {sub} {setting} {ac} 2>$null | Out-Null; "
+        f"powercfg /SETDCVALUEINDEX $s {sub} {setting} {dc} 2>$null | Out-Null"
+        " }; powercfg /SETACTIVE SCHEME_CURRENT 2>$null | Out-Null"
+    )
+
+
 ALL_TWEAKS: list[Tweak] = [
 
     # ══════════════════════════════════════════════════════════════
@@ -1056,8 +1076,20 @@ powercfg -setactive SCHEME_CURRENT
             " Set-ItemProperty -Path $p -Name 'SFIO Priority' -Value 'High' -Type String"
         ),
         revert_cmd=(
-            "Remove-Item 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion"
-            "\\Multimedia\\SystemProfile\\Tasks\\Pro Audio' -Recurse -EA SilentlyContinue"
+            # "Pro Audio" ist ein von Windows MITGELIEFERTER MMCSS-Task. Den Key zu
+            # loeschen (wie frueher per Remove-Item -Recurse) wuerde auch Werte
+            # entfernen, die dieser Tweak nie gesetzt hat (z.B. "Background Only"),
+            # und das Pro-Audio-Scheduling ganz verschwinden lassen statt es
+            # zurueckzusetzen. Deshalb: die echten Windows-Defaults zurueckschreiben.
+            "$p = 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion"
+            "\\Multimedia\\SystemProfile\\Tasks\\Pro Audio';"
+            " if (Test-Path $p) {"
+            " Set-ItemProperty -Path $p -Name 'Priority' -Value 1 -Type DWord -EA SilentlyContinue;"
+            " Set-ItemProperty -Path $p -Name 'SFIO Priority' -Value 'Normal' -Type String -EA SilentlyContinue;"
+            " Set-ItemProperty -Path $p -Name 'Scheduling Category' -Value 'High' -Type String -EA SilentlyContinue;"
+            " Set-ItemProperty -Path $p -Name 'Clock Rate' -Value 10000 -Type DWord -EA SilentlyContinue;"
+            " Set-ItemProperty -Path $p -Name 'GPU Priority' -Value 8 -Type DWord -EA SilentlyContinue;"
+            " Set-ItemProperty -Path $p -Name 'Affinity' -Value 0 -Type DWord -EA SilentlyContinue }"
         ),
         risk="safe",
     ),
@@ -1079,6 +1111,141 @@ powercfg -setactive SCHEME_CURRENT
         risk="safe",
     ),
 
+    # ══════════════════════════════════════════════════════════════
+    # WINDOWS — CTT ESSENTIALS  (portiert aus GameOptimizerPro v1)
+    # ══════════════════════════════════════════════════════════════
+
+    Tweak(
+        id="prevent_device_companion",
+        name="Prevent Device Companion Apps",
+        desc="Verhindert, dass Windows Geräte-Metadaten aus dem Netz lädt und automatisch Companion-Apps für angeschlossene Geräte installiert oder vorschlägt. Spart Hintergrund-Traffic und ungewollte App-Installationen.",
+        category="Windows", group="CTT Essentials",
+        ps_command=r"""$p='HKLM:\SOFTWARE\Policies\Microsoft\Windows\Device Metadata'; if(!(Test-Path $p)){New-Item -Path $p -Force|Out-Null}; Set-ItemProperty -Path $p -Name PreventDeviceMetadataFromNetwork -Value 1 -Type DWord""",
+        revert_cmd=r"""Remove-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Device Metadata' -Name PreventDeviceMetadataFromNetwork -EA SilentlyContinue""",
+        tags=["privacy", "ctt"],
+    ),
+    Tweak(
+        id="start_menu_previous_layout",
+        name="Enable Start Menu Previous Layout",
+        desc="Aktiviert auf unterstützten Windows-11-Builds das vorherige Startmenü-Layout über ein Feature-Override. Wirkt nur auf Builds, die dieses Flag kennen — sonst ohne Effekt.",
+        category="Windows", group="CTT Essentials",
+        ps_command=r"""$p='HKLM:\SYSTEM\CurrentControlSet\Control\FeatureManagement\Overrides\8\3036241548'; if(!(Test-Path $p)){New-Item -Path $p -Force|Out-Null}; Set-ItemProperty -Path $p -Name EnabledState -Value 1 -Type DWord""",
+        revert_cmd=r"""Remove-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FeatureManagement\Overrides\8\3036241548' -Name EnabledState -EA SilentlyContinue""",
+        requires_reboot=True,
+        tags=["ui", "ctt"],
+    ),
+    Tweak(
+        id="explorer_folder_discovery",
+        name="Disable File Explorer Automatic Folder Discovery",
+        desc="Setzt alle Ordner auf 'Allgemeine Elemente'. Der Explorer verschwendet keine Zeit mehr damit, Ordnertypen automatisch zu erkennen — große Ordner öffnen deutlich schneller. Abmelden/Neustart nötig.",
+        category="Windows", group="CTT Essentials",
+        ps_command=r"""$b='HKCU:\Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\Bags'; $m='HKCU:\Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\BagMRU'; Remove-Item -Path $b -Recurse -Force -EA SilentlyContinue; Remove-Item -Path $m -Recurse -Force -EA SilentlyContinue; $a='HKCU:\Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\Bags\AllFolders\Shell'; if(!(Test-Path $a)){New-Item -Path $a -Force|Out-Null}; Set-ItemProperty -Path $a -Name FolderType -Value 'NotSpecified' -Type String""",
+        revert_cmd=r"""Remove-Item -Path 'HKCU:\Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\Bags' -Recurse -Force -EA SilentlyContinue; Remove-Item -Path 'HKCU:\Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\BagMRU' -Recurse -Force -EA SilentlyContinue""",
+        requires_reboot=True,
+        tags=["performance", "ctt"],
+    ),
+    Tweak(
+        id="store_no_recommended",
+        name="Disable Store Recommended Search Results",
+        desc="Sperrt die store.db der Microsoft-Store-App per Dateiberechtigung. Der Store zeigt dann keine empfohlenen/gesponserten Suchergebnisse mehr. Vollständig reversibel.",
+        category="Windows", group="CTT Essentials",
+        ps_command=r"""$db="$env:LocalAppData\Packages\Microsoft.WindowsStore_8wekyb3d8bbwe\LocalState\store.db"; if(Test-Path $db){ icacls "$db" /deny "*S-1-1-0:F" 2>$null | Out-Null }""",
+        revert_cmd=r"""$db="$env:LocalAppData\Packages\Microsoft.WindowsStore_8wekyb3d8bbwe\LocalState\store.db"; if(Test-Path $db){ icacls "$db" /remove:d "*S-1-1-0" 2>$null | Out-Null }""",
+        risk="moderate",
+        tags=["privacy", "ctt"],
+    ),
+
+    # ══════════════════════════════════════════════════════════════
+    # NETWORK — ADAPTER  (portiert aus v1)
+    # ══════════════════════════════════════════════════════════════
+
+    Tweak(
+        id="nic_power_saving",
+        name="Disable Network Adapter Power Saving",
+        desc="Deaktiviert 'Computer kann das Gerät ausschalten, um Energie zu sparen' für alle Netzwerkadapter. Verhindert Verbindungsabbrüche und Latenz-Spitzen durch Energiesparfunktionen des Adapters.",
+        category="Network", group="Adapter",
+        ps_command=r"""$c='HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-e325-11ce-bfc1-08002be10318}'; Get-ChildItem $c -EA SilentlyContinue | ForEach-Object { if(Get-ItemProperty $_.PSPath -Name NetCfgInstanceId -EA SilentlyContinue){ Set-ItemProperty -Path $_.PSPath -Name PnPCapabilities -Value 24 -Type DWord -Force -EA SilentlyContinue } }""",
+        revert_cmd=r"""$c='HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-e325-11ce-bfc1-08002be10318}'; Get-ChildItem $c -EA SilentlyContinue | ForEach-Object { if(Get-ItemProperty $_.PSPath -Name NetCfgInstanceId -EA SilentlyContinue){ Remove-ItemProperty -Path $_.PSPath -Name PnPCapabilities -Force -EA SilentlyContinue } }""",
+        requires_reboot=True,
+        tags=["latency", "network"],
+    ),
+
+    # ══════════════════════════════════════════════════════════════
+    # WINDOWS — POWER PLAN  (portiert aus v1; schreibt in ALLE Schemata)
+    # ══════════════════════════════════════════════════════════════
+
+    Tweak(
+        id="power_display_sleep_15",
+        name="Display Sleep = 15 Minuten",
+        desc="Setzt den Monitor-Schlaf-Timer auf 15 Minuten (Netz) und 5 Minuten (Akku). Verhindert, dass der Monitor mitten im Spielen abschaltet, spart aber bei längerer Pause weiter Energie.",
+        category="Windows", group="Power Plan",
+        ps_command=_power_all("SUB_VIDEO", "VIDEOIDLE", 900, 300),
+        revert_cmd=_power_all("SUB_VIDEO", "VIDEOIDLE", 600, 120),
+        tags=["power"],
+    ),
+    Tweak(
+        id="power_sleep_off",
+        name="System-Schlafmodus deaktivieren",
+        desc="Deaktiviert den System-Schlafmodus komplett. Der PC schläft nicht mehr nach Inaktivität ein — empfohlen für Desktops, die im Hintergrund weiterlaufen sollen (Downloads, Server).",
+        category="Windows", group="Power Plan",
+        ps_command=_power_all("SUB_SLEEP", "STANDBYIDLE", 0, 0),
+        revert_cmd=_power_all("SUB_SLEEP", "STANDBYIDLE", 3600, 1800),
+        tags=["power"],
+    ),
+    Tweak(
+        id="power_cpu_min_100",
+        name="CPU Minimum Processor State = 100%",
+        desc="Setzt den minimalen CPU-Zustand auf 100%. Die CPU regelt nicht mehr herunter — das eliminiert die kurze Verzögerung beim Hochtakten aus dem Idle. Gut für konstante FPS, erhöht aber Idle-Verbrauch und Temperatur.",
+        category="Windows", group="Power Plan",
+        ps_command=_power_all("SUB_PROCESSOR", "PROCTHROTTLEMIN", 100, 100),
+        revert_cmd=_power_all("SUB_PROCESSOR", "PROCTHROTTLEMIN", 5, 5),
+        risk="moderate",
+        tags=["performance", "power"],
+    ),
+    Tweak(
+        id="power_cpu_max_100",
+        name="CPU Maximum Processor State = 100%",
+        desc="Stellt sicher, dass Windows die CPU nie künstlich deckelt. Relevant auf Laptops und Systemen mit aggressiver Thermal-Policy. 100% ist zugleich der Windows-Standard — deshalb gibt es hier ehrlicherweise nichts zurückzusetzen.",
+        category="Windows", group="Power Plan",
+        ps_command=_power_all("SUB_PROCESSOR", "PROCTHROTTLEMAX", 100, 100),
+        revert_cmd="",   # 100% IST der Windows-Default — ein "Revert" wäre derselbe Wert
+        tags=["performance", "power"],
+    ),
+
+    # ══════════════════════════════════════════════════════════════
+    # GAMING — AMD GPU  (portiert aus v1; greifen nur auf AMD-Systemen)
+    # ══════════════════════════════════════════════════════════════
+
+    Tweak(
+        id="amd_disable_ulps",
+        name="AMD: ULPS deaktivieren (Ultra Low Power State)",
+        desc="Nur AMD: Deaktiviert Ultra Low Power State. ULPS versetzt inaktive GPUs in einen extremen Stromsparmodus und kann beim Aufwachen zu Stottern führen. Auch bei Single-GPU sinnvoll.",
+        category="Gaming", group="AMD GPU",
+        ps_command=r"""$c='HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}'; if(Test-Path $c){ Get-ChildItem $c -EA SilentlyContinue | ForEach-Object { Set-ItemProperty -Path $_.PSPath -Name EnableULPS -Value 0 -Type DWord -EA SilentlyContinue; Set-ItemProperty -Path $_.PSPath -Name EnableULPS_NA -Value 0 -Type DWord -EA SilentlyContinue } }""",
+        revert_cmd=r"""$c='HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}'; if(Test-Path $c){ Get-ChildItem $c -EA SilentlyContinue | ForEach-Object { Set-ItemProperty -Path $_.PSPath -Name EnableULPS -Value 1 -Type DWord -EA SilentlyContinue; Set-ItemProperty -Path $_.PSPath -Name EnableULPS_NA -Value 1 -Type DWord -EA SilentlyContinue } }""",
+        requires_amd=True, requires_reboot=True,
+        tags=["gpu", "amd"],
+    ),
+    Tweak(
+        id="amd_shader_cache",
+        name="AMD: Shader-Cache unbegrenzt",
+        desc="Nur AMD: Setzt den AMD-Shader-Cache auf maximale Größe. Verhindert Cache-Eviction und damit erneutes Kompilieren von Shadern — reduziert Stutter besonders in OpenGL/Vulkan-Titeln.",
+        category="Gaming", group="AMD GPU",
+        ps_command=r"""$p='HKLM:\SOFTWARE\ATI Technologies\CBT'; if(!(Test-Path $p)){New-Item -Path $p -Force|Out-Null}; Set-ItemProperty -Path $p -Name ShaderCacheSizePC -Value 0xffffffff -Type DWord; $c='HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}'; if(Test-Path $c){ Get-ChildItem $c -EA SilentlyContinue | ForEach-Object { Set-ItemProperty -Path $_.PSPath -Name KMD_EnableComputePreemption -Value 0 -Type DWord -EA SilentlyContinue } }""",
+        revert_cmd=r"""Remove-ItemProperty -Path 'HKLM:\SOFTWARE\ATI Technologies\CBT' -Name ShaderCacheSizePC -EA SilentlyContinue; $c='HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}'; if(Test-Path $c){ Get-ChildItem $c -EA SilentlyContinue | ForEach-Object { Remove-ItemProperty -Path $_.PSPath -Name KMD_EnableComputePreemption -EA SilentlyContinue } }""",
+        requires_amd=True, requires_reboot=True,
+        tags=["gpu", "amd"],
+    ),
+    Tweak(
+        id="amd_antilag",
+        name="AMD: Anti-Lag (Low Latency Mode)",
+        desc="Nur AMD: Aktiviert AMD Anti-Lag via Registry. Reduziert den Abstand zwischen CPU-Input und GPU-Ausgabe — ähnlich wie NVIDIA Reflex. Wirkt vor allem bei CPU-limitierten Spielen (RX 5000+).",
+        category="Gaming", group="AMD GPU",
+        ps_command=r"""$c='HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}'; if(Test-Path $c){ Get-ChildItem $c -EA SilentlyContinue | ForEach-Object { Set-ItemProperty -Path $_.PSPath -Name EnableAntiLag -Value 1 -Type DWord -EA SilentlyContinue } }""",
+        revert_cmd=r"""$c='HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}'; if(Test-Path $c){ Get-ChildItem $c -EA SilentlyContinue | ForEach-Object { Remove-ItemProperty -Path $_.PSPath -Name EnableAntiLag -EA SilentlyContinue } }""",
+        requires_amd=True, requires_reboot=True,
+        tags=["gpu", "amd", "latency"],
+    ),
 ]
 
 

@@ -50,9 +50,18 @@ def get_targets() -> list[CleanTarget]:
 
 
 def _is_safe(path: str) -> bool:
-    """Schutzgitter: nur eindeutige Temp-/Dump-Pfade zulassen."""
+    """Schutzgitter: nur eindeutige Temp-/Dump-Pfade zulassen.
+
+    Die Pruefung vergleicht ganze Pfad-SEGMENTE. Ein blosses Substring-'\\temp'
+    haette auch Ordner wie '...\\Templates' oder '...\\temp_backup' durchgelassen —
+    aktuell unerreichbar (die UI uebergibt nur die drei festen Ziele), aber als
+    Schutzgitter muss es auch dann halten, wenn spaeter eigene Ziele reinkommen.
+    """
     p = os.path.normpath(path).lower()
-    return len(p) > 8 and (os.sep + "temp" in p or p.endswith("crashdumps"))
+    if len(p) <= 8:
+        return False
+    segments = [s for s in p.split(os.sep) if s]
+    return "temp" in segments or "crashdumps" in segments
 
 
 def scan(targets: list[CleanTarget] | None = None) -> list[CleanTarget]:
