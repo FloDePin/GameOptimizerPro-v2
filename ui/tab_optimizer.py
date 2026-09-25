@@ -259,8 +259,12 @@ class OptimizerTab(tk.Frame):
         tk.Label(txt, text=preset_name(preset, _lang), font=("Segoe UI", 9, "bold"),
                  fg=preset.color, bg="#161b22", anchor="w").pack(anchor="w")
 
-        n       = len(preset.tweak_ids)
-        already = sum(1 for tid in preset.tweak_ids if self.runner.is_applied(tid))
+        # Count only tweaks this hardware can take — otherwise e.g. "Mittel" on
+        # an AMD system could never reach n/n because of the NVIDIA-only tweak.
+        usable  = [tid for tid in preset.tweak_ids
+                   if get_by_id(tid) and self._is_applicable(get_by_id(tid))]
+        n       = len(usable)
+        already = sum(1 for tid in usable if self.runner.is_applied(tid))
         s_col   = OK if already == n else WRN if already > 0 else DIM
         _active_word = "aktiv" if _lang == "de" else "active"
         tk.Label(txt, text=f"{already}/{n} {_active_word}", font=FM,
@@ -291,19 +295,24 @@ class OptimizerTab(tk.Frame):
                  justify="left", wraplength=680).pack(anchor="w", pady=(4, 0))
 
     def _apply_preset(self, preset):
-        to_apply = [get_by_id(tid) for tid in preset.tweak_ids
-                    if get_by_id(tid) and not self.runner.is_applied(tid)]
-        to_apply = [t for t in to_apply if t]
+        tweaks   = [t for t in (get_by_id(tid) for tid in preset.tweak_ids) if t]
+        skipped  = [t for t in tweaks if not self._is_applicable(t)]
+        to_apply = [t for t in tweaks
+                    if self._is_applicable(t) and not self.runner.is_applied(t.id)]
         if not to_apply:
             messagebox.showinfo("Preset", f"'{preset.name}' ist bereits vollständig aktiv.")
             return
         needs_rb = any(t.requires_reboot for t in to_apply)
         msg = f"Preset '{preset.name}' anwenden?\n{len(to_apply)} Tweak(s) werden aktiviert."
+        if skipped:
+            msg += (f"\n\n{len(skipped)} Tweak(s) passen nicht zu deiner Hardware und "
+                    f"werden übersprungen ({', '.join(t.name for t in skipped)}).")
         if needs_rb: msg += "\n\n⚠ Einige benötigen einen Neustart."
         if not messagebox.askyesno("Preset anwenden", msg): return
 
         def _run():
             self.log.append(f"Preset: {preset.icon} {preset.name}", "header")
+            self._backup_before("PreApply")
             for i, t in enumerate(to_apply):
                 ok, out = self.runner.apply(t)
                 self.log.append(f"  {t.name}: {'✓' if ok else '✗ '+out[:60]}",
@@ -317,9 +326,24 @@ class OptimizerTab(tk.Frame):
         lines = [f"{preset.icon} {preset.name}\n"]
         for tid in preset.tweak_ids:
             t = get_by_id(tid)
-            state = "✓ aktiv" if self.runner.is_applied(tid) else "○ inaktiv"
+            if t and not self._is_applicable(t):
+                state = "— n/a  "          # passt nicht zu dieser Hardware
+            else:
+                state = "✓ aktiv" if self.runner.is_applied(tid) else "○ inaktiv"
             lines.append(f"  {state}  {t.name if t else tid}")
         messagebox.showinfo(f"Preset: {preset.name}", "\n".join(lines))
+
+    def _backup_before(self, label: str):
+        """Registry backup before a batch of changes (runs in the worker thread).
+        TweakRunner.apply_batch()/revert_all() already did this — but the UI
+        never calls those; it applies/reverts tweak by tweak. So the automatic
+        backup has to be triggered here, where the batches actually happen."""
+        self.log.append("Sichere Registry (Backup vor der Änderung) …", "dim")
+        res = self.runner.backup_registry(label)
+        if res is None:
+            self.log.append("  ⚠ Registry-Backup nicht möglich — fahre trotzdem fort.", "warning")
+        else:
+            self.log.append("  " + res.summary(), "success" if res.ok else "warning")
 
     def _create_user_preset(self):
         name = simpledialog.askstring("Eigenes Preset", "Name:")
@@ -382,9 +406,20 @@ class OptimizerTab(tk.Frame):
                 side="left", fill="x", expand=True, padx=(8, 0))
 
             for tweak in tweaks:
-                if tweak.requires_nvidia and not self.hw.is_nvidia: continue
-                if tweak.requires_amd    and not self.hw.is_amd_gpu: continue
+                if not self._is_applicable(tweak):
+                    continue
                 self._build_tweak_row(sf, tweak, color)
+
+    def _is_applicable(self, tweak: Tweak) -> bool:
+        """Hardware filter used EVERYWHERE a tweak can be applied (list, presets,
+        import). The list used to filter inline while presets didn't — so the
+        'Mittel' / 'Hart' / 'All Safe' presets applied NVIDIA- and AMD-only
+        tweaks on the wrong hardware."""
+        if tweak.requires_nvidia and not self.hw.is_nvidia:
+            return False
+        if tweak.requires_amd and not self.hw.is_amd_gpu:
+            return False
+        return True
 
     def _build_tweak_row(self, parent, tweak: Tweak, color: str = ACC):
         is_applied = self.runner.is_applied(tweak.id)
@@ -502,15 +537,12 @@ class OptimizerTab(tk.Frame):
                 else:
                     self._verify_states[tid] = res.actual
 
-            # Also sync runner state with verified truth
-            for tid, res in results.items():
-                if not res.error:
-                    if res.actual and tid not in self.runner._applied:
-                        from datetime import datetime
-                        self.runner._applied[tid] = datetime.now().isoformat()
-                    elif not res.actual and tid in self.runner._applied:
-                        # Don't remove from JSON — just update visual
-                        pass
+            # NOTE: the verified state is for DISPLAY only and must never change
+            # ownership. This used to add every setting that was already active
+            # on the system (dark mode, file extensions, …) to runner._applied —
+            # so a later "Revert All" switched off things the user had set up
+            # themselves before ever using GameOptimizerPro. _applied only ever
+            # lists tweaks this app actually applied.
 
             self._verifying = False
             self.after(0, self._update_dots)
@@ -668,6 +700,7 @@ class OptimizerTab(tk.Frame):
         self.verify_tree.tag_configure("ok",       foreground=OK)
         self.verify_tree.tag_configure("mismatch", foreground=ERR)
         self.verify_tree.tag_configure("unknown",  foreground=DIM)
+        self.verify_tree.tag_configure("external", foreground="#60a5fa")  # aktiv, aber nicht von uns
 
         fix_f = tk.Frame(p, bg="#0d1117")
         fix_f.pack(fill="x", padx=12, pady=4)
@@ -690,20 +723,42 @@ class OptimizerTab(tk.Frame):
             for tid in VERIFY_MAP:
                 if tid not in expected: expected[tid] = False
             results = self.verifier.verify_all(list(expected.keys()), expected)
-            ok_c  = sum(1 for r in results.values() if not r.mismatch and not r.error)
-            mis_c = sum(1 for r in results.values() if r.mismatch)
-            err_c = sum(1 for r in results.values() if r.error)
+
+            # A "mismatch" (expected != actual) covers two very different cases:
+            #   regressed — we applied it, but it is no longer active (Windows
+            #               Update / another tool reverted it) → worth re-applying
+            #   external  — active on the system, but NOT applied by us (the user
+            #               or Windows set it) → nothing to fix, not ours to touch
+            # Treating both as "Abweichung" made "Abweichungen beheben" apply
+            # tweaks the user never selected.
+            def _kind(r):
+                if r.error:
+                    return "unknown"
+                if r.expected and not r.actual:
+                    return "regressed"
+                if r.actual and not r.expected:
+                    return "external"
+                return "ok"
+
+            kinds = {tid: _kind(r) for tid, r in results.items()}
+            ok_c  = sum(1 for k in kinds.values() if k == "ok")
+            mis_c = sum(1 for k in kinds.values() if k == "regressed")
+            ext_c = sum(1 for k in kinds.values() if k == "external")
+            err_c = sum(1 for k in kinds.values() if k == "unknown")
+            order = {"regressed": 0, "external": 1, "unknown": 2, "ok": 3}
 
             def _update():
+                self._last_verify = results
                 for row in self.verify_tree.get_children():
                     self.verify_tree.delete(row)
-                for tid, res in sorted(results.items(),
-                                       key=lambda x: x[1].mismatch, reverse=True):
+                for tid, res in sorted(results.items(), key=lambda x: order[kinds[x[0]]]):
                     t = get_by_id(tid)
                     name = t.name if t else tid
-                    if res.error:   tag, status = "unknown",  f"? {res.error[:30]}"
-                    elif res.mismatch: tag, status = "mismatch", "⚠ Abweichung!"
-                    else:           tag, status = "ok",       "✓ OK"
+                    kind = kinds[tid]
+                    if kind == "unknown":     tag, status = "unknown",  f"? {res.error[:30]}"
+                    elif kind == "regressed": tag, status = "mismatch", "⚠ zurückgesetzt"
+                    elif kind == "external":  tag, status = "external", "ℹ extern aktiv"
+                    else:                     tag, status = "ok",       "✓ OK"
                     self.verify_tree.insert("", "end", iid=tid,
                         values=(name,
                                 "aktiv" if res.expected else "inaktiv",
@@ -712,22 +767,29 @@ class OptimizerTab(tk.Frame):
                         tags=(tag,))
                 col = OK if mis_c == 0 else WRN
                 self.lbl_verify_summary.config(
-                    text=f"✓ {ok_c} OK   ⚠ {mis_c} Abweichungen   ? {err_c} Fehler   ({len(results)} geprüft)",
+                    text=(f"✓ {ok_c} OK   ⚠ {mis_c} zurückgesetzt   "
+                          f"ℹ {ext_c} extern aktiv   ? {err_c} Fehler   "
+                          f"({len(results)} geprüft)"),
                     fg=col)
-                # Sync state
-                for tid, res in results.items():
-                    if not res.error and not res.mismatch:
-                        if res.actual and tid not in self.runner._applied:
-                            self.runner._applied[tid] = datetime.now().isoformat()
-                        elif not res.actual and tid in self.runner._applied:
-                            del self.runner._applied[tid]
-                self.runner._save_state()
+                # No state "sync" here: the old block sat behind `not mismatch`
+                # but described mismatch cases, so it could never run — and the
+                # verifier must not change ownership anyway (see _live_verify).
             self.after(0, _update)
         threading.Thread(target=_do, daemon=True).start()
 
     def _fix_mismatches(self):
-        mis = [get_by_id(item) for item in self.verify_tree.get_children()
-               if "mismatch" in self.verify_tree.item(item, "tags")]
+        # Only tweaks WE applied that were reverted behind our back. Checked
+        # against the stored results as well as the row tag, so a setting that
+        # is merely active on the system is never applied by this button.
+        last = getattr(self, "_last_verify", {}) or {}
+        mis = []
+        for item in self.verify_tree.get_children():
+            if "mismatch" not in self.verify_tree.item(item, "tags"):
+                continue
+            res = last.get(item)
+            if res is not None and not (res.expected and not res.actual):
+                continue
+            mis.append(get_by_id(item))
         mis = [t for t in mis if t]
         if not mis:
             self.lbl_fix_result.config(text="Keine Abweichungen.", fg=DIM)
@@ -735,6 +797,7 @@ class OptimizerTab(tk.Frame):
         if not messagebox.askyesno("Beheben", f"{len(mis)} Tweak(s) erneut anwenden?"):
             return
         def _do():
+            self._backup_before("PreFix")
             ok_c = sum(1 for t in mis if self.runner.apply(t)[0])
             self.after(0, lambda: self.lbl_fix_result.config(
                 text=f"{ok_c}/{len(mis)} behoben.", fg=OK))
@@ -864,9 +927,25 @@ class OptimizerTab(tk.Frame):
         data = self._import_data
         msgs = []
         if self.v_imp_tweaks.get() and data.get("tweaks"):
-            self.runner._applied.update(data["tweaks"])
-            self.runner._save_state()
-            msgs.append(f"{len(data['tweaks'])} Tweaks")
+            # Imported tweaks are SELECTED for review, not recorded as applied.
+            # This used to do runner._applied.update(...): nothing was changed on
+            # this PC, yet the tweaks showed as active — and "Revert All" would
+            # then have reverted settings this app never applied here. Now the
+            # user sees the selection and applies it with ">> Apply Selected"
+            # (which also takes a registry backup first).
+            wanted = [tid for tid in data["tweaks"] if isinstance(tid, str)]
+            usable = [tid for tid in wanted if tid in self._vars]   # known + fits this hardware
+            n_skip = len(wanted) - len(usable)
+            for v in self._vars.values():
+                v.set(False)
+            for tid in usable:
+                self._vars[tid].set(True)
+            n_new = sum(1 for tid in usable if not self.runner.is_applied(tid))
+            m = (f"{len(usable)} Tweaks ausgewählt ({n_new} davon neu) — "
+                 f"mit '>> Apply Selected' anwenden")
+            if n_skip:
+                m += f"; {n_skip} unbekannt/passen nicht zu dieser Hardware"
+            msgs.append(m)
         if self.v_imp_profiles.get() and data.get("gpu_profiles"):
             n_ok, _ = self.exim.apply_imported_profiles(data["gpu_profiles"])
             msgs.append(f"{n_ok} Profile")
@@ -906,6 +985,7 @@ class OptimizerTab(tk.Frame):
         if not messagebox.askyesno("Anwenden", msg): return
         def _run():
             self.log.append(f"Wende {len(selected)} Tweak(s) an...", "header")
+            self._backup_before("PreApply")
             for i, t in enumerate(selected):
                 ok, out = self.runner.apply(t)
                 self.log.append(
@@ -925,6 +1005,7 @@ class OptimizerTab(tk.Frame):
             return
         def _run():
             self.log.append(f"Setze {len(applied)} zurück...", "warning")
+            self._backup_before("PreRevert")
             for t in applied:
                 ok, out = self.runner.revert(t)
                 self.log.append(f"  ↩ {t.name}: {'OK' if ok else out[:80]}",

@@ -1,8 +1,10 @@
 """
-GameOptimizerPro v2.1 — Startup Manager
-Eigenes Fenster das alle Autostart-Einträge auflistet.
+GameOptimizerPro v2.0 — Startup Manager
+Eigenes Fenster das alle Autostart-Einträge auflistet (Run-Keys + Autostart-
+Ordner) und sie — wie der Windows Task-Manager — aktivieren/deaktivieren kann.
 Zeigt für jeden Eintrag:
-  - Name, Publisher, Pfad
+  - An/Aus-Zustand (echter Windows-Zustand, nicht geraten)
+  - Name, Publisher, Pfad, Quelle
   - Status: Safe / Caution / Critical / Unknown
   - Empfehlung: ob man es deaktivieren kann
 """
@@ -11,6 +13,8 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import subprocess, os, json, threading
 from pathlib import Path
+
+from core import startup_control
 
 DARK  = "#0d1117"
 DARK2 = "#161b22"
@@ -134,7 +138,7 @@ class StartupManagerWindow(tk.Toplevel):
                  font=("Segoe UI", 13, "bold"),
                  fg=ACC, bg=DARK2).pack(side="left", padx=16, pady=8)
         tk.Label(hdr,
-                 text="Autostart-Einträge aus Registry + Task Manager",
+                 text="Run-Keys + Autostart-Ordner — an/aus wie im Task-Manager",
                  font=FL, fg=DIM, bg=DARK2).pack(side="left")
 
         self.lbl_count = tk.Label(hdr, text="", font=FM, fg=DIM, bg=DARK2)
@@ -153,11 +157,12 @@ class StartupManagerWindow(tk.Toplevel):
         tk.Label(filt, text="Filter:", font=FM, fg=DIM, bg=DARK).pack(side="left")
         self._filter_var = tk.StringVar(value="all")
         for val, label, color in [
-            ("all",     "Alle",     TXT),
-            ("safe",    "Safe",     OK),
-            ("caution", "Caution",  WRN),
-            ("system",  "System",   ERR),
-            ("unknown", "Unknown",  DIM),
+            ("all",      "Alle",        TXT),
+            ("safe",     "Safe",        OK),
+            ("caution",  "Caution",     WRN),
+            ("system",   "System",      ERR),
+            ("unknown",  "Unknown",     DIM),
+            ("disabled", "Deaktiviert", "#9ca3af"),
         ]:
             tk.Radiobutton(
                 filt, text=label, variable=self._filter_var, value=val,
@@ -196,25 +201,26 @@ class StartupManagerWindow(tk.Toplevel):
         tree_f.pack(fill="both", expand=True, padx=10, pady=(0, 4))
 
         sb = ttk.Scrollbar(tree_f, orient="vertical")
-        cols = ("status", "name", "publisher", "recommendation", "path")
+        cols = ("state", "status", "name", "publisher", "recommendation", "path")
         self.tree = ttk.Treeview(
-            tree_f, columns=cols, show="headings",
+            tree_f, columns=cols, show="headings", selectmode="extended",
             style="SM.Treeview", yscrollcommand=sb.set
         )
         sb.config(command=self.tree.yview)
 
         headers = [
+            ("state",          "An/Aus",         90),
             ("status",         "Status",        100),
-            ("name",           "Name",           180),
-            ("publisher",      "Publisher",      150),
-            ("recommendation", "Empfehlung",     280),
-            ("path",           "Pfad",           260),
+            ("name",           "Name",           170),
+            ("publisher",      "Publisher",      140),
+            ("recommendation", "Empfehlung",     260),
+            ("path",           "Pfad",           240),
         ]
         for col, label, w in headers:
             self.tree.heading(col, text=label,
                               command=lambda c=col: self._sort_by(c))
             self.tree.column(col, width=w,
-                anchor="center" if col == "status" else "w",
+                anchor="center" if col in ("status", "state") else "w",
                 minwidth=60)
 
         self.tree.pack(side="left", fill="both", expand=True)
@@ -226,6 +232,7 @@ class StartupManagerWindow(tk.Toplevel):
         self.tree.tag_configure("system",  foreground=ERR)
         self.tree.tag_configure("critical",foreground=ERR)
         self.tree.tag_configure("unknown", foreground=DIM)
+        self.tree.tag_configure("disabled", foreground="#6b7280")   # deaktiviert = grau
 
         # Bottom action bar
         act = tk.Frame(self, bg=DARK2, height=44)
@@ -242,9 +249,21 @@ class StartupManagerWindow(tk.Toplevel):
                   relief="flat", padx=12, pady=6, cursor="hand2"
                   ).pack(side="right", padx=4, pady=4)
 
-        tk.Button(act, text="⊘  Im Task Manager öffnen",
+        tk.Button(act, text="Task-Manager",
                   command=self._open_task_manager,
                   font=FM, bg=DARK3, fg=TXT,
+                  relief="flat", padx=12, pady=6, cursor="hand2"
+                  ).pack(side="right", padx=4, pady=4)
+
+        tk.Button(act, text="✓  Aktivieren",
+                  command=lambda: self._toggle(True),
+                  font=FM, bg=DARK3, fg=OK,
+                  relief="flat", padx=12, pady=6, cursor="hand2"
+                  ).pack(side="right", padx=4, pady=4)
+
+        tk.Button(act, text="⊘  Deaktivieren",
+                  command=lambda: self._toggle(False),
+                  font=FM, bg=DARK3, fg=WRN,
                   relief="flat", padx=12, pady=6, cursor="hand2"
                   ).pack(side="right", padx=4, pady=4)
 
@@ -266,94 +285,30 @@ class StartupManagerWindow(tk.Toplevel):
         threading.Thread(target=self._fetch_entries, daemon=True).start()
 
     def _fetch_entries(self):
-        """Read startup entries from registry via PowerShell."""
-        ps_cmd = r'''
-$entries = @()
-
-# HKCU Run
-$path = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
-if (Test-Path $path) {
-    Get-ItemProperty $path | ForEach-Object {
-        $_.PSObject.Properties | Where-Object { $_.Name -notlike "PS*" } | ForEach-Object {
-            $entries += [PSCustomObject]@{
-                Name    = $_.Name
-                Command = $_.Value
-                Source  = "HKCU\\Run"
-            }
-        }
-    }
-}
-
-# HKLM Run
-$path = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
-if (Test-Path $path) {
-    Get-ItemProperty $path | ForEach-Object {
-        $_.PSObject.Properties | Where-Object { $_.Name -notlike "PS*" } | ForEach-Object {
-            $entries += [PSCustomObject]@{
-                Name    = $_.Name
-                Command = $_.Value
-                Source  = "HKLM\\Run"
-            }
-        }
-    }
-}
-
-# HKLM Run (32-bit)
-$path = "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Run"
-if (Test-Path $path) {
-    Get-ItemProperty $path | ForEach-Object {
-        $_.PSObject.Properties | Where-Object { $_.Name -notlike "PS*" } | ForEach-Object {
-            $entries += [PSCustomObject]@{
-                Name    = $_.Name
-                Command = $_.Value
-                Source  = "HKLM\\Run (x86)"
-            }
-        }
-    }
-}
-
-$entries | ConvertTo-Json -Compress
-'''
+        """Read autostart entries (Run keys + Autostart folders) with their REAL
+        enabled/disabled state — the same StartupApproved flags Task Manager
+        uses. (The old PowerShell reader only saw the three Run keys and showed
+        entries disabled in Task Manager as if they were active.)"""
         entries = []
         try:
-            flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-            si = subprocess.STARTUPINFO()
-            si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            si.wShowWindow = 0
-
-            result = subprocess.run(
-                ["powershell.exe", "-NoProfile", "-NonInteractive",
-                 "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass",
-                 "-Command", ps_cmd],
-                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15,
-                creationflags=flags, startupinfo=si
-            )
-            raw = result.stdout.strip()
-            if raw and raw != "null":
-                data = json.loads(raw)
-                if isinstance(data, dict):
-                    data = [data]
-                for item in data:
-                    name    = item.get("Name", "")
-                    command = item.get("Command", "")
-                    source  = item.get("Source", "")
-
-                    # Look up in known DB
-                    info = self._lookup(name, command)
-                    entries.append({
-                        "name":     name,
-                        "command":  command,
-                        "source":   source,
-                        "status":   info[0],
-                        "can_disable": info[1],
-                        "publisher": info[2],
-                        "recommendation": info[3],
-                    })
+            for se in startup_control.list_entries():
+                info = self._lookup(se.name, se.command)
+                entries.append({
+                    "name":           se.name,
+                    "command":        se.command,
+                    "source":         se.source,
+                    "enabled":        se.enabled,
+                    "entry":          se,
+                    "status":         info[0],
+                    "can_disable":    info[1],
+                    "publisher":      info[2],
+                    "recommendation": info[3],
+                })
         except Exception as e:
             entries.append({
-                "name": f"Fehler: {e}", "command": "", "source": "",
-                "status": "unknown", "can_disable": False,
-                "publisher": "", "recommendation": "PowerShell-Fehler beim Laden"
+                "name": f"Fehler: {e}", "command": "", "source": "", "enabled": True,
+                "entry": None, "status": "unknown", "can_disable": False,
+                "publisher": "", "recommendation": "Autostart-Einträge konnten nicht gelesen werden"
             })
 
         self._entries = entries
@@ -385,9 +340,16 @@ $entries | ConvertTo-Json -Compress
         filt   = self._filter_var.get()
         search = self._search_var.get().lower()
 
+        def _match_filter(e):
+            if filt == "all":
+                return True
+            if filt == "disabled":
+                return not e.get("enabled", True)
+            return e["status"] == filt
+
         self._filtered = [
             e for e in self._entries
-            if (filt == "all" or e["status"] == filt)
+            if _match_filter(e)
             and (not search or search in e["name"].lower()
                  or search in e.get("publisher", "").lower()
                  or search in e["command"].lower())
@@ -396,33 +358,40 @@ $entries | ConvertTo-Json -Compress
         for row in self.tree.get_children():
             self.tree.delete(row)
 
-        for e in self._filtered:
+        # iid = index into self._filtered, so a (multi-)selection maps back to
+        # its entries reliably.
+        for i, e in enumerate(self._filtered):
             status, _, label = STATUS_CONFIG.get(e["status"], (DIM, "?", "?"))
-            can = "✓ Deaktivierbar" if e["can_disable"] else ("✗ Nicht empfohlen" if e["can_disable"] is False else "? Unbekannt")
-            # Truncate command path
             cmd = e["command"]
             if len(cmd) > 55:
                 cmd = "..." + cmd[-52:]
-
-            self.tree.insert("", "end",
+            enabled = e.get("enabled", True)
+            self.tree.insert("", "end", iid=str(i),
                 values=(
+                    "✓ An" if enabled else "⊘ Aus",
                     label,
                     e["name"],
                     e.get("publisher", ""),
                     e["recommendation"],
                     cmd,
                 ),
-                tags=(e["status"],)
+                tags=(e["status"] if enabled else "disabled",)
             )
 
         total = len(self._entries)
         shown = len(self._filtered)
+        n_off = sum(1 for e in self._entries if not e.get("enabled", True))
         self.lbl_count.config(
             text=f"{shown} von {total} Einträgen | "
                  f"{sum(1 for e in self._entries if e['status']=='safe')} Safe  "
                  f"{sum(1 for e in self._entries if e['status']=='caution')} Caution  "
-                 f"{sum(1 for e in self._entries if e['status'] in ('system','critical'))} System"
+                 f"{sum(1 for e in self._entries if e['status'] in ('system','critical'))} System  "
+                 f"| {n_off} deaktiviert"
         )
+
+    # Tree column -> entry key. "path" used to sort on a key that doesn't exist
+    # (entries store the command under "command"), so that header did nothing.
+    _SORT_KEYS = {"path": "command", "state": "enabled"}
 
     def _sort_by(self, col: str):
         if self._sort_col == col:
@@ -430,36 +399,47 @@ $entries | ConvertTo-Json -Compress
         else:
             self._sort_col = col
             self._sort_rev = False
-        self._entries.sort(key=lambda e: str(e.get(col, "")).lower(),
+        key = self._SORT_KEYS.get(col, col)
+        self._entries.sort(key=lambda e: str(e.get(key, "")).lower(),
                            reverse=self._sort_rev)
         self._apply_filter()
 
+    def _selected_entries(self) -> list:
+        out = []
+        for iid in self.tree.selection():
+            try:
+                e = self._filtered[int(iid)]
+            except (ValueError, IndexError):
+                continue
+            out.append(e)
+        return out
+
     def _on_select(self, _):
-        sel = self.tree.selection()
+        sel = self._selected_entries()
         if not sel:
             return
-        idx = self.tree.index(sel[0])
-        if idx < len(self._filtered):
-            e = self._filtered[idx]
-            status_cfg = STATUS_CONFIG.get(e["status"], (DIM, "?", "?"))
-            self.lbl_selected.config(
-                text=f"{e['name']}  |  {status_cfg[1]}  |  {e.get('publisher','?')}",
-                fg=status_cfg[0]
-            )
+        if len(sel) > 1:
+            self.lbl_selected.config(text=f"{len(sel)} Einträge ausgewählt", fg=TXT)
+            return
+        e = sel[0]
+        status_cfg = STATUS_CONFIG.get(e["status"], (DIM, "?", "?"))
+        state = "an" if e.get("enabled", True) else "AUS"
+        self.lbl_selected.config(
+            text=f"{e['name']}  |  {state}  |  {status_cfg[1]}  |  {e.get('publisher','?')}",
+            fg=status_cfg[0]
+        )
 
     def _show_details(self):
-        sel = self.tree.selection()
+        sel = self._selected_entries()
         if not sel:
-            messagebox.showinfo("Details", "Keinen Eintrag ausgewählt.")
+            messagebox.showinfo("Details", "Keinen Eintrag ausgewählt.", parent=self)
             return
-        idx = self.tree.index(sel[0])
-        if idx >= len(self._filtered):
-            return
-        e = self._filtered[idx]
+        e = sel[0]
         status_cfg = STATUS_CONFIG.get(e["status"], (DIM, "?", "Unbekannt"))
 
         detail = (
             f"Name:          {e['name']}\n"
+            f"Zustand:       {'✓ aktiviert' if e.get('enabled', True) else '⊘ deaktiviert'}\n"
             f"Publisher:     {e.get('publisher', 'Unbekannt')}\n"
             f"Status:        {status_cfg[1]}\n"
             f"Deaktivierbar: {'✓ Ja' if e['can_disable'] else ('✗ Nein' if e['can_disable'] is False else '? Unbekannt')}\n"
@@ -467,7 +447,59 @@ $entries | ConvertTo-Json -Compress
             f"Empfehlung:\n  {e['recommendation']}\n\n"
             f"Pfad:\n  {e['command']}"
         )
-        messagebox.showinfo(f"Details: {e['name']}", detail)
+        messagebox.showinfo(f"Details: {e['name']}", detail, parent=self)
+
+    def _toggle(self, enable: bool):
+        """Enable/disable the selected entries — flag only, exactly like Task
+        Manager. Nothing is deleted, so every change can be undone here or there."""
+        sel = [e for e in self._selected_entries() if e.get("entry") is not None]
+        if not sel:
+            messagebox.showinfo("Autostart", "Keinen Eintrag ausgewählt.", parent=self)
+            return
+        todo = [e for e in sel if e.get("enabled", True) != enable]
+        if not todo:
+            messagebox.showinfo(
+                "Autostart",
+                f"Bereits {'aktiviert' if enable else 'deaktiviert'}.", parent=self)
+            return
+
+        if not enable:
+            names = "\n".join(f"  • {e['name']}" for e in todo[:12])
+            if len(todo) > 12:
+                names += f"\n  … und {len(todo) - 12} weitere"
+            msg = (f"{len(todo)} Autostart-Eintrag/Einträge deaktivieren?\n\n{names}\n\n"
+                   "Es wird nichts gelöscht — wie im Task-Manager lässt sich das "
+                   "jederzeit wieder aktivieren.")
+            risky = [e for e in todo
+                     if e["status"] in ("system", "critical") or e["can_disable"] is False]
+            if risky:
+                msg += ("\n\n⚠ ACHTUNG: " + ", ".join(e["name"] for e in risky) +
+                        " ist als System-/nicht empfohlen markiert. Deaktivieren kann "
+                        "Funktionen beeinträchtigen (z.B. Windows-Sicherheit, Audio-, "
+                        "Treiber- oder Geräte-Software).")
+            if not messagebox.askyesno("Autostart deaktivieren", msg,
+                                       icon="warning" if risky else "question",
+                                       parent=self):
+                return
+
+        results = []
+        for e in todo:
+            ok, m = startup_control.set_enabled(e["entry"], enable)
+            e["enabled"] = e["entry"].enabled        # re-read state, not assumed
+            results.append((e["name"], ok, m))
+        self._apply_filter()
+
+        bad = [r for r in results if not r[1]]
+        done = len(results) - len(bad)
+        self.lbl_selected.config(
+            text=f"{done} Eintrag/Einträge {'aktiviert' if enable else 'deaktiviert'}"
+                 + (f", {len(bad)} fehlgeschlagen" if bad else ""),
+            fg=OK if not bad else WRN)
+        if bad:
+            messagebox.showwarning(
+                "Autostart",
+                "Nicht alle Änderungen waren möglich:\n\n" +
+                "\n".join(f"  • {n}: {m}" for n, _, m in bad), parent=self)
 
     def _open_task_manager(self):
         try:

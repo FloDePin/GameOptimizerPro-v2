@@ -51,7 +51,7 @@
 - **Never** touches documents, browser profiles or the recycle bin; skips files in use
 - Scan first to see how much can be freed, then clean with one click
 - **Create Restore Point** — one-click Windows System Restore Point as a safety net before applying tweaks
-- **Registry Backup** — exports every registry branch the tweaks can touch as `.reg` files (double-click to restore). Runs **automatically before every batch-apply and every Revert All**, plus on demand; keeps the 10 newest backups and prunes older ones so it can't fill your disk
+- **Registry Backup** — exports every registry branch the tweaks can touch as `.reg` files (double-click to restore). Runs **automatically before every Apply Selected, preset, Revert All and "fix deviations"**, plus on demand; keeps the 10 newest backups and prunes older ones so it can't fill your disk
 
 ### 🛠 Windows Optimizer
 - **83 Tweaks** across Windows, Gaming, Network, Audio categories (incl. AMD GPU tweaks)
@@ -59,7 +59,7 @@
 - 3-state indicators: ● Green (verified active) / ◑ Amber (applied, unverified) / ○ Grey (inactive)
 - **Graduated one-click presets — 🟢 Minimal → 🟡 Medium → 🔴 Hard (Debloat)** — cumulative intensity tiers that apply a curated, escalating set of tweaks
 - **10 built-in Presets:** the 3 intensity tiers + Gaming, Privacy & Anti-Telemetry, Debloat, Network, Performance, Windows 11 Classic, All Safe Tweaks
-- **AMD GPU tweaks** — disable ULPS, unlimited shader cache, Anti-Lag (low-latency mode); shown for AMD systems and honestly reported as inactive on NVIDIA
+- **AMD GPU tweaks** — disable ULPS, unlimited shader cache, Anti-Lag (low-latency mode); shown for AMD systems and honestly reported as inactive on NVIDIA. GPU-vendor tweaks (AMD and NVIDIA) are **hardware-guarded twice**: presets skip them on the wrong GPU, and the command itself refuses to run without a matching adapter — AMD values only ever go into the AMD adapter's driver key
 - **Power Plan tweaks write to *every* power scheme** — Windows can activate a different plan after a reboot, which would otherwise make a setting look reverted. Plan GUIDs are read from `powercfg /L`, never the localized plan name, so it works in any language
 - Export / Import settings as `.nextune` files
 - Tooltips (hover `?`) on every single tweak
@@ -106,7 +106,9 @@
 - Quick-apply any saved GPU profile, reset the GPU to stock, or open/exit — all from the tray menu
 
 ### 🚀 Startup Manager
-- Separate window listing all autostart entries from Registry
+- Separate window listing all autostart entries — the **Run keys (HKCU, HKLM, HKLM 32-bit) and both Startup folders** (per-user and all-users `.lnk` shortcuts, targets resolved)
+- Shows the **real on/off state** and can **enable / disable** entries (multi-select) — exactly like Task Manager: only Windows' `StartupApproved` flag is set, nothing is deleted, so every change is reversible here or in Task Manager
+- Confirmation before disabling, with an extra warning for system / not-recommended entries; filter for disabled entries
 - Status for each entry: Safe ✓ / Caution ⚠ / System ⚙ / Unknown ?
 - 40+ pre-classified known processes (Discord, Steam, Corsair, NVIDIA, etc.)
 
@@ -180,6 +182,10 @@ GameOptimizerPro **2.0** is the finalized release: the complete feature set belo
 - Auto-Tuner **final verification now tests the exact profile it saves** — including the V/F-curve undervolt and memory OC (previously the final run used stock voltage, so the saved undervolt was never verified as a whole)
 - Header **clock and the AB / NVML / MAHM indicators now refresh reliably** — the old background updater could die on its first tick (Tk `after()` from a worker thread before mainloop on Python 3.14); it now runs on the main thread
 - Per-game process scan reads the cached process name (no whole-scan blackout if a process dies mid-scan); FPS-CSV GPU column stays index-aligned on short rows
+- **"Revert All" only ever touches what GameOptimizerPro applied** — "Check status" used to adopt every setting that was already active on the PC (dark mode, file extensions, …), so Revert All could switch off things you had set yourself; importing a `.nextune` marked tweaks as applied without applying them; "fix deviations" re-applied settings you never chose. The verifier now only *displays* state, the verify tab separates "reset behind our back" from "active, but not ours", and imports pre-select tweaks for review instead
+- **GPU tweaks can't land on the wrong GPU** — presets applied NVIDIA/AMD-only tweaks on any hardware, and the AMD tweaks looped over *all* display adapters (incl. NVIDIA/Intel). Now filtered in the UI **and** guarded in each command
+- **No more squatting of Afterburner's shared memory** — the MAHM reader *created* a 1 MB `MAHMSharedMemory` section whenever Afterburner wasn't running and kept it open; it now only opens an existing one, maps it at any size, and reconnects automatically when Afterburner is started later
+- **Registry backup really runs automatically** — it was wired into batch methods the UI never called
 - Reviewed-and-verified-not-a-bug items were left unchanged rather than papered over
 
 See [CHANGELOG.md](CHANGELOG.md) for the full detail.
@@ -212,14 +218,15 @@ GameOptimizerPro/
 │   ├── nvtune_tuner.py       ← Auto-tuner (Stage 1 OC, Stage 2 UV, TDR detection)
 │   ├── vf_curve.py           ← Voltage-frequency curve optimization
 │   ├── hardware.py           ← WMI hardware detection
-│   ├── tweaks.py             ← 70 tweaks database (Windows, Gaming, Network, Audio)
+│   ├── tweaks.py             ← 83 tweaks database (Windows, Gaming, Network, Audio)
 │   ├── network_test.py       ← Gateway/DNS ping latency test
 │   ├── system_cleaner.py     ← Safe temp/junk file cleaner
 │   ├── registry_backup.py    ← Exports affected registry branches as .reg
+│   ├── startup_control.py    ← Autostart list + enable/disable (StartupApproved flags)
 │   ├── restore_point.py      ← System Restore Point creator
 │   ├── tweak_runner.py       ← PowerShell executor (hidden)
 │   ├── tweak_verifier.py     ← Registry verification (100% coverage)
-│   ├── tweak_presets.py      ← 7 built-in presets
+│   ├── tweak_presets.py      ← 10 built-in presets
 │   ├── tweak_i18n.py         ← Multilingual tweak descriptions (EN/DE)
 │   ├── bios_guide.py         ← BIOS recommendations database
 │   ├── bios_detector.py      ← Live BIOS state detection

@@ -12,6 +12,8 @@ import subprocess, os
 from dataclasses import dataclass
 from typing import Optional
 
+from core.tweaks import _AMD_KEYS_PS   # same AMD-only adapter filter as the tweaks
+
 
 @dataclass
 class VerifyResult:
@@ -475,24 +477,21 @@ VERIFY_MAP: dict[str, str] = {
     # AMD: ohne AMD-GPU existiert der Klassen-Zweig nicht -> "0" (nicht aktiv),
     # statt fälschlich "aktiv" zu melden.
     "amd_disable_ulps": (
-        '$c="HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}"; '
-        '$any=$false; $ok=$true; '
-        'Get-ChildItem $c -EA SilentlyContinue | ForEach-Object { '
-        '$v=(Get-ItemProperty $_.PSPath -Name EnableULPS -EA SilentlyContinue).EnableULPS; '
-        'if($v -ne $null){ $any=$true; if($v -ne 0){$ok=$false} } }; '
-        'if($any -and $ok){"1"}else{"0"}'
+        _AMD_KEYS_PS +
+        '$ok=($amd.Count -gt 0); foreach($k in $amd){ '
+        '$v=(Get-ItemProperty $k.PSPath -Name EnableULPS -EA SilentlyContinue).EnableULPS; '
+        'if($v -ne 0){$ok=$false} }; if($ok){"1"}else{"0"}'
     ),
     "amd_shader_cache": (
+        _AMD_KEYS_PS +
         '$v=(Get-ItemProperty "HKLM:\\SOFTWARE\\ATI Technologies\\CBT" '
         '-Name ShaderCacheSizePC -EA SilentlyContinue).ShaderCacheSizePC; '
-        'if($v -ne $null){"1"}else{"0"}'
+        'if($amd.Count -gt 0 -and $v -ne $null){"1"}else{"0"}'
     ),
     "amd_antilag": (
-        '$c="HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}"; '
-        '$any=$false; '
-        'Get-ChildItem $c -EA SilentlyContinue | ForEach-Object { '
-        '$v=(Get-ItemProperty $_.PSPath -Name EnableAntiLag -EA SilentlyContinue).EnableAntiLag; '
-        'if($v -eq 1){$any=$true} }; '
+        _AMD_KEYS_PS +
+        '$any=$false; foreach($k in $amd){ '
+        'if((Get-ItemProperty $k.PSPath -Name EnableAntiLag -EA SilentlyContinue).EnableAntiLag -eq 1){$any=$true} }; '
         'if($any){"1"}else{"0"}'
     ),
 }

@@ -71,8 +71,9 @@ reference:
 - **Registry Backup** — exports all **36** registry branches the tweaks can touch
   as `.reg` files to `%LOCALAPPDATA%\GameOptimizerPro\RegistryBackups\`, so any
   change can be undone with a double-click. Runs automatically before every
-  batch-apply (`PreApply`) and every Revert All (`PreRevert`), plus on demand from
-  Settings. **Improvement over v1:** a full export is tens of MB, so only the
+  Apply Selected / preset (`PreApply`), Revert All (`PreRevert`) and
+  "Abweichungen beheben" (`PreFix`), plus on demand from Settings *(as first
+  shipped it only hooked methods the UI never called — fixed in round 6)*. **Improvement over v1:** a full export is tens of MB, so only the
   **10 newest** backups are kept — v1 grew without bound.
 - **AMD GPU tweaks (3)** — `amd_disable_ulps`, `amd_shader_cache`, `amd_antilag`.
   v2 previously had a `requires_amd` flag that no tweak used; AMD users now get
@@ -181,6 +182,68 @@ English descriptions.
     check would also have accepted `…\Templates` or `…\temp_backup`. Unreachable
     from the UI (only three fixed targets are passed), but a guard should hold
     regardless.
+
+- **Round-6 bug hunt (verified fixes):**
+  - **"Check status" silently claimed ownership of the user's own settings.**
+    `_live_verify` compared every tweak against `expected=False` and then added
+    each one found active to `runner._applied`. One click on "⟳ Status prüfen"
+    therefore recorded pre-existing settings (dark mode, file extensions, NIC
+    power saving, …) as "applied by GameOptimizerPro", and **Revert All then
+    switched them off**. Reproduced with the values this machine really reports.
+    The verifier now only feeds the status dots; `_applied` lists exactly what
+    this app applied.
+  - **"Abweichungen beheben" applied tweaks the user never chose.** A mismatch
+    is `expected != actual`, which includes "active on the system but not
+    applied by us". The verify tab now separates *reset behind our back*
+    (re-applied by the button) from *active, but not ours* (shown in blue,
+    untouched).
+  - **Dead "sync state" block removed** from the verify tab — it sat behind
+    `not mismatch` while describing mismatch cases, so neither branch could
+    ever run (proven over all four expected/actual combinations).
+  - **`.nextune` import marked tweaks as applied without applying them.**
+    Nothing changed on the PC, the tweaks still showed as active, and Revert All
+    would have reverted them here. Imports now *pre-select* the tweaks (known +
+    fitting this hardware) for review and "Apply Selected".
+  - **GPU-vendor tweaks were applied on the wrong hardware.** Presets ("Mittel",
+    "Hart", "All Safe") ignored `requires_nvidia` / `requires_amd`, which only the
+    tweak list honored. Worse, the AMD tweaks ported in round 5 looped over
+    **every** subkey of the display-adapter class — which also holds NVIDIA and
+    Intel adapters — because v1's `if ($IsAMD)` guard was dropped in the port,
+    and "All Safe" now included them. Fixed twice: a single `_is_applicable`
+    filter for list, presets and import; and each command guards itself (AMD
+    tweaks touch only subkeys whose `ProviderName` is AMD — on hybrid systems
+    just the AMD adapter — and `exit 1` without one; `nvidia_low_latency`
+    refuses unless the `nvlddmkm` driver service exists, instead of creating a
+    bogus `Services\nvlddmkm` tree via `reg add /f`). A read-only check confirmed
+    no stray values had reached this machine.
+  - **The MAHM reader created and squatted Afterburner's shared memory.**
+    `mmap.mmap(-1, 1 MB, tagname="MAHMSharedMemory")` *creates* the section when
+    it doesn't exist, and on the resulting signature mismatch the handle was never
+    closed — so on any PC without a running Afterburner, GameOptimizerPro held a
+    1 MB section under Afterburner's name for the whole session (verified live).
+    It also failed with "access denied" against any real section smaller than
+    1 MB, and `reopen()` was never called, so starting Afterburner after the app
+    never connected. Now: `OpenFileMappingW` (never creates), `MapViewOfFile`
+    with length 0 (any section size), release on signature mismatch or
+    Afterburner shutdown (`0xDEAD`), and an automatic reconnect every 5 s.
+    Tested end-to-end against a stand-in section.
+  - **Correction to round 5: the automatic registry backup never ran from the
+    UI.** It was wired into `TweakRunner.apply_batch()` / `revert_all()`, which
+    have no callers — the UI applies and reverts tweak by tweak. The backup is
+    now taken in the actual UI paths: Apply Selected, presets, Revert All and
+    "Abweichungen beheben". (Round 5 tested `create()` and the manual button, not
+    whether the automatic hook was reached.)
+- **Startup Manager — v1 parity.** v2's Startup Manager could only *list* the
+  three Run keys and open Task Manager. It now also lists **both Startup folders**
+  (per-user and all-users; `.lnk` targets resolved), shows each entry's **real
+  on/off state**, and can **enable / disable** entries (multi-select) exactly
+  like Task Manager: only the `StartupApproved` flag is written (`0x02` enabled,
+  `0x03` + FILETIME disabled — encoding verified against this machine's live
+  values), nothing is deleted, and the state is read back after each change.
+  Confirmation before disabling, with an extra warning for system /
+  not-recommended entries; "disabled" filter; sorting by the "Pfad" column now
+  actually sorts (it keyed on a field that didn't exist). Tested on a temporary
+  HKCU test entry that is always removed afterwards — never on real entries.
 
 ### 🔎 Reviewed, verified NOT a bug
 

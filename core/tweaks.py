@@ -44,6 +44,70 @@ def _power_all(sub: str, setting: str, ac: int, dc: int) -> str:
     )
 
 
+# ── Vendor guards for GPU-specific tweaks ───────────────────────────────────
+# The display-adapter class {4d36e968-…} exists on EVERY system — NVIDIA and
+# Intel adapters live there too. An AMD tweak that loops over all its subkeys
+# (as the first port from v1 did, minus v1's `if ($IsAMD)`) would write AMD
+# driver values into an NVIDIA/Intel adapter key. So each AMD tweak only touches
+# subkeys whose ProviderName is AMD — on hybrid systems just the AMD adapter —
+# and REFUSES (exit 1 → not recorded as applied) when there is no AMD adapter.
+_AMD_KEYS_PS = (
+    "$c='HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}'; "
+    "$amd=@(Get-ChildItem $c -EA SilentlyContinue | Where-Object { "
+    "(Get-ItemProperty $_.PSPath -Name ProviderName -EA SilentlyContinue).ProviderName "
+    "-match 'Advanced Micro Devices|ATI Technologies|^AMD' }); "
+)
+_AMD_REQUIRED_PS = "if($amd.Count -eq 0){ Write-Output 'Kein AMD-Grafikadapter gefunden'; exit 1 }; "
+
+_AMD_ULPS_APPLY = _AMD_KEYS_PS + _AMD_REQUIRED_PS + (
+    "foreach($k in $amd){ "
+    "Set-ItemProperty -Path $k.PSPath -Name EnableULPS -Value 0 -Type DWord -EA SilentlyContinue; "
+    "Set-ItemProperty -Path $k.PSPath -Name EnableULPS_NA -Value 0 -Type DWord -EA SilentlyContinue }"
+)
+_AMD_ULPS_REVERT = _AMD_KEYS_PS + (
+    "foreach($k in $amd){ "
+    "Set-ItemProperty -Path $k.PSPath -Name EnableULPS -Value 1 -Type DWord -EA SilentlyContinue; "
+    "Set-ItemProperty -Path $k.PSPath -Name EnableULPS_NA -Value 1 -Type DWord -EA SilentlyContinue }"
+)
+_AMD_SHADER_APPLY = _AMD_KEYS_PS + _AMD_REQUIRED_PS + (
+    "$p='HKLM:\\SOFTWARE\\ATI Technologies\\CBT'; "
+    "if(!(Test-Path $p)){New-Item -Path $p -Force|Out-Null}; "
+    "Set-ItemProperty -Path $p -Name ShaderCacheSizePC -Value 0xffffffff -Type DWord; "
+    "foreach($k in $amd){ "
+    "Set-ItemProperty -Path $k.PSPath -Name KMD_EnableComputePreemption -Value 0 -Type DWord -EA SilentlyContinue }"
+)
+_AMD_SHADER_REVERT = (
+    "Remove-ItemProperty -Path 'HKLM:\\SOFTWARE\\ATI Technologies\\CBT' "
+    "-Name ShaderCacheSizePC -EA SilentlyContinue; "
+) + _AMD_KEYS_PS + (
+    "foreach($k in $amd){ "
+    "Remove-ItemProperty -Path $k.PSPath -Name KMD_EnableComputePreemption -EA SilentlyContinue }"
+)
+_AMD_ANTILAG_APPLY = _AMD_KEYS_PS + _AMD_REQUIRED_PS + (
+    "foreach($k in $amd){ "
+    "Set-ItemProperty -Path $k.PSPath -Name EnableAntiLag -Value 1 -Type DWord -EA SilentlyContinue }"
+)
+_AMD_ANTILAG_REVERT = _AMD_KEYS_PS + (
+    "foreach($k in $amd){ "
+    "Remove-ItemProperty -Path $k.PSPath -Name EnableAntiLag -EA SilentlyContinue }"
+)
+
+# NVIDIA: only write when the NVIDIA kernel driver service exists. `reg add /f`
+# on an AMD/Intel system would otherwise CREATE a bogus
+# Services\nvlddmkm\Global\NVTweak tree for a driver that isn't installed.
+_NV_LATENCY_APPLY = (
+    "if(!(Test-Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\nvlddmkm')){ "
+    "Write-Output 'Kein NVIDIA-Treiber gefunden'; exit 1 }; "
+    "$p='HKLM:\\SYSTEM\\CurrentControlSet\\Services\\nvlddmkm\\Global\\NVTweak'; "
+    "if(!(Test-Path $p)){New-Item -Path $p -Force|Out-Null}; "
+    "Set-ItemProperty -Path $p -Name NVLatency -Value 1 -Type DWord"
+)
+_NV_LATENCY_REVERT = (
+    "Remove-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\nvlddmkm\\Global\\NVTweak' "
+    "-Name NVLatency -EA SilentlyContinue"
+)
+
+
 ALL_TWEAKS: list[Tweak] = [
 
     # ══════════════════════════════════════════════════════════════
@@ -639,8 +703,8 @@ reg add "HKLM\\SYSTEM\\CurrentControlSet\\Control" /v SvcHostSplitThresholdInKB 
         desc="Aktiviert NVIDIA Ultra Low Latency Mode. Reduziert Render-Queue auf 1 Frame. Nur auf NVIDIA GPUs wirksam.",
         category="Gaming", group="GPU & Driver",
         requires_nvidia=True,
-        ps_command='reg add "HKLM\\SYSTEM\\CurrentControlSet\\Services\\nvlddmkm\\Global\\NVTweak" /v NVLatency /t REG_DWORD /d 1 /f',
-        revert_cmd='reg delete "HKLM\\SYSTEM\\CurrentControlSet\\Services\\nvlddmkm\\Global\\NVTweak" /v NVLatency /f 2>$null',
+        ps_command=_NV_LATENCY_APPLY,
+        revert_cmd=_NV_LATENCY_REVERT,
     ),
     Tweak(
         id="enable_msi_mode",
@@ -1221,8 +1285,8 @@ powercfg -setactive SCHEME_CURRENT
         name="AMD: ULPS deaktivieren (Ultra Low Power State)",
         desc="Nur AMD: Deaktiviert Ultra Low Power State. ULPS versetzt inaktive GPUs in einen extremen Stromsparmodus und kann beim Aufwachen zu Stottern führen. Auch bei Single-GPU sinnvoll.",
         category="Gaming", group="AMD GPU",
-        ps_command=r"""$c='HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}'; if(Test-Path $c){ Get-ChildItem $c -EA SilentlyContinue | ForEach-Object { Set-ItemProperty -Path $_.PSPath -Name EnableULPS -Value 0 -Type DWord -EA SilentlyContinue; Set-ItemProperty -Path $_.PSPath -Name EnableULPS_NA -Value 0 -Type DWord -EA SilentlyContinue } }""",
-        revert_cmd=r"""$c='HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}'; if(Test-Path $c){ Get-ChildItem $c -EA SilentlyContinue | ForEach-Object { Set-ItemProperty -Path $_.PSPath -Name EnableULPS -Value 1 -Type DWord -EA SilentlyContinue; Set-ItemProperty -Path $_.PSPath -Name EnableULPS_NA -Value 1 -Type DWord -EA SilentlyContinue } }""",
+        ps_command=_AMD_ULPS_APPLY,
+        revert_cmd=_AMD_ULPS_REVERT,
         requires_amd=True, requires_reboot=True,
         tags=["gpu", "amd"],
     ),
@@ -1231,8 +1295,8 @@ powercfg -setactive SCHEME_CURRENT
         name="AMD: Shader-Cache unbegrenzt",
         desc="Nur AMD: Setzt den AMD-Shader-Cache auf maximale Größe. Verhindert Cache-Eviction und damit erneutes Kompilieren von Shadern — reduziert Stutter besonders in OpenGL/Vulkan-Titeln.",
         category="Gaming", group="AMD GPU",
-        ps_command=r"""$p='HKLM:\SOFTWARE\ATI Technologies\CBT'; if(!(Test-Path $p)){New-Item -Path $p -Force|Out-Null}; Set-ItemProperty -Path $p -Name ShaderCacheSizePC -Value 0xffffffff -Type DWord; $c='HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}'; if(Test-Path $c){ Get-ChildItem $c -EA SilentlyContinue | ForEach-Object { Set-ItemProperty -Path $_.PSPath -Name KMD_EnableComputePreemption -Value 0 -Type DWord -EA SilentlyContinue } }""",
-        revert_cmd=r"""Remove-ItemProperty -Path 'HKLM:\SOFTWARE\ATI Technologies\CBT' -Name ShaderCacheSizePC -EA SilentlyContinue; $c='HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}'; if(Test-Path $c){ Get-ChildItem $c -EA SilentlyContinue | ForEach-Object { Remove-ItemProperty -Path $_.PSPath -Name KMD_EnableComputePreemption -EA SilentlyContinue } }""",
+        ps_command=_AMD_SHADER_APPLY,
+        revert_cmd=_AMD_SHADER_REVERT,
         requires_amd=True, requires_reboot=True,
         tags=["gpu", "amd"],
     ),
@@ -1241,8 +1305,8 @@ powercfg -setactive SCHEME_CURRENT
         name="AMD: Anti-Lag (Low Latency Mode)",
         desc="Nur AMD: Aktiviert AMD Anti-Lag via Registry. Reduziert den Abstand zwischen CPU-Input und GPU-Ausgabe — ähnlich wie NVIDIA Reflex. Wirkt vor allem bei CPU-limitierten Spielen (RX 5000+).",
         category="Gaming", group="AMD GPU",
-        ps_command=r"""$c='HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}'; if(Test-Path $c){ Get-ChildItem $c -EA SilentlyContinue | ForEach-Object { Set-ItemProperty -Path $_.PSPath -Name EnableAntiLag -Value 1 -Type DWord -EA SilentlyContinue } }""",
-        revert_cmd=r"""$c='HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}'; if(Test-Path $c){ Get-ChildItem $c -EA SilentlyContinue | ForEach-Object { Remove-ItemProperty -Path $_.PSPath -Name EnableAntiLag -EA SilentlyContinue } }""",
+        ps_command=_AMD_ANTILAG_APPLY,
+        revert_cmd=_AMD_ANTILAG_REVERT,
         requires_amd=True, requires_reboot=True,
         tags=["gpu", "amd", "latency"],
     ),

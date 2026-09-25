@@ -50,7 +50,7 @@
 - Fasst **nie** Dokumente, Browserprofile oder den Papierkorb an; überspringt Dateien in Benutzung
 - Erst scannen (zeigt freigebbaren Speicher), dann per Klick bereinigen
 - **Wiederherstellungspunkt erstellen** — Ein-Klick-Sicherheitsnetz vor dem Anwenden von Tweaks
-- **Registry-Backup** — exportiert alle Registry-Zweige, die die Tweaks anfassen können, als `.reg`-Dateien (zum Zurückspielen genügt ein Doppelklick). Läuft **automatisch vor jedem Stapel-Apply und jedem „Revert All"** sowie auf Knopfdruck; behält die 10 neuesten Backups und löscht ältere automatisch, damit die Platte nicht vollläuft
+- **Registry-Backup** — exportiert alle Registry-Zweige, die die Tweaks anfassen können, als `.reg`-Dateien (zum Zurückspielen genügt ein Doppelklick). Läuft **automatisch vor jedem „Apply Selected", Preset, „Revert All" und „Abweichungen beheben"** sowie auf Knopfdruck; behält die 10 neuesten Backups und löscht ältere automatisch, damit die Platte nicht vollläuft
 
 ### 🛠 Windows Optimizer
 - **83 Tweaks** in den Kategorien Windows, Gaming, Network, Audio (inkl. AMD-GPU-Tweaks)
@@ -58,7 +58,7 @@
 - 3-stufige Statusanzeige: ● Grün (verifiziert aktiv) / ◑ Amber (angewendet, ungeprüft) / ○ Grau (inaktiv)
 - **Abgestufte Ein-Klick-Presets — 🟢 Minimal → 🟡 Mittel → 🔴 Hart (Debloat)** — kumulative Intensitätsstufen, die ein kuratiertes, ansteigendes Tweak-Set anwenden
 - **10 integrierte Presets:** die 3 Intensitätsstufen + Gaming, Privacy & Anti-Telemetry, Debloat, Network, Performance, Windows 11 Classic, Alle sicheren Tweaks
-- **AMD-GPU-Tweaks** — ULPS deaktivieren, Shader-Cache unbegrenzt, Anti-Lag (Low-Latency-Modus); erscheinen für AMD-Systeme und werden auf NVIDIA ehrlich als inaktiv gemeldet
+- **AMD-GPU-Tweaks** — ULPS deaktivieren, Shader-Cache unbegrenzt, Anti-Lag (Low-Latency-Modus); erscheinen für AMD-Systeme und werden auf NVIDIA ehrlich als inaktiv gemeldet. Herstellerspezifische GPU-Tweaks (AMD und NVIDIA) sind **doppelt abgesichert**: Presets überspringen sie auf der falschen GPU, und der Befehl selbst verweigert ohne passenden Adapter — AMD-Werte landen nur im Treiberschlüssel des AMD-Adapters
 - **Power-Plan-Tweaks schreiben in *alle* Energieschemata** — Windows kann nach einem Neustart ein anderes Schema aktivieren, wodurch eine Einstellung sonst „zurückgesetzt" aussieht. Die Plan-GUIDs kommen aus `powercfg /L`, nie der lokalisierte Planname — also sprachunabhängig
 - Export/Import der Einstellungen als `.nextune`-Dateien
 - Tooltips (Hover über `?`) für jeden einzelnen Tweak
@@ -105,7 +105,9 @@
 - Gespeicherte GPU-Profile schnell anwenden, GPU auf Stock zurücksetzen oder öffnen/beenden — alles aus dem Tray-Menü
 
 ### 🚀 Startup Manager
-- Eigenes Fenster mit allen Autostart-Einträgen aus der Registry
+- Eigenes Fenster mit allen Autostart-Einträgen — **Run-Keys (HKCU, HKLM, HKLM 32-Bit) und beide Autostart-Ordner** (Benutzer + alle Nutzer, `.lnk`-Ziele aufgelöst)
+- Zeigt den **echten An/Aus-Zustand** und kann Einträge **aktivieren / deaktivieren** (Mehrfachauswahl) — genau wie der Task-Manager: gesetzt wird nur das Windows-`StartupApproved`-Flag, nichts wird gelöscht, jede Änderung ist hier oder im Task-Manager umkehrbar
+- Rückfrage vor dem Deaktivieren, mit Extra-Warnung bei System-/nicht empfohlenen Einträgen; Filter für deaktivierte Einträge
 - Status je Eintrag: Sicher ✓ / Vorsicht ⚠ / System ⚙ / Unbekannt ?
 - 40+ vorklassifizierte bekannte Prozesse (Discord, Steam, Corsair, NVIDIA usw.)
 
@@ -179,6 +181,10 @@ GameOptimizerPro **2.0** ist der finalisierte Release: der komplette Funktionsum
 - Auto-Tuner: **der Final-Test prüft jetzt exakt das Profil, das gespeichert wird** — inklusive V/F-Undervolt und Memory-OC (vorher lief der Final-Test mit Stock-Spannung, der gespeicherte Undervolt wurde also nie als Ganzes verifiziert)
 - Header-**Uhr und die AB- / NVML- / MAHM-Anzeigen aktualisieren sich wieder zuverlässig** — der alte Hintergrund-Updater konnte beim ersten Tick sterben (Tk `after()` aus einem Worker-Thread vor der mainloop auf Python 3.14); läuft jetzt im Main-Thread
 - Per-Game-Prozess-Scan nutzt den gecachten Prozessnamen (kein Komplett-Ausfall des Scans, wenn ein Prozess mitten im Scan stirbt); GPU-Spalte der FPS-CSV bleibt bei kurzen Zeilen index-treu
+- **„Revert All" fasst nur noch an, was GameOptimizerPro selbst angewendet hat** — „Status prüfen" hat jede bereits aktive Einstellung des PCs vereinnahmt (Dark Mode, Dateiendungen, …), sodass Revert All selbst eingestellte Dinge abschalten konnte; der `.nextune`-Import hat Tweaks als angewendet markiert, ohne sie anzuwenden; „Abweichungen beheben" hat nie gewählte Einstellungen angewendet. Der Verifier *zeigt* jetzt nur an, der Verify-Tab trennt „hinter unserem Rücken zurückgesetzt" von „aktiv, aber nicht von uns", und der Import wählt Tweaks zur Prüfung vor
+- **GPU-Tweaks landen nicht mehr auf der falschen GPU** — Presets haben NVIDIA-/AMD-only-Tweaks auf jeder Hardware angewendet, und die AMD-Tweaks liefen über *alle* Grafikadapter (auch NVIDIA/Intel). Jetzt in der UI gefiltert **und** im Befehl selbst abgesichert
+- **Kein Besetzen von Afterburners Shared Memory mehr** — der MAHM-Reader hat eine 1-MB-Section `MAHMSharedMemory` *angelegt*, sobald Afterburner nicht lief, und sie offen gehalten; jetzt öffnet er nur eine vorhandene, mappt sie in jeder Größe und verbindet sich automatisch, wenn Afterburner später gestartet wird
+- **Registry-Backup läuft wirklich automatisch** — es hing an Batch-Methoden, die die UI nie aufgerufen hat
 - "Geprüft und als kein Bug bestätigt"-Punkte wurden bewusst nicht verändert statt übertüncht
 
 Vollständige Details in [CHANGELOG.md](CHANGELOG.md).
@@ -206,10 +212,15 @@ GameOptimizerPro/
 │   ├── nvtune_tuner.py       ← Auto-Tuner (Stage 1 OC, Stage 2 UV, TDR-Erkennung)
 │   ├── vf_curve.py           ← Spannungs-Frequenz-Kurven-Optimierung
 │   ├── hardware.py           ← WMI-Hardware-Erkennung
-│   ├── tweaks.py             ← 50+ Tweaks-Datenbank (Windows, Gaming, Network, Audio)
+│   ├── tweaks.py             ← 83-Tweaks-Datenbank (Windows, Gaming, Network, Audio)
+│   ├── network_test.py       ← Gateway/DNS-Ping-Latenztest
+│   ├── system_cleaner.py     ← Sicherer Temp-/Junk-Dateien-Cleaner
+│   ├── registry_backup.py    ← Exportiert betroffene Registry-Zweige als .reg
+│   ├── startup_control.py    ← Autostart-Liste + an/aus (StartupApproved-Flags)
+│   ├── restore_point.py      ← Wiederherstellungspunkt erstellen
 │   ├── tweak_runner.py       ← PowerShell-Executor (versteckt)
 │   ├── tweak_verifier.py     ← Registry-Verifizierung (100% Abdeckung)
-│   ├── tweak_presets.py      ← 7 integrierte Presets
+│   ├── tweak_presets.py      ← 10 integrierte Presets
 │   ├── tweak_i18n.py         ← Mehrsprachige Tweak-Beschreibungen (EN/DE)
 │   ├── bios_guide.py         ← BIOS-Empfehlungsdatenbank
 │   ├── bios_detector.py      ← Live-BIOS-Zustandserkennung

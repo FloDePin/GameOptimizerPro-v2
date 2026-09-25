@@ -14,10 +14,51 @@ Source IDs from MAHMSharedMemory.h (official AB SDK):
 """
 
 import ctypes
-import mmap
+import os
 import struct
+import time
+from ctypes import wintypes
 from dataclasses import dataclass, field
 from typing import Optional
+
+# ── Win32: open an EXISTING named section read-only (never create one) ───────
+# The old code used mmap.mmap(-1, 1 MB, tagname="MAHMSharedMemory"). On Windows
+# that CREATES a 1 MB pagefile-backed section under Afterburner's name whenever
+# Afterburner isn't running — and on a signature mismatch the handle was never
+# closed, so GameOptimizerPro squatted Afterburner's shared-memory name for the
+# whole session. OpenFileMappingW only ever opens what Afterburner created.
+_FILE_MAP_READ = 0x0004
+
+
+class _MEMORY_BASIC_INFORMATION(ctypes.Structure):
+    _fields_ = [
+        ("BaseAddress",       ctypes.c_void_p),
+        ("AllocationBase",    ctypes.c_void_p),
+        ("AllocationProtect", wintypes.DWORD),
+        ("PartitionId",       wintypes.WORD),
+        ("RegionSize",        ctypes.c_size_t),
+        ("State",             wintypes.DWORD),
+        ("Protect",           wintypes.DWORD),
+        ("Type",              wintypes.DWORD),
+    ]
+
+
+def _k32():
+    k = ctypes.WinDLL("kernel32", use_last_error=True)
+    k.OpenFileMappingW.restype  = wintypes.HANDLE
+    k.OpenFileMappingW.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.LPCWSTR]
+    k.MapViewOfFile.restype     = ctypes.c_void_p
+    k.MapViewOfFile.argtypes    = [wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD,
+                                   wintypes.DWORD, ctypes.c_size_t]
+    k.UnmapViewOfFile.restype   = wintypes.BOOL
+    k.UnmapViewOfFile.argtypes  = [ctypes.c_void_p]
+    k.VirtualQuery.restype      = ctypes.c_size_t
+    k.VirtualQuery.argtypes     = [ctypes.c_void_p,
+                                   ctypes.POINTER(_MEMORY_BASIC_INFORMATION),
+                                   ctypes.c_size_t]
+    k.CloseHandle.restype       = wintypes.BOOL
+    k.CloseHandle.argtypes      = [wintypes.HANDLE]
+    return k
 
 # ── MAHM memory layout constants ─────────────────────────────────────────────
 MAHM_SHARED_MEMORY_NAME    = "MAHMSharedMemory"
@@ -88,41 +129,85 @@ class MAHMReader:
     Falls back gracefully when AB is not running.
     """
 
+    # Afterburner may be started AFTER GameOptimizerPro. read() retries opening
+    # the section at most this often (OpenFileMappingW is cheap).
+    RETRY_INTERVAL_S = 5.0
+
     def __init__(self):
-        self._mm: Optional[mmap.mmap] = None
+        self._handle = None           # section handle (from OpenFileMappingW)
+        self._view   = None           # base address of the mapped view
+        self._view_size = 0           # size of the mapped view in bytes
         self._available = False
         self._error = ""
+        self._last_try = 0.0
         self._try_open()
 
-    def _try_open(self):
+    def _release(self):
+        """Unmap the view and close the section handle (idempotent)."""
+        if os.name != "nt":
+            self._handle = self._view = None
+            self._view_size = 0
+            return
         try:
-            self._mm = mmap.mmap(
-                -1,
-                1 << 20,   # 1 MB should cover any AB version
-                tagname=MAHM_SHARED_MEMORY_NAME,
-                access=mmap.ACCESS_READ
-            )
-            # Quick sanity check: read signature
-            self._mm.seek(0)
-            sig = struct.unpack_from("<I", self._mm.read(4))[0]
-            if sig != 0x4D41484D:  # 'MAHM' in little-endian
-                self._available = False
-                self._error = f"MAHM signature mismatch: {sig:#010x}"
+            k = _k32()
+            if self._view:
+                k.UnmapViewOfFile(self._view)
+            if self._handle:
+                k.CloseHandle(self._handle)
+        except Exception:
+            pass
+        self._handle = None
+        self._view = None
+        self._view_size = 0
+
+    def _try_open(self):
+        self._last_try = time.monotonic()
+        self._release()
+        self._available = False
+        if os.name != "nt":
+            self._error = "MAHM nur unter Windows verfügbar."
+            return
+        try:
+            k = _k32()
+            h = k.OpenFileMappingW(_FILE_MAP_READ, False, MAHM_SHARED_MEMORY_NAME)
+            if not h:
+                # Normal case when Afterburner isn't running — nothing is created.
+                self._error = "Afterburner-Shared-Memory nicht vorhanden (Afterburner läuft nicht)."
                 return
+            # Length 0 maps the WHOLE section, whatever size Afterburner chose.
+            view = k.MapViewOfFile(h, _FILE_MAP_READ, 0, 0, 0)
+            if not view:
+                k.CloseHandle(h)
+                self._error = f"MapViewOfFile fehlgeschlagen (Win32 {ctypes.get_last_error()})"
+                return
+            mbi = _MEMORY_BASIC_INFORMATION()
+            size = 0
+            if k.VirtualQuery(view, ctypes.byref(mbi), ctypes.sizeof(mbi)):
+                size = int(mbi.RegionSize)
+            self._handle, self._view, self._view_size = h, view, size
+            if size < MAHM_HEADER_SIZE:
+                self._error = f"MAHM-Section zu klein ({size} Bytes)"
+                self._release()
+                return
+            sig = struct.unpack_from("<I", self._bytes(4))[0]
+            if sig != 0x4D41484D:  # 'MAHM' (0xDEAD while Afterburner shuts down)
+                self._error = f"MAHM signature mismatch: {sig:#010x}"
+                self._release()    # never keep a handle to a section we can't use
+                return
+            self._error = ""
             self._available = True
         except Exception as e:
-            self._available = False
             self._error = str(e)
-            self._mm = None
+            self._release()
+
+    def _bytes(self, n: int) -> bytes:
+        """Copy up to n bytes from the start of the mapped view."""
+        if not self._view:
+            return b""
+        return ctypes.string_at(self._view, min(n, self._view_size))
 
     def reopen(self):
-        """Try to reconnect (call when AB is started)."""
-        if self._mm:
-            try:
-                self._mm.close()
-            except:
-                pass
-            self._mm = None
+        """Force a reconnect attempt (e.g. right after Afterburner was started)."""
         self._try_open()
 
     @property
@@ -135,20 +220,26 @@ class MAHMReader:
 
     def read(self) -> MAHMData:
         data = MAHMData()
-        if not self._available or not self._mm:
-            return data
+        if not self._available or not self._view:
+            # Lazy reconnect: Afterburner may have been started after us.
+            if time.monotonic() - self._last_try >= self.RETRY_INTERVAL_S:
+                self._try_open()
+            if not self._available or not self._view:
+                return data
 
         try:
-            self._mm.seek(0)
             # Size the buffer with the MAX possible entry size — the real stride
             # (read from the header below) can be larger than the nominal 260, and
             # a too-small buffer would silently drop the last entries.
-            raw = self._mm.read(MAHM_HEADER_SIZE + MAHM_MAX_SOURCES * MAHM_MAX_ENTRY_SIZE)
+            raw = self._bytes(MAHM_HEADER_SIZE + MAHM_MAX_SOURCES * MAHM_MAX_ENTRY_SIZE)
 
             # Parse header
             sig, ver, n_entries, n_gpu_entries = struct.unpack_from("<IIII", raw, 0)
             if sig != 0x4D41484D:
+                # Afterburner is shutting down (0xDEAD) or gone — let go of the
+                # section so it can be destroyed; read() will reconnect later.
                 self._available = False
+                self._release()
                 return data
 
             data.available   = True
@@ -233,9 +324,5 @@ class MAHMReader:
         elif sid == SRC_UTIL_LIMIT:    data.util_limit     = val
 
     def close(self):
-        if self._mm:
-            try:
-                self._mm.close()
-            except:
-                pass
-            self._mm = None
+        self._release()
+        self._available = False
