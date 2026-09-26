@@ -145,7 +145,19 @@ class LogBox(tk.Frame):
         # das Widget. So ist JEDER Aufrufer aus JEDEM Thread sicher.
         self._q = queue.Queue()
         self._alive = True
-        self.after(120, self._drain)
+        self._after_id = self.after(120, self._drain)
+
+    def destroy(self):
+        # Cancel the pending poller: otherwise Tk fires it after the widget's
+        # Tcl command is gone and prints "invalid command name ..._drain".
+        self._alive = False
+        try:
+            if self._after_id:
+                self.after_cancel(self._after_id)
+        except Exception:
+            pass
+        self._after_id = None
+        super().destroy()
 
     def append(self, msg: str, tag: str = "info"):
         from datetime import datetime
@@ -177,7 +189,7 @@ class LogBox(tk.Frame):
             return   # Widget zerstört -> Poller stoppen
         if self._alive:
             try:
-                self.after(120, self._drain)
+                self._after_id = self.after(120, self._drain)
             except (tk.TclError, RuntimeError):
                 self._alive = False
 

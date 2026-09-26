@@ -116,8 +116,57 @@ class StartupLoader:
         # Migration: alter (UAC-verursachender) Run-Eintrag noch vorhanden?
         return self._legacy_run_present()
 
+    @staticmethod
+    def _gui_python() -> str:
+        """pythonw.exe next to the running interpreter, so the logon task never
+        opens a console window — even if the app was started with python.exe."""
+        exe = sys.executable
+        if exe.lower().endswith("python.exe"):
+            w = exe[:-len("python.exe")] + "pythonw.exe"
+            if os.path.exists(w):
+                return w
+        return exe
+
+    @staticmethod
+    def harden_task(task_name: str = TASK_NAME) -> bool:
+        """Fix the Task Scheduler defaults that `schtasks /Create` gives every task
+        (verified on a throwaway task): ExecutionTimeLimit=PT72H would make
+        Windows KILL the tray app after 3 days of uptime, and
+        DisallowStartIfOnBatteries / StopIfGoingOnBatteries = True would keep it
+        from starting on a laptop on battery and kill it on unplugging.
+        Idempotent; returns True if the settings were applied."""
+        ps = (
+            f"$t = Get-ScheduledTask -TaskName '{task_name}' -EA Stop; "
+            "$s = $t.Settings; "
+            "$s.ExecutionTimeLimit = 'PT0S'; "            # PT0S = no time limit
+            "$s.DisallowStartIfOnBatteries = $false; "
+            "$s.StopIfGoingOnBatteries = $false; "
+            "Set-ScheduledTask -InputObject $t | Out-Null; 'OK'"
+        )
+        try:
+            r = subprocess.run(
+                ["powershell.exe", "-NoProfile", "-NonInteractive",
+                 "-ExecutionPolicy", "Bypass", "-Command", ps],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                timeout=30, creationflags=_nw_flags())
+            return r.returncode == 0 and "OK" in (r.stdout or "")
+        except Exception:
+            return False
+
+    def repair_autostart_task(self) -> bool:
+        """If the autostart task exists (created by an older version with the
+        bad defaults), harden it. Call from a background thread."""
+        try:
+            r = subprocess.run(["schtasks", "/Query", "/TN", TASK_NAME],
+                               capture_output=True, text=True, creationflags=_nw_flags())
+            if r.returncode != 0:
+                return False
+        except Exception:
+            return False
+        return self.harden_task()
+
     def set_autostart(self, enabled: bool) -> bool:
-        exe    = sys.executable   # pythonw.exe
+        exe    = self._gui_python()
         script = str(Path(__file__).resolve().parent.parent / "GameOptimizerPro.py")
         try:
             if enabled:
@@ -128,7 +177,10 @@ class StartupLoader:
                      "/SC", "ONLOGON", "/RL", "HIGHEST", "/F"],
                     capture_output=True, text=True, creationflags=_nw_flags())
                 self._remove_legacy_run()   # alten Run-Eintrag entfernen
-                return r.returncode == 0
+                if r.returncode != 0:
+                    return False
+                self.harden_task()          # no 72 h kill, runs on battery too
+                return True
             else:
                 subprocess.run(["schtasks", "/Delete", "/TN", TASK_NAME, "/F"],
                                capture_output=True, text=True, creationflags=_nw_flags())

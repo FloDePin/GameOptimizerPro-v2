@@ -451,7 +451,11 @@ class GpuTunerTab(tk.Frame):
 
     def _abort_tune(self):
         if messagebox.askyesno("Abort", "Abort and reset GPU to stock?"):
-            self.tuner.abort()
+            # abort() waits for an in-flight Afterburner write and then resets
+            # (Afterburner load ~1.5 s) — run it off the UI thread so the
+            # window doesn't freeze.
+            self.btn_abort.config(state="disabled")
+            threading.Thread(target=self.tuner.abort, daemon=True).start()
 
     def _refresh_profiles(self):
         for row in self.tree.get_children():

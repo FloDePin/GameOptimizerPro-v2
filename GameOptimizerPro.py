@@ -174,10 +174,22 @@ class GameOptimizerApp:
     def _reset_gpu(self, icon=None, item=None):
         def _do():
             self.ab.reset_to_stock()
-            _, _, mx = self.monitor.get_power_constraints()
-            if mx > 0:
-                self.monitor.set_power_limit(mx)
+            # Factory power limit — not the card's maximum (on partner cards
+            # the maximum is above stock, so "reset" used to RAISE the limit).
+            watts = self.monitor.power_pct_to_watts(100)
+            if watts > 0:
+                self.monitor.set_power_limit(watts)
         threading.Thread(target=_do, daemon=True).start()
+
+    def _abort_tuning_if_running(self):
+        """Exiting (or restarting for a language switch) used to kill the tuner
+        thread via os._exit and leave the GPU on the last, UNTESTED overclock
+        step until the next start. abort() resets to stock first."""
+        try:
+            if self.tuner.is_running:
+                self.tuner.abort()
+        except Exception:
+            pass
 
     def _on_update_result(self, available: bool, version: str, url: str):
         """Show update notification in title bar via after()."""
@@ -196,6 +208,7 @@ class GameOptimizerApp:
 
     def _exit(self, icon=None, item=None):
         self._running = False
+        self._abort_tuning_if_running()      # GPU back to stock BEFORE we die
         try: self.game_monitor.stop()
         except: pass
         try: self.temp_monitor.stop()
@@ -344,6 +357,9 @@ class GameOptimizerApp:
                 ok, msg = self.sl.load_startup_profile()
                 if ok:
                     print(f"[GameOptimizerPro] {msg}")
+            # Autostart tasks created by older versions carry the 72-hour kill
+            # limit and battery restrictions — fix them in place.
+            self.sl.repair_autostart_task()
         except Exception as e:
             print(f"[GameOptimizerPro] Startup error: {e}")
 

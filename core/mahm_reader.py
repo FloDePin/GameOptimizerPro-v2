@@ -10,7 +10,29 @@ Source IDs from MAHMSharedMemory.h (official AB SDK):
   52 = Bus Usage        64 = GPU Voltage     65 = Aux Voltage
   66 = Memory Voltage   80 = Framerate       81 = Frametime
   96 = GPU Power       112 = Temp Limit     113 = Power Limit
- 114 = Voltage Limit   116 = Util Limit
+ 114 = Voltage Limit   116 = Util Limit     256 = CPU Power
+The *Limit sources are limiter FLAGS (0/1 = "this limiter is active"), not
+values in °C / W.
+
+Shared-memory layout (MAHMSharedMemory.h v2.0 — cross-checked against two
+independent readers: LCDHost's C++ header and CleanMeter's Kotlin reader):
+
+  MAHM_SHARED_MEMORY_HEADER (32 bytes)
+    @0  dwSignature  'MAHM' (0xDEAD while Afterburner shuts down)
+    @4  dwVersion    @8  dwHeaderSize   @12 dwNumEntries   @16 dwEntrySize
+    @20 time (32-bit)                   @24 dwNumGpuEntries @28 dwGpuEntrySize
+
+  MAHM_SHARED_MEMORY_ENTRY (1324 bytes in v2.0), starting at dwHeaderSize,
+  stride dwEntrySize:
+    @0    szSrcName[260]         @260  szSrcUnits[260]
+    @520  szLocalizedSrcName     @780  szLocalizedSrcUnits
+    @1040 szRecommendedFormat    @1300 float data
+    @1304 float minLimit         @1308 float maxLimit    @1312 dwFlags
+    @1316 dwGpu (0-based, 0xFFFFFFFF = global)           @1320 dwSrcId
+
+The previous parser assumed a 284-byte entry with the value at @268 and read
+dwHeaderSize as the entry count — against a real Afterburner image it
+returned 0 for every sensor while reporting "available".
 """
 
 import ctypes
@@ -62,16 +84,21 @@ def _k32():
 
 # ── MAHM memory layout constants ─────────────────────────────────────────────
 MAHM_SHARED_MEMORY_NAME    = "MAHMSharedMemory"
-MAHM_MAX_SOURCES           = 256
-MAHM_GPU_ENTRY_SIZE        = 688   # sizeof(MAHM_SHARED_MEMORY_GPU_ENTRY)
-MAHM_ENTRY_SIZE            = 260   # nominal sizeof(MAHM_SHARED_MEMORY_ENTRY)
-MAHM_MAX_ENTRY_SIZE        = 512   # upper bound used to size the read buffer, so
-                                   # a larger real stride (e.g. 284) never truncates
-                                   # the last sensor entries
+MAHM_SIGNATURE             = 0x4D41484D   # 'MAHM'
+MAHM_MAX_SOURCES           = 1024         # sanity cap (plugins can add many sources)
+MAHM_HEADER_SIZE           = 32           # v2.0 header (v1.x header = 24 bytes)
+MAHM_MIN_HEADER_SIZE       = 24
 
-# Header: dwSignature(4) + dwVersion(4) + dwNumEntries(4) + dwNumGpuEntries(4)
-#       + time(8) + dwEntrySize(4) + dwGpuEntrySize(4)  = 32 bytes
-MAHM_HEADER_SIZE = 32
+# Entry field offsets (see module docstring)
+_OFF_NAME   = 0
+_OFF_UNITS  = 260
+_OFF_DATA   = 1300
+_OFF_GPU    = 1316
+_OFF_SRCID  = 1320
+MAHM_ENTRY_V1_SIZE = 1316   # up to and incl. dwFlags (no dwGpu / dwSrcId)
+MAHM_ENTRY_V2_SIZE = 1324   # + dwGpu + dwSrcId
+MAHM_MAX_ENTRY_SIZE = 8192  # sanity cap for dwEntrySize
+_GLOBAL_GPU = 0xFFFFFFFF
 
 # Source IDs
 SRC_GPU_TEMP       = 0
@@ -94,6 +121,18 @@ SRC_TEMP_LIMIT     = 112
 SRC_POWER_LIMIT    = 113
 SRC_VOLTAGE_LIMIT  = 114
 SRC_UTIL_LIMIT     = 116
+SRC_CPU_POWER      = 256   # 0x100 — the old `src_id & 0xFF` turned this into GPU temp
+
+# Fallback for v1.x entries that carry no dwSrcId: match on the source name.
+_NAME_TO_SRC = {
+    "gpu temperature": SRC_GPU_TEMP, "fan speed": SRC_FAN_SPEED,
+    "fan tachometer": SRC_FAN_RPM, "core clock": SRC_CORE_CLOCK,
+    "shader clock": SRC_SHADER_CLOCK, "memory clock": SRC_MEM_CLOCK,
+    "gpu usage": SRC_GPU_USAGE, "fb usage": SRC_VRAM_USAGE,
+    "bus usage": SRC_BUS_USAGE, "gpu voltage": SRC_GPU_VOLTAGE,
+    "memory voltage": SRC_MEM_VOLTAGE, "framerate": SRC_FRAMERATE,
+    "frametime": SRC_FRAMETIME, "power": SRC_GPU_POWER,
+}
 
 
 @dataclass
@@ -116,10 +155,12 @@ class MAHMData:
     framerate:      float = 0.0     # fps
     frametime:      float = 0.0     # ms
     gpu_power_w:    float = 0.0     # W
-    power_limit_w:  float = 0.0     # W
-    temp_limit_c:   float = 0.0     # °C
-    voltage_limit:  float = 0.0
-    util_limit:     float = 0.0
+    # Limiter FLAGS (Afterburner's "Temp/Power/Voltage/Util limit" graphs are
+    # 0/1 "limiter active" indicators — NOT a temperature or wattage).
+    temp_limit_active:    bool = False
+    power_limit_active:   bool = False
+    voltage_limit_active: bool = False
+    util_limit_active:    bool = False
     num_entries:    int   = 0
 
 
@@ -190,7 +231,7 @@ class MAHMReader:
                 self._release()
                 return
             sig = struct.unpack_from("<I", self._bytes(4))[0]
-            if sig != 0x4D41484D:  # 'MAHM' (0xDEAD while Afterburner shuts down)
+            if sig != MAHM_SIGNATURE:  # 0xDEAD while Afterburner shuts down
                 self._error = f"MAHM signature mismatch: {sig:#010x}"
                 self._release()    # never keep a handle to a section we can't use
                 return
@@ -228,64 +269,51 @@ class MAHMReader:
                 return data
 
         try:
-            # Size the buffer with the MAX possible entry size — the real stride
-            # (read from the header below) can be larger than the nominal 260, and
-            # a too-small buffer would silently drop the last entries.
-            raw = self._bytes(MAHM_HEADER_SIZE + MAHM_MAX_SOURCES * MAHM_MAX_ENTRY_SIZE)
-
-            # Parse header
-            sig, ver, n_entries, n_gpu_entries = struct.unpack_from("<IIII", raw, 0)
-            if sig != 0x4D41484D:
+            head = self._bytes(MAHM_HEADER_SIZE)
+            if len(head) < MAHM_MIN_HEADER_SIZE:
+                return data
+            sig, _ver, hdr_size, n_entries, entry_size = struct.unpack_from("<IIIII", head, 0)
+            if sig != MAHM_SIGNATURE:
                 # Afterburner is shutting down (0xDEAD) or gone — let go of the
                 # section so it can be destroyed; read() will reconnect later.
                 self._available = False
                 self._release()
                 return data
 
+            # Plausibility — never trust a header blindly.
+            if (not MAHM_MIN_HEADER_SIZE <= hdr_size <= 4096
+                    or not MAHM_ENTRY_V1_SIZE <= entry_size <= MAHM_MAX_ENTRY_SIZE
+                    or n_entries > MAHM_MAX_SOURCES):
+                self._error = (f"MAHM-Header unplausibel (header={hdr_size}, "
+                               f"entry={entry_size}, entries={n_entries})")
+                return data
+
+            raw = self._bytes(hdr_size + n_entries * entry_size)
+            n_entries = min(n_entries, max(0, (len(raw) - hdr_size) // entry_size))
+            has_ids = entry_size >= MAHM_ENTRY_V2_SIZE
+
             data.available   = True
             data.num_entries = n_entries
 
-            # Parse each entry
-            # Entry layout (260 bytes):
-            # szSrcName[260-36 = 224... actually the layout is:
-            # szSrcName[MAX_PATH=260] not quite. Real layout from SDK:
-            #   char  szSrcName[MAX_PATH]  = 260 bytes
-            #   char  szSrcUnits[8]        = 8 bytes
-            #   float data                 = 4 bytes
-            #   float minLimit             = 4 bytes
-            #   float maxLimit             = 4 bytes
-            #   DWORD dwSrcId             = 4 bytes
-            #   Total = 260+8+4+4+4+4 = 284... but SDK says entry_size can vary.
-            # We read dwEntrySize from header if available (byte 24).
-
-            # Read actual entry size from header (offset 24)
-            try:
-                entry_size = struct.unpack_from("<I", raw, 24)[0]
-                if entry_size < 64 or entry_size > 512:
-                    entry_size = 284   # Fallback
-            except:
-                entry_size = 284
-
-            entries_offset = MAHM_HEADER_SIZE
-
-            for i in range(min(n_entries, MAHM_MAX_SOURCES)):
-                offset = entries_offset + i * entry_size
-                if offset + entry_size > len(raw):
-                    break
-
-                # szSrcName: first 260 bytes, null-terminated
-                name_raw = raw[offset:offset + 260]
-                name = name_raw.split(b'\x00')[0].decode('utf-8', errors='replace')
-
-                # data float at offset 260+8 = 268
-                # units at offset 260
-                units_raw = raw[offset + 260:offset + 268]
-                units = units_raw.split(b'\x00')[0].decode('utf-8', errors='replace')
-
-                val   = struct.unpack_from("<f", raw, offset + 268)[0]
-                # dwSrcId at offset 268+4+4+4 = 280
-                src_id = struct.unpack_from("<I", raw, offset + 280)[0]
-
+            for i in range(n_entries):
+                off = hdr_size + i * entry_size
+                name  = raw[off + _OFF_NAME:off + _OFF_NAME + 260].split(b"\x00")[0] \
+                            .decode("utf-8", errors="replace")
+                units = raw[off + _OFF_UNITS:off + _OFF_UNITS + 260].split(b"\x00")[0] \
+                            .decode("utf-8", errors="replace")
+                val = struct.unpack_from("<f", raw, off + _OFF_DATA)[0]
+                if has_ids:
+                    gpu, src_id = struct.unpack_from("<II", raw, off + _OFF_GPU)
+                else:                           # v1.x entries: no dwGpu / dwSrcId
+                    gpu, src_id = 0, _NAME_TO_SRC.get(name.strip().lower())
+                    if src_id is None:
+                        continue
+                # Only the first GPU (index 0) and global sources. Multi-GPU
+                # systems used to let GPU 2's values overwrite GPU 1's.
+                if gpu not in (0, _GLOBAL_GPU):
+                    continue
+                if val != val:                  # NaN guard
+                    continue
                 self._apply_entry(data, src_id, name, val, units)
 
         except Exception as e:
@@ -295,13 +323,16 @@ class MAHMReader:
         return data
 
     def _apply_entry(self, data: MAHMData, src_id: int, name: str, val: float, units: str):
-        """Map source IDs to MAHMData fields."""
-        # Voltage: AB reports in V, we want mV
+        """Map source IDs to MAHMData fields. src_id is used as-is: the GPU index
+        lives in dwGpu. (The old `src_id & 0xFF` mapped CPU power, 0x100, onto
+        GPU temperature.)"""
         def v_to_mv(v):
-            return v * 1000.0 if v < 10.0 else v   # AB usually reports in V
+            # Afterburner reports voltages in V ("V" units); accept mV as well.
+            if units.strip().lower() == "mv":
+                return v
+            return v * 1000.0 if v < 10.0 else v
 
-        sid = src_id & 0xFF  # Strip GPU index bits (upper bytes = GPU index)
-
+        sid = src_id
         if   sid == SRC_GPU_TEMP:      data.gpu_temp       = val
         elif sid == SRC_FAN_SPEED:     data.fan_speed_pct  = val
         elif sid == SRC_FAN_RPM:       data.fan_rpm        = val
@@ -318,10 +349,10 @@ class MAHMReader:
         elif sid == SRC_FRAMERATE:     data.framerate      = val
         elif sid == SRC_FRAMETIME:     data.frametime      = val
         elif sid == SRC_GPU_POWER:     data.gpu_power_w    = val
-        elif sid == SRC_POWER_LIMIT:   data.power_limit_w  = val
-        elif sid == SRC_TEMP_LIMIT:    data.temp_limit_c   = val
-        elif sid == SRC_VOLTAGE_LIMIT: data.voltage_limit  = val
-        elif sid == SRC_UTIL_LIMIT:    data.util_limit     = val
+        elif sid == SRC_TEMP_LIMIT:    data.temp_limit_active    = val >= 0.5
+        elif sid == SRC_POWER_LIMIT:   data.power_limit_active   = val >= 0.5
+        elif sid == SRC_VOLTAGE_LIMIT: data.voltage_limit_active = val >= 0.5
+        elif sid == SRC_UTIL_LIMIT:    data.util_limit_active    = val >= 0.5
 
     def close(self):
         self._release()

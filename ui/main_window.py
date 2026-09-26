@@ -314,8 +314,8 @@ class GameOptimizerWindow(tk.Tk):
                 self._refresh_indicators()
             except tk.TclError:
                 return   # window destroyed → stop the poller cleanly
-            self.after(5000, tick)
-        self.after(1000, tick)
+            self._tick_id = self.after(5000, tick)
+        self._tick_id = self.after(1000, tick)
 
     def _toggle_lang(self):
         """
@@ -341,6 +341,14 @@ class GameOptimizerWindow(tk.Tk):
 
         set_lang(new)   # persists to disk
 
+        # A running Auto-Tune must not be killed mid-step by os._exit below —
+        # that left the GPU on an untested overclock. Reset to stock first.
+        try:
+            if self.tuner.is_running:
+                self.tuner.abort()
+        except Exception:
+            pass
+
         # Close cleanly, then relaunch a fresh instance
         try:
             self.monitor.close()
@@ -356,6 +364,15 @@ class GameOptimizerWindow(tk.Tk):
         except Exception:
             pass
         os._exit(0)
+
+    def destroy(self):
+        try:
+            if getattr(self, "_tick_id", None):
+                self.after_cancel(self._tick_id)
+        except Exception:
+            pass
+        self._tick_id = None
+        super().destroy()
 
     def on_close(self):
         self.monitor.close()

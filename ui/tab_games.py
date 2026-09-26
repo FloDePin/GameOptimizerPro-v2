@@ -145,7 +145,16 @@ class GamesTab(tk.Frame):
         self._refresh_games()
 
         # Periodic status update
-        self.after(3000, self._periodic_update)
+        self._periodic_id = self.after(3000, self._periodic_update)
+
+    def destroy(self):
+        try:
+            if getattr(self, "_periodic_id", None):
+                self.after_cancel(self._periodic_id)
+        except Exception:
+            pass
+        self._periodic_id = None
+        super().destroy()
 
     def _update_monitor_status(self):
         if self.gm.is_running:
@@ -403,7 +412,7 @@ class GamesTab(tk.Frame):
             else:
                 self.lbl_active_game.config(
                     text=f"⚠ {name}: {detail}", fg="#f59e0b")
-        self.after(3000, self._periodic_update)
+        self._periodic_id = self.after(3000, self._periodic_update)
 
     # ── Tune History ──────────────────────────────────────────────────────────
 

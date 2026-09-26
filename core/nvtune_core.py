@@ -188,6 +188,13 @@ class NvmlMonitor:
             stats.temp = nv.nvmlDeviceGetTemperature(h, nv.NVML_TEMPERATURE_GPU)
         except: pass
         try:
+            # Real thermal slowdown point (e.g. 94 °C on an RTX 4080) — used as
+            # the temperature gauge's scale. It used to come from Afterburner's
+            # "Temp limit" source, which is only a 0/1 limiter flag.
+            stats.temp_limit_c = float(nv.nvmlDeviceGetTemperatureThreshold(
+                h, nv.NVML_TEMPERATURE_THRESHOLD_SLOWDOWN))
+        except: pass
+        try:
             stats.core_mhz = float(nv.nvmlDeviceGetClockInfo(h, nv.NVML_CLOCK_GRAPHICS))
         except: pass
         try:
@@ -238,6 +245,18 @@ class NvmlMonitor:
             return True
         except:
             return False
+
+    def get_default_power_limit(self) -> float:
+        """Factory (stock) power limit in W — what "reset to stock" must restore.
+        NOT the maximum constraint: on many partner cards the maximum is above
+        stock (e.g. 450 W stock / 600 W max), so resetting to the maximum used to
+        RAISE the limit. 0.0 if unavailable."""
+        if not self._ok:
+            return 0.0
+        try:
+            return round(self._nv.nvmlDeviceGetPowerManagementDefaultLimit(self._handle) / 1000.0, 1)
+        except Exception:
+            return 0.0
 
     def get_power_constraints(self) -> tuple[float, float, float]:
         if not self._ok:
@@ -506,14 +525,26 @@ class GpuMonitor:
 
         mahm_data = self.mahm.read()
         if mahm_data.available:
-            stats.mahm_ok       = True
-            stats.voltage_mv    = mahm_data.gpu_voltage_mv
-            stats.mem_voltage_mv= mahm_data.mem_voltage_mv
-            stats.fan_pct       = mahm_data.fan_speed_pct
-            stats.fan_rpm       = mahm_data.fan_rpm
-            stats.gpu_power_w   = mahm_data.gpu_power_w  # prefer MAHM power
-            stats.power_limit_w = mahm_data.power_limit_w
-            stats.temp_limit_c  = mahm_data.temp_limit_c
+            stats.mahm_ok = True
+            # Take a MAHM value only when Afterburner actually exports it (> 0).
+            # Afterburner only publishes the sources whose graphs are enabled; the
+            # old unconditional copy replaced good NVML readings with 0 (fan 45 %
+            # -> 0 %, power limit 320 W -> 0 W). Afterburner's "Power/Temp limit"
+            # sources are limiter FLAGS (0/1) and are no longer written into the
+            # watt / °C fields at all — the temp gauge used the flag as its scale
+            # maximum (1 °C) whenever the thermal limiter was active.
+            if mahm_data.gpu_voltage_mv > 0:
+                stats.voltage_mv     = mahm_data.gpu_voltage_mv
+            if mahm_data.mem_voltage_mv > 0:
+                stats.mem_voltage_mv = mahm_data.mem_voltage_mv
+            if mahm_data.fan_speed_pct > 0:
+                stats.fan_pct        = mahm_data.fan_speed_pct
+            if mahm_data.fan_rpm > 0:
+                stats.fan_rpm        = mahm_data.fan_rpm
+            if mahm_data.gpu_power_w > 0:
+                stats.gpu_power_w    = mahm_data.gpu_power_w  # prefer MAHM power
+            if mahm_data.gpu_temp > 0 and not stats.nvml_ok:
+                stats.temp           = int(round(mahm_data.gpu_temp))
             # Prefer MAHM clocks (more accurate, direct driver read)
             if mahm_data.core_clock > 0:
                 stats.core_mhz   = mahm_data.core_clock
@@ -537,6 +568,24 @@ class GpuMonitor:
 
     def get_power_constraints(self):
         return self.nvml.get_power_constraints()
+
+    def get_default_power_limit(self) -> float:
+        return self.nvml.get_default_power_limit()
+
+    def power_pct_to_watts(self, pct: float) -> float:
+        """Power limit % -> W, where 100 % = the STOCK limit (Afterburner's
+        meaning of "power limit %"), clamped to the card's allowed range.
+        Previously 100 % meant the card's MAXIMUM limit. 0.0 if unknown."""
+        _cur, mn, mx = self.get_power_constraints()
+        base = self.get_default_power_limit() or mx
+        if base <= 0:
+            return 0.0
+        w = base * float(pct) / 100.0
+        if mn > 0:
+            w = max(mn, w)
+        if mx > 0:
+            w = min(mx, w)
+        return round(w, 1)
 
     def close(self):
         self.nvml.close()

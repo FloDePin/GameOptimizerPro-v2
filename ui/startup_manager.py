@@ -312,7 +312,10 @@ class StartupManagerWindow(tk.Toplevel):
             })
 
         self._entries = entries
-        self.after(0, self._apply_filter)
+        try:
+            self.after(0, self._apply_filter)
+        except (tk.TclError, RuntimeError):
+            pass    # window was closed while the entries were still loading
 
     def _lookup(self, name: str, command: str) -> tuple:
         """Match name/command against known process database."""

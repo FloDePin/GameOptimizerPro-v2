@@ -24,6 +24,11 @@ class StressTab(tk.Frame):
         self._running_internal = False
         self._worker_proc = None
         self._monitor_thread = None
+        # Run generation: bumped on every Start and Stop. A test thread only
+        # reports (and only kills its OWN worker) while its generation is
+        # current — so a quick Stop -> Start can no longer let the old thread
+        # kill the new worker or report the stopped run as "PASSED".
+        self._run_gen = 0
         self._furmark_path = self._detect_furmark()
         self._build()
 
@@ -182,50 +187,79 @@ class StressTab(tk.Frame):
 
     # ── Internal stress ───────────────────────────────────────────────────────
 
+    # A result only counts as a GPU stability test if the GPU was really loaded.
+    MIN_GPU_LOAD_PCT = 70.0
+
     def _start_internal(self):
         if self._running_internal:
             return
         self._running_internal = True
+        self._run_gen += 1
+        gen = self._run_gen
         self.btn_int_start.config(state="disabled")
         self.btn_int_stop.config(state="normal")
         self.log.append("Internal stress test started.", "header")
         self.log.append(f"Duration: {self.v_int_dur.get()}s | Max temp: {self.v_max_temp.get()}°C")
 
-        worker = os.path.join(os.path.dirname(os.path.dirname(__file__)), "_stress_worker.py")
+        base = os.path.dirname(os.path.dirname(__file__))
+        worker = os.path.join(base, "_stress_worker.py")
+        dur = self.v_int_dur.get()
+        max_t = self.v_max_temp.get()
 
         def _run():
-            # Start worker
+            proc = None
             if os.path.exists(worker):
                 flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-                self._worker_proc = subprocess.Popen(
+                proc = subprocess.Popen(
                     [sys.executable, worker, str(os.getpid())],  # GUI PID → dead-man switch
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                     creationflags=flags
                 )
+                self._worker_proc = proc
 
-            dur = self.v_int_dur.get()
-            max_t = self.v_max_temp.get()
+            try:
+                from core.crash_recovery import CrashRecovery
+                cr = CrashRecovery(os.path.join(base, "logs"))
+            except Exception:
+                cr = None
+
             start = time.time()
+            last_tdr = start
             peak_temp = 0
+            usages = []
+            reason = ""          # "" = ran the full duration
 
-            while self._running_internal:
+            while self._running_internal and gen == self._run_gen:
                 elapsed = time.time() - start
                 if elapsed >= dur:
                     break
                 stats = self.monitor.read()
                 peak_temp = max(peak_temp, stats.temp)
+                if elapsed >= 3:                     # skip the worker's ramp-up
+                    usages.append(float(stats.gpu_usage or 0.0))
                 pct = (elapsed / dur) * 100
                 self.after(0, lambda e=int(elapsed), d=dur, p=pct:
                            self._int_tick(e, d, p))
                 if stats.temp >= max_t:
-                    self.after(0, lambda t=stats.temp:
-                               self.log.append(f"⚠ ABORT: Temp limit {t}°C reached!", "error"))
+                    reason = "temp"
                     break
+                # A crashed worker is THE instability signal — it used to be
+                # ignored, and the run was reported "PASSED" with no load at all.
+                if proc is not None and proc.poll() is not None:
+                    reason = "worker"
+                    break
+                if cr is not None and time.time() - last_tdr >= 10:
+                    last_tdr = time.time()
+                    if cr.check_tdr_since(seconds_back=15):
+                        reason = "tdr"
+                        break
                 time.sleep(1.0)
 
-            self._stop_internal_worker()
-            passed = peak_temp < max_t
-            self.after(0, lambda: self._int_done(passed, peak_temp))
+            self._kill_proc(proc)            # only OUR worker, never a newer run's
+            if gen != self._run_gen:
+                return                       # stopped/superseded: _stop_internal reported it
+            avg_usage = round(sum(usages) / len(usages), 1) if usages else 0.0
+            self.after(0, lambda: self._int_done(reason, peak_temp, avg_usage, max_t))
 
         threading.Thread(target=_run, daemon=True).start()
 
@@ -234,33 +268,56 @@ class StressTab(tk.Frame):
         self.lbl_int_status.config(
             text=f"Running: {elapsed}/{dur}s", fg=ACC)
 
-    def _int_done(self, passed, peak_temp):
+    def _int_done(self, reason, peak_temp, avg_usage, max_t):
         self._running_internal = False
         self.btn_int_start.config(state="normal")
         self.btn_int_stop.config(state="disabled")
         self.int_prog.set(0)
-        result = "✓ PASSED" if passed else "✗ FAILED (temp limit)"
-        color  = OK if passed else ERR
-        self.lbl_int_status.config(text=f"{result} | Peak: {peak_temp}°C", fg=color)
-        self.log.append(f"Internal stress: {result} | Peak temp: {peak_temp}°C",
-                        "success" if passed else "error")
+        if reason == "temp":
+            result, color, tag = f"✗ FAILED (Temp-Limit {max_t}°C erreicht)", ERR, "error"
+        elif reason == "worker":
+            result, color, tag = "✗ FAILED (Stress-Worker abgestürzt)", ERR, "error"
+        elif reason == "tdr":
+            result, color, tag = "✗ FAILED (GPU-Treiber-Timeout / TDR)", ERR, "error"
+        elif avg_usage < self.MIN_GPU_LOAD_PCT:
+            # "Passed" would be meaningless: without 'cupy' the worker only
+            # burns the CPU, the GPU idles and nothing about its stability is shown.
+            result, color, tag = (f"⚠ KEIN GPU-STRESS (Ø {avg_usage:.0f} % GPU-Last) — "
+                                  "nur die CPU wurde belastet", WRN, "warning")
+        else:
+            result, color, tag = "✓ PASSED", OK, "success"
+        self.lbl_int_status.config(
+            text=f"{result} | Peak: {peak_temp}°C | Ø GPU-Last: {avg_usage:.0f}%", fg=color)
+        self.log.append(f"Internal stress: {result} | Peak temp: {peak_temp}°C | "
+                        f"Ø GPU-Last: {avg_usage:.0f}%", tag)
+        if reason == "" and avg_usage < self.MIN_GPU_LOAD_PCT:
+            self.log.append("Für echte GPU-Last: 'pip install cupy-cuda12x' (NVIDIA) "
+                            "oder FurMark unten starten.", "warning")
 
     def _stop_internal(self):
         self._running_internal = False
+        self._run_gen += 1                   # the running thread stops reporting
         self._stop_internal_worker()
         self.btn_int_start.config(state="normal")
         self.btn_int_stop.config(state="disabled")
         self.int_prog.set(0)
-        self.lbl_int_status.config(text="Stopped.", fg=WRN)
-        self.log.append("Internal stress test stopped by user.", "warning")
+        self.lbl_int_status.config(text="Stopped (kein Ergebnis).", fg=WRN)
+        self.log.append("Internal stress test stopped by user — no result.", "warning")
+
+    @staticmethod
+    def _kill_proc(proc):
+        if proc is None:
+            return
+        try:
+            if proc.poll() is None:
+                proc.terminate()
+                proc.wait(timeout=5)
+        except Exception:
+            pass
 
     def _stop_internal_worker(self):
-        if self._worker_proc:
-            try:
-                self._worker_proc.terminate()
-                self._worker_proc.wait(timeout=5)
-            except: pass
-            self._worker_proc = None
+        proc, self._worker_proc = self._worker_proc, None
+        self._kill_proc(proc)
 
     # ── FurMark ───────────────────────────────────────────────────────────────
 

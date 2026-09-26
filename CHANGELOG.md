@@ -245,6 +245,84 @@ English descriptions.
   actually sorts (it keyed on a field that didn't exist). Tested on a temporary
   HKCU test entry that is always removed afterwards — never on real entries.
 
+- **Round-7 bug hunt (verified fixes):**
+  - **MAHM (Afterburner telemetry) parser rewritten to the real layout.** Cross-
+    checked against two independent readers (LCDHost's C++ header, CleanMeter's
+    Kotlin reader): entries are **1324** bytes (five 260-byte strings, value at
+    @1300, source id at @1320) after a header whose @8 is `dwHeaderSize`. The old
+    parser assumed 284-byte entries with the value at @268 and read
+    `dwHeaderSize` as the entry count — fed a spec-conformant image it returned
+    **0 for every sensor** while reporting "available", so real mV readings and
+    the V/F stage could never work. The old `src_id & 0xFF` also mapped
+    **CPU power (0x100) onto GPU temperature**; the GPU index is taken from
+    `dwGpu` instead (other GPUs no longer overwrite GPU 0). v1.x entries without
+    ids fall back to name matching; implausible headers are rejected. *Caveat:*
+    no Afterburner on the dev machine — verified against spec-built images.
+    (Round 6's MAHM test used the parser's own layout and only proved
+    open/reconnect, not parsing.)
+  - **MAHM no longer overwrites good NVML values with zeros.** Afterburner only
+    exports sources whose graphs are enabled; the unconditional copy turned fan
+    45 % → 0 % and power limit 320 W → 0 W. Afterburner's "Power/Temp limit"
+    sources are 0/1 limiter flags and are no longer written into W/°C fields —
+    the temperature gauge used the flag as its scale (1 °C) whenever the thermal
+    limiter was active. The gauge scale now comes from NVML's slowdown threshold.
+  - **"Abort" could be overridden.** The running stress step (up to 60 s) kept
+    loading the GPU after Abort, and its result was then acted on — reproduced:
+    reset to stock, then **+30 MHz re-applied**; the crash flag was set again
+    (false "GPU crash" dialog next start) and the state ended on `BACKOFF`, which
+    left the Start button disabled. Now: one lock around every Afterburner/NVML
+    write, `abort()` sets the stop flag first and resets under the lock, writes
+    after abort are no-ops, the stress step checks the stop flag every second,
+    every stage returns right after a stopped step, and `ABORTED` can't be
+    overwritten. Abort runs off the UI thread.
+  - **Exiting (tray) or switching language mid-tune** killed the tuner thread
+    via `os._exit` and left the GPU on the last, untested OC — both now abort
+    (reset to stock) first.
+  - **"Reset to stock" set the MAXIMUM power limit.** It used the upper
+    constraint, which on many partner cards is above stock (e.g. 450 W stock /
+    600 W max) — i.e. it *raised* the limit. Now the factory limit from
+    `nvmlDeviceGetPowerManagementDefaultLimit`; "power %" means % of stock
+    (Afterburner's meaning), clamped to the allowed range, and 100 % is actually
+    applied (a later 100 % step used to leave a reduced limit in place).
+  - **No tuning without GPU load.** The stress worker loads the GPU only via
+    `cupy`, which is optional and was undocumented; without it, it silently
+    burned the CPU and every OC/UV step "passed" on an idle GPU. The tuner now
+    measures GPU load during the baseline and aborts below 70 % with a clear
+    explanation (install `cupy-cuda12x` or run FurMark in parallel).
+  - **Autostart task hardened.** `schtasks /Create` defaults (verified on a
+    throwaway task): `ExecutionTimeLimit=PT72H` (Windows kills the tray app
+    after 3 days), no start on battery, stop when unplugged. The task is now set
+    to no time limit and battery-friendly — existing tasks are repaired on start —
+    and always launches `pythonw.exe` (no console).
+  - **Stress Test tab**: a stopped run was reported "✓ PASSED" (the thread ran on
+    and judged `peak < max`); Stop→Start could let the old thread kill the new
+    worker; a crashed worker or a TDR was ignored; "PASSED" only meant "temp
+    below the limit". Now run generations, own-worker cleanup, fail on worker
+    crash / TDR, and "no GPU stress" instead of "passed" when GPU load < 70 %.
+  - **Tune History**: the mode regex matched the logger's `[INFO]` tag, so every
+    run showed mode "INFO"; the log file was opened once per app START (24 empty
+    `tune_*.log` on the dev machine, all runs of a session merged); the GPU name
+    was never parsed. Now one log per run, correct mode/GPU, empty leftovers pruned.
+  - **Primary GPU detection**: only the first WMI adapter was used, so on
+    iGPU + dGPU systems the iGPU could win — wrong name and wrong NVIDIA/AMD flags
+    (which gate vendor tweaks). Discrete GPUs are now ranked first.
+  - Cosmetic: periodic `after()` pollers are cancelled when their widget is
+    destroyed (no more "invalid command name" noise on exit); the Startup Manager
+    tolerates being closed while it is still loading.
+
+### ⚠️ Known open issue
+
+- **Applying OC profiles to MSI Afterburner has no effect.** `write_and_apply`
+  writes `Profiles\MSIAfterburner{slot}.cfg` with `CoreClockOffset` in MHz, but
+  Afterburner keeps profiles **per GPU** in
+  `Profiles\VEN_10DE&DEV_…&BUS_…&DEV_0&FN_0.cfg`, in `[Profile1]`…`[Profile5]`
+  sections with `CoreClkBoost` / `MemClkBoost` in **kHz**, `PowerLimit` in % and
+  a binary `VFCurve` (verified against three independent real-world files and
+  tools). `/Profile2` therefore loads Afterburner's own, unchanged profile 2. A
+  correct fix has to close Afterburner, write its real profile file and restart
+  it; it can't be tested without Afterburner and NVML can't read back the offset
+  on GeForce, so it is pending a decision rather than shipped blind.
+
 ### 🔎 Reviewed, verified NOT a bug
 
 Some reported items were checked against the actual code and left unchanged

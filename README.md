@@ -21,15 +21,17 @@
 
 ### 🎮 GPU Auto-Tuner
 - **3 Tune Modes:** Overclock Only, Undervolt Only, OC + UV (Recommended)
-- Automated step-by-step stability testing with stress worker
+- Automated step-by-step stability testing with stress worker — **refuses to tune without real GPU load** (measured during the baseline; ≥ 70 %), because an OC/UV test on an idle GPU would store unstable values as "stable". GPU load comes from the stress worker via `cupy` (`pip install cupy-cuda12x`) or from FurMark running in parallel
+- **Abort really stops**: the running stress step ends immediately, the GPU goes back to stock (offsets 0, factory power limit) and nothing is applied afterwards; exiting the app or switching the language during a tune does the same
 - TDR (GPU driver timeout) detection via Windows Event Log
 - Crash Recovery — automatically restores last stable profile on next boot
 - Live Voltage/Clock/Temp graph during tuning
-- Integrates with **MSI Afterburner** (MAHM Shared Memory for real mV readings)
+- Integrates with **MSI Afterburner** (MAHM Shared Memory for real mV readings — parser follows Afterburner's documented layout; reconnects automatically when Afterburner is started later)
 - GPU generation auto-detection (Pascal → Ada Lovelace, RDNA 1–3)
+- ⚠️ **Known open issue:** applying OC profiles *to Afterburner* writes a file Afterburner doesn't read (it keeps profiles per GPU in `Profiles\VEN_…cfg`). The fix requires closing/restarting Afterburner and is being worked on — see [CHANGELOG.md](CHANGELOG.md)
 
 ### ⚡ Stress Test
-- **Internal stability test** — built-in GPU/CPU stress worker with configurable duration and a **max-temp auto-abort**; includes a dead-man switch so it never leaves an orphaned 100%-CPU process behind
+- **Internal stability test** — built-in GPU/CPU stress worker with configurable duration and a **max-temp auto-abort**; includes a dead-man switch so it never leaves an orphaned 100%-CPU process behind. Fails on a **worker crash or a TDR**, reports the **average GPU load**, and says plainly "no GPU stress" instead of "passed" when the GPU wasn't loaded (no `cupy`); a stopped test reports no result
 - **FurMark launcher** — auto-detects a FurMark install, pick the resolution, one-click launch for a heavier GPU burn-in
 
 ### 🔊 Audio Optimization
@@ -122,6 +124,7 @@
 | **Python** | 3.10 or newer |
 | **GPU** | NVIDIA (full support) or AMD (tweaks + BIOS guide) |
 | **MSI Afterburner** | Optional — required for voltage readings (mV) and OC profiles |
+| **cupy** | Optional — `pip install cupy-cuda12x` gives the stress worker real **GPU** load (NVIDIA). Without it (or FurMark in parallel) the Auto-Tuner refuses to run |
 | **Admin rights** | Required for Registry tweaks and GPU power control |
 
 ---
@@ -186,6 +189,9 @@ GameOptimizerPro **2.0** is the finalized release: the complete feature set belo
 - **GPU tweaks can't land on the wrong GPU** — presets applied NVIDIA/AMD-only tweaks on any hardware, and the AMD tweaks looped over *all* display adapters (incl. NVIDIA/Intel). Now filtered in the UI **and** guarded in each command
 - **No more squatting of Afterburner's shared memory** — the MAHM reader *created* a 1 MB `MAHMSharedMemory` section whenever Afterburner wasn't running and kept it open; it now only opens an existing one, maps it at any size, and reconnects automatically when Afterburner is started later
 - **Registry backup really runs automatically** — it was wired into batch methods the UI never called
+- **Afterburner telemetry works** — the MAHM parser used a wrong layout (284-byte entries; real ones are 1324) and returned 0 for every sensor; empty MAHM values no longer overwrite good NVML readings (fan %, power limit), and CPU power is no longer shown as GPU temperature
+- **Auto-Tune safety** — "Abort" could be overridden by the still-running step (an OC was re-applied after the reset to stock); exiting mid-tune left an untested OC; "reset to stock" set the card's *maximum* power limit; without GPU load (no `cupy`) the tuner "verified" OCs on an idle GPU — all fixed
+- **Autostart survives** — Windows' task defaults killed the tray app after 3 days and blocked it on battery; the Stress Test no longer reports a stopped run as "PASSED"; Tune History shows the real mode; the primary GPU is detected on iGPU + dGPU systems
 - Reviewed-and-verified-not-a-bug items were left unchanged rather than papered over
 
 See [CHANGELOG.md](CHANGELOG.md) for the full detail.

@@ -42,6 +42,31 @@ class HardwareInfo:
     summary:        str  = ""
 
 
+def _gpu_rank(gpu) -> tuple:
+    """Sort key for Win32_VideoController entries: discrete gaming GPUs first.
+    NVIDIA > discrete AMD Radeon (RX / PRO / Vega / VII) and Intel Arc >
+    integrated AMD ("Radeon(TM) Graphics") / Intel UHD/Iris > anything else.
+    Tie-break by reported VRAM (AdapterRAM wraps at 4 GB, so it's only a hint)."""
+    n = (gpu.Name or "").lower()
+    if "nvidia" in n:
+        tier = 3
+    elif ("amd" in n or "radeon" in n) and any(k in n for k in (" rx", "pro w", "vega", "radeon vii")):
+        tier = 2
+    elif "intel" in n and "arc" in n:
+        tier = 2
+    elif "amd" in n or "radeon" in n or "intel" in n:
+        tier = 1
+    else:
+        tier = 0
+    try:
+        ram = int(gpu.AdapterRAM or 0)
+        if ram < 0:
+            ram += 2 ** 32
+    except Exception:
+        ram = 0
+    return (tier, ram)
+
+
 def detect() -> HardwareInfo:
     info = HardwareInfo()
 
@@ -69,7 +94,12 @@ def detect() -> HardwareInfo:
             gpus = [g for g in c.Win32_VideoController()
                     if g.Name and "microsoft" not in g.Name.lower()]
             if gpus:
-                gpu = gpus[0]
+                # Pick the PRIMARY (gaming) adapter, not simply the first one WMI
+                # returns: with an iGPU + dGPU (most laptops, Ryzen desktops with
+                # the Radeon iGPU enabled) the order is arbitrary, and gpus[0]
+                # could be the iGPU — wrong GPU name, and the NVIDIA/AMD flags
+                # (which gate vendor tweaks and presets) pointed at the wrong vendor.
+                gpu = max(gpus, key=_gpu_rank)
                 info.gpu_name    = gpu.Name.strip()
                 # AdapterRAM is a 32-bit DWORD — wraps at 4GB for > 4GB cards
                 # RTX 4080 has 16GB but AdapterRAM returns ~0x100000000 which wraps to 0 or negative

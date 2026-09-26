@@ -55,6 +55,8 @@ class StressResult:
     abort_reason:   str   = ""
     avg_core_mhz:   float = 0.0
     core_clocks:    list  = field(default_factory=list)
+    avg_gpu_usage:  float = 0.0    # measured GPU load during the run (%)
+    aborted:        bool  = False  # stopped by the user, NOT a completed test
 
 
 @dataclass
@@ -84,9 +86,11 @@ class TunerConfig:
 
 
 class StressTester:
-    def __init__(self, monitor: GpuMonitor, crash_recovery=None):
+    def __init__(self, monitor: GpuMonitor, crash_recovery=None,
+                 stop_event: Optional[threading.Event] = None):
         self.monitor = monitor
         self.cr      = crash_recovery
+        self.stop_event = stop_event   # set by AutoTuner.abort() -> end the step NOW
         self._proc: Optional[subprocess.Popen] = None
 
     def _worker_path(self):
@@ -126,12 +130,22 @@ class StressTester:
         on_tick: Optional[Callable] = None
     ) -> StressResult:
         result = StressResult()
-        temps, voltages, clocks = [], [], []
+        temps, voltages, clocks, usages = [], [], [], []
 
         self.start()
         start = time.time()
 
         while True:
+            # Abort must end the step immediately. Before, the step (and the
+            # stress worker's 100 % load) ran on for up to a minute after
+            # "Abort", and its result was then acted on.
+            if self.stop_event is not None and self.stop_event.is_set():
+                self.stop()
+                result.aborted = True
+                result.passed = False
+                result.abort_reason = "Abgebrochen"
+                return result
+
             elapsed = int(time.time() - start)
             if elapsed >= duration_s:
                 break
@@ -141,6 +155,8 @@ class StressTester:
             if stats.voltage_mv > 0:
                 voltages.append(stats.voltage_mv)
             clocks.append(stats.core_mhz)
+            if elapsed >= 3:                      # skip the worker's ramp-up
+                usages.append(float(stats.gpu_usage or 0.0))
 
             if on_tick:
                 try:
@@ -179,6 +195,7 @@ class StressTester:
         result.max_temp     = max(temps) if temps else 0
         result.avg_temp     = round(sum(temps) / len(temps), 1) if temps else 0
         result.avg_core_mhz = round(sum(clocks) / len(clocks), 1) if clocks else 0
+        result.avg_gpu_usage = round(sum(usages) / len(usages), 1) if usages else 0.0
         if voltages:
             result.min_voltage_mv = min(voltages)
             result.max_voltage_mv = max(voltages)
@@ -218,16 +235,43 @@ class AutoTuner:
         self._cb_progress: Optional[Callable] = None
         self._cb_tick:     Optional[Callable] = None
 
-        Path(log_dir).mkdir(parents=True, exist_ok=True)
-        logfile = os.path.join(
-            log_dir, f"tune_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
-        # Use a named logger so multiple inits don't conflict
+        # Serializes every Afterburner/NVML write. abort() takes it too, so no
+        # tuning write can land AFTER the reset (the old race re-applied an OC).
+        self._ab_lock = threading.Lock()
+
+        # One log FILE PER TUNE RUN (opened in _run_safe). It used to be created
+        # here, i.e. once per app start: every launch left an empty tune_*.log,
+        # and all runs of a session were merged into one Tune-History entry.
+        self._log_dir = log_dir
+        self._run_handler: Optional[logging.Handler] = None
         self.logger = logging.getLogger(f"gop.tuner.{id(self)}")
-        if not self.logger.handlers:
+        self.logger.setLevel(logging.INFO)
+        self.logger.propagate = False   # keep tune logs out of the tweak log
+
+    @property
+    def is_running(self) -> bool:
+        return bool(self._thread and self._thread.is_alive())
+
+    def _open_run_log(self):
+        try:
+            Path(self._log_dir).mkdir(parents=True, exist_ok=True)
+            logfile = os.path.join(
+                self._log_dir, f"tune_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
             fh = logging.FileHandler(logfile, encoding="utf-8")
             fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
             self.logger.addHandler(fh)
-            self.logger.setLevel(logging.INFO)
+            self._run_handler = fh
+        except Exception:
+            self._run_handler = None
+
+    def _close_run_log(self):
+        h, self._run_handler = self._run_handler, None
+        if h is not None:
+            try:
+                self.logger.removeHandler(h)
+                h.close()
+            except Exception:
+                pass
 
     def on_state(self,    cb): self._cb_state    = cb
     def on_log(self,      cb): self._cb_log      = cb
@@ -235,9 +279,18 @@ class AutoTuner:
     def on_tick(self,     cb): self._cb_tick     = cb
 
     def _set_state(self, s):
+        # Once aborted, the worker thread must not overwrite ABORTED (it used to
+        # end on BACKOFF, which the GPU tab treats as "still running" — Start
+        # stayed greyed out for good).
+        if (self.state == TunerState.ABORTED and self._stop.is_set()
+                and s != TunerState.ABORTED):
+            return
         self.state = s
         if self._cb_state:
-            self._cb_state(s)
+            try:
+                self._cb_state(s)
+            except Exception:
+                pass
 
     def _log(self, msg, lvl="info"):
         getattr(self.logger, lvl)(msg)
@@ -256,14 +309,26 @@ class AutoTuner:
         self._thread.start()
 
     def abort(self):
+        """Stop tuning and put the GPU back to stock. Safe to call from any
+        thread, including on app exit. Order matters: set the stop flag first,
+        then take the write lock — an in-flight write finishes, and every later
+        _apply()/_apply_vf() sees the flag and does nothing, so nothing can
+        overwrite the reset any more."""
         self._stop.set()
+        with self._ab_lock:
+            self._safe_reset()
+            if self.cr:
+                try:
+                    self.cr.clear_tuning_flag()
+                except Exception:
+                    pass
         self._set_state(TunerState.ABORTED)
-        self._log("Aborted by user", "warning")
-        self._safe_reset()
-        if self.cr:
-            self.cr.clear_tuning_flag()
+        self._log("Aborted by user — GPU auf Standard zurückgesetzt", "warning")
 
     def _safe_reset(self):
+        """Stock offsets + the card's FACTORY power limit. (Caller holds
+        _ab_lock.) Used to set the MAXIMUM power limit, which on cards whose
+        maximum is above stock raised the limit instead of resetting it."""
         try:
             reset = TuneProfile(
                 name="__reset__",
@@ -272,11 +337,18 @@ class AutoTuner:
                 power_limit_pct=100
             )
             self.ab.write_and_apply(self.config.ab_slot, reset)
-            _, _, mx = self.monitor.get_power_constraints()
-            if mx > 0:
-                self.monitor.set_power_limit(mx)
-        except:
+        except Exception:
             pass
+        try:
+            watts = self.monitor.power_pct_to_watts(100)
+            if watts > 0:
+                self.monitor.set_power_limit(watts)
+        except Exception:
+            pass
+
+    def _reset_locked(self):
+        with self._ab_lock:
+            self._safe_reset()
 
     def _apply(self, core=0, mem=0, pwr_pct=100) -> bool:
         p = TuneProfile(
@@ -285,15 +357,20 @@ class AutoTuner:
             mem_offset_mhz=mem,
             power_limit_pct=pwr_pct,
         )
-        # Write crash flag before applying
-        if self.cr:
-            self.cr.set_tuning_active(p.to_dict())
-        ok, _ = self.ab.write_and_apply(self.config.ab_slot, p)
-        if ok:
-            _, _, mx = self.monitor.get_power_constraints()
-            if mx > 0 and pwr_pct < 100:
-                self.monitor.set_power_limit(mx * (pwr_pct / 100.0))
-        return ok
+        with self._ab_lock:
+            if self._stop.is_set():
+                return False           # aborted: never write after the reset
+            # Write crash flag before applying
+            if self.cr:
+                self.cr.set_tuning_active(p.to_dict())
+            ok, _ = self.ab.write_and_apply(self.config.ab_slot, p)
+            if ok:
+                # Always set the limit (incl. 100 %): a later 100 % step used to
+                # leave a previously reduced limit in place. 100 % = stock.
+                watts = self.monitor.power_pct_to_watts(pwr_pct)
+                if watts > 0:
+                    self.monitor.set_power_limit(watts)
+            return ok
 
     def _save_stable(self, core, mem, pwr):
         """Save current values as last-known-stable for crash recovery."""
@@ -320,31 +397,44 @@ class AutoTuner:
             lock_voltage_mv=lock_voltage_mv,
             lock_freq_mhz=lock_freq_mhz,
         )
-        if self.cr:
-            self.cr.set_tuning_active(p.to_dict())
-        ok, err = self.ab.write_and_apply(self.config.ab_slot, p)
+        with self._ab_lock:
+            if self._stop.is_set():
+                return False           # aborted: never write after the reset
+            if self.cr:
+                self.cr.set_tuning_active(p.to_dict())
+            ok, err = self.ab.write_and_apply(self.config.ab_slot, p)
         if not ok:
             self._log(f"  V/F apply failed: {err}", "warning")
         return ok
 
     def _run_safe(self):
+        self._open_run_log()
         try:
             self._run()
         except Exception as e:
             self._log(f"Tuner exception: {e}", "error")
             self._set_state(TunerState.ERROR)
-            self._safe_reset()
+            self._reset_locked()
             if self.cr:
                 self.cr.clear_tuning_flag()
+        finally:
+            self._close_run_log()
+
+    # Minimum average GPU load during the baseline for a meaningful test.
+    MIN_GPU_LOAD_PCT = 70.0
 
     def _run(self):
         cfg     = self.config
         mode    = cfg.mode
-        stress  = StressTester(self.monitor, self.cr)
+        stress  = StressTester(self.monitor, self.cr, stop_event=self._stop)
 
         self._log("═══════════════════════════════════════")
         self._log(f"  GameOptimizerPro Auto-Tune [{mode.value.upper().replace('_',' ')}]")
         self._log("═══════════════════════════════════════")
+        try:
+            self._log(f"GPU: {self.monitor.read().name}")
+        except Exception:
+            pass
 
         # ── Baseline ──────────────────────────────────────────────────────────
         self._set_state(TunerState.BASELINE)
@@ -362,14 +452,38 @@ class AutoTuner:
                 self._cb_tick(s) if self._cb_tick else None
             )
         )
+        if self._stop.is_set(): return
         if not base.passed:
             self._log(f"Baseline FAILED: {base.abort_reason}", "error")
             self._set_state(TunerState.ERROR)
             if self.cr: self.cr.clear_tuning_flag()
             return
 
+        # A stability test is only meaningful under real GPU load. The internal
+        # stress worker loads the GPU only via 'cupy'; without it, it silently
+        # burns the CPU instead and every OC/UV step would "pass" on an idle GPU.
+        if base.avg_gpu_usage < self.MIN_GPU_LOAD_PCT:
+            import importlib.util
+            has_cupy = importlib.util.find_spec("cupy") is not None
+            why = ("'cupy' ist nicht installiert — der Stress-Worker belastet dann nur die CPU."
+                   if not has_cupy else
+                   "Der Stress-Worker hat die GPU nicht ausgelastet.")
+            self._log(
+                f"Baseline: GPU-Auslastung nur Ø {base.avg_gpu_usage:.0f} % "
+                f"(nötig ≥ {self.MIN_GPU_LOAD_PCT:.0f} %). {why} Ein OC/UV-Test ohne "
+                f"GPU-Last würde instabile Werte als 'stabil' speichern — Tune abgebrochen.",
+                "error")
+            self._log("Lösung: 'pip install cupy-cuda12x' (NVIDIA) ODER parallel eine "
+                      "GPU-Last starten (z.B. FurMark im Stress-Tab) und den Tune neu starten.",
+                      "warning")
+            self._set_state(TunerState.ERROR)
+            self._progress(0, f"Abgebrochen: keine GPU-Last (Ø {base.avg_gpu_usage:.0f} %)")
+            self._reset_locked()
+            if self.cr: self.cr.clear_tuning_flag()
+            return
+
         self._log(
-            f"Baseline OK | temp={base.avg_temp}°C | "
+            f"Baseline OK | temp={base.avg_temp}°C | GPU-Last={base.avg_gpu_usage:.0f}% | "
             f"volt={base.avg_voltage_mv:.0f}mV | clk={base.avg_core_mhz:.0f}MHz"
         )
         # Baseline is our first "stable" point
@@ -412,6 +526,8 @@ class AutoTuner:
                     if self._cb_tick: self._cb_tick(s)
 
                 result = stress.run(cfg.step_test_s, cfg.max_temp_c, on_tick=_tick1)
+                if self._stop.is_set():   # aborted mid-step: don't act on it
+                    return
                 step_n += 1
 
                 if result.passed and not result.throttle_hit:
@@ -496,6 +612,8 @@ class AutoTuner:
                     if self._cb_tick: self._cb_tick(s)
 
                 result = stress.run(cfg.step_test_s, cfg.max_temp_c, on_tick=_tick2)
+                if self._stop.is_set():   # aborted mid-step: don't act on it
+                    return
                 pwr_step_n += 1
 
                 if result.passed and not result.throttle_hit:
@@ -596,6 +714,8 @@ class AutoTuner:
                     if self._cb_tick: self._cb_tick(s)
 
                 result = stress.run(cfg.vf_step_test_s, cfg.max_temp_c, on_tick=_tick3)
+                if self._stop.is_set():   # aborted mid-step: don't act on it
+                    return
                 vf_step_n += 1
 
                 if result.passed and not result.throttle_hit and not result.crash_detected:
@@ -703,6 +823,8 @@ class AutoTuner:
                     if self._cb_tick: self._cb_tick(s)
 
                 result = stress.run(cfg.step_test_s, cfg.max_temp_c, on_tick=_tick4)
+                if self._stop.is_set():   # aborted mid-step: don't act on it
+                    return
                 mem_step_n += 1
 
                 if result.passed and not result.crash_detected:
@@ -783,6 +905,8 @@ class AutoTuner:
             if self._cb_tick: self._cb_tick(s)
 
         final = stress.run(cfg.final_test_s, cfg.max_temp_c, on_tick=_tick_final)
+        if self._stop.is_set():   # aborted mid-step: don't act on it
+            return
 
         # ── Save ───────────────────────────────────────────────────────────────
         self._set_state(TunerState.SAVING)

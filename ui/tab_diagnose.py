@@ -30,7 +30,16 @@ class DiagnoseTab(tk.Frame):
         super().__init__(parent, bg=DARK, **kw)
         self._ui_q: queue.Queue = queue.Queue()
         self._build()
-        self.after(150, self._pump)
+        self._pump_id = self.after(150, self._pump)
+
+    def destroy(self):
+        try:
+            if self._pump_id:
+                self.after_cancel(self._pump_id)
+        except Exception:
+            pass
+        self._pump_id = None
+        super().destroy()
 
     # cross-thread → main-thread UI updates (after() from a worker raises on 3.14)
     def _on_main(self, fn):
@@ -46,7 +55,10 @@ class DiagnoseTab(tk.Frame):
                     pass
         except queue.Empty:
             pass
-        self.after(150, self._pump)
+        try:
+            self._pump_id = self.after(150, self._pump)
+        except (tk.TclError, RuntimeError):
+            self._pump_id = None
 
     def _build(self):
         nb = ttk.Notebook(self)
