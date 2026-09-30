@@ -111,7 +111,8 @@ class GpuTunerTab(tk.Frame):
         self.v_max_temp  = tk.IntVar(value=85)
         self.v_step_dur  = tk.IntVar(value=45)
         self.v_final_dur = tk.IntVar(value=120)
-        self.v_mem_off   = tk.IntVar(value=0)
+        self.v_mem_max   = tk.IntVar(value=1000)
+        self.v_mem_stage = tk.BooleanVar(value=True)
         self.v_ab_slot   = tk.IntVar(value=2)
 
         # ── GPU defaults info bar (uses IntVars above — must come after) ──────
@@ -149,8 +150,25 @@ class GpuTunerTab(tk.Frame):
         spn(grid, "Max Temp (°C)",   self.v_max_temp,  70,  95, 0, 3)
         spn(grid, "Step Test (s)",   self.v_step_dur,  15, 300, 1, 0)
         spn(grid, "Final Test (s)",  self.v_final_dur, 60, 600, 1, 1)
-        spn(grid, "Mem Offset (MHz)",self.v_mem_off, -500,1000, 1, 2)
+        spn(grid, "Mem Max (MHz)",   self.v_mem_max,  100, 3000, 1, 2)
         spn(grid, "AB Slot (2-5)",   self.v_ab_slot,   2,   5, 1, 3)
+
+        # Memory stage: searched and MEASURED, not a fixed guess (the old
+        # 'Mem Offset' field applied an unsearched value to every step).
+        mem_row = tk.Frame(cfg_f, bg=BG2)
+        mem_row.pack(fill="x", padx=8, pady=(0, 10))
+        self.chk_mem_stage = tk.Checkbutton(
+            mem_row, variable=self.v_mem_stage, bg=BG2, activebackground=BG2,
+            selectcolor=BG3, fg=TXT, highlightthickness=0, bd=0)
+        self.chk_mem_stage.pack(side="left")
+        tk.Label(mem_row, text="Speicher mit übertakten", font=FL, fg=TXT, bg=BG2
+                 ).pack(side="left", padx=(2, 8))
+        tk.Label(mem_row,
+                 text="Stufe 4 misst die Speicher-Bandbreite: GDDR6X korrigiert Fehler durch "
+                      "Wiederholen und wird über dem Limit LANGSAMER statt abzustürzen — genommen "
+                      "wird das Bandbreiten-Maximum (bis 'Mem Max'). Dauert ca. 6–10 min länger.",
+                 font=FM, fg=DIM, bg=BG2, justify="left", wraplength=560, anchor="w"
+                 ).pack(side="left", fill="x", expand=True)
 
         # ── Controls ──────────────────────────────────────────────────────────
         ctrl = tk.Frame(p, bg=BG1)
@@ -227,10 +245,12 @@ class GpuTunerTab(tk.Frame):
             self.v_core_max.set( d.core_max_mhz)
             self.v_pwr_min.set(  d.power_min_pct)
             self.v_max_temp.set( d.max_temp_c)
+            self.v_mem_max.set(  d.mem_max_mhz)
 
             self.lbl_gpu_defaults.config(
                 text=f"GPU: {gpu_name[:40]}  |  Gen: {d.generation}  |  "
-                     f"Defaults: Core max +{d.core_max_mhz}MHz, Power min {d.power_min_pct}%, Temp limit {d.max_temp_c}°C",
+                     f"Defaults: Core max +{d.core_max_mhz}MHz, Mem max +{d.mem_max_mhz}MHz, "
+                     f"Power min {d.power_min_pct}%, Temp limit {d.max_temp_c}°C",
                 fg=ACC
             )
         except Exception as e:
@@ -247,9 +267,11 @@ class GpuTunerTab(tk.Frame):
             if mode_id == "oc_only":
                 self.v_core_max.set(d.core_max_mhz)
                 self.v_pwr_min.set(100)
+                self.v_mem_stage.set(True)
             elif mode_id == "uv_only":
                 self.v_core_max.set(0)
                 self.v_pwr_min.set(d.power_min_pct)
+                self.v_mem_stage.set(False)    # power saving: no extra memory power
             elif mode_id in ("full", "vf_only"):
                 self.v_core_max.set(d.core_max_mhz)
                 self.v_pwr_min.set(100)  # VF curve handles UV, not power limit
@@ -259,6 +281,7 @@ class GpuTunerTab(tk.Frame):
             else:  # oc_uv
                 self.v_core_max.set(d.core_max_mhz)
                 self.v_pwr_min.set(d.power_min_pct)
+                self.v_mem_stage.set(True)
         except:
             pass
 
@@ -418,13 +441,17 @@ class GpuTunerTab(tk.Frame):
             "mem_only": "Memory Overclock",
         }.get(self.v_mode.get(), "OC + UV")
 
+        mem_on = bool(self.v_mem_stage.get())
+        mem_line = (f"Speicher: bis +{self.v_mem_max.get()}MHz, Bandbreite gemessen"
+                    if mem_on else "Speicher: wird nicht übertaktet")
         if not messagebox.askyesno("Start Tune",
             f"Mode: {mode_str}\n"
             f"AB Slot: {slot}\n"
             f"Core Max: +{self.v_core_max.get()}MHz  |  "
             f"Power Min: {self.v_pwr_min.get()}%  |  "
-            f"Max Temp: {self.v_max_temp.get()}°C\n\n"
-            f"Process takes ~10-20 minutes. Start?"):
+            f"Max Temp: {self.v_max_temp.get()}°C\n"
+            f"{mem_line}\n\n"
+            f"Dauer ca. {'30-45' if mem_on else '20-35'} Minuten. Start?"):
             return
 
         cfg = TunerConfig(
@@ -435,7 +462,11 @@ class GpuTunerTab(tk.Frame):
             max_temp_c=self.v_max_temp.get(),
             step_test_s=self.v_step_dur.get(),
             final_test_s=self.v_final_dur.get(),
-            mem_offset_mhz=self.v_mem_off.get(),
+            mem_offset_mhz=0,
+            mem_stage=mem_on,
+            mem_oc_max_mhz=max(100, self.v_mem_max.get()),
+            mem_oc_step_mhz=250,        # coarse first, halved on the first drop ...
+            mem_min_step_mhz=25,        # ... down to ±25 MHz (5 would add minutes for nothing)
             ab_slot=slot,
         )
         self.tuner.config = cfg

@@ -21,7 +21,8 @@
 
 ### 🎮 GPU Auto-Tuner
 - **3 Tune Modes:** Overclock Only, Undervolt Only, OC + UV (Recommended)
-- **How it searches:** raises the core offset step by step (e.g. +15 MHz); on a failure it returns to the **last stable value and halves the step** (15 → 7 → 5 MHz), so it converges on the edge of stability with ±5 MHz precision. The power limit goes down to the **lowest value that costs at most 3 % performance** under full load. A 2-minute final test verifies the exact profile that is saved. *(The tuner also contains a V/F-curve undervolt stage and a memory stage — memory goes up only while its bandwidth keeps rising, since GDDR6X gets slower instead of crashing past its limit, and the result is the offset with the highest measured bandwidth — but these modes are not selectable in the GPU tab yet.)*
+- **How it searches:** raises the core offset step by step (e.g. +15 MHz); on a failure it returns to the **last stable value and halves the step** (15 → 7 → 5 MHz), so it converges on the edge of stability with ±5 MHz precision. The power limit goes down to the **lowest value that costs at most 3 % performance** under full load. A 2-minute final test verifies the exact profile that is saved.
+- **Memory overclock ("Speicher mit übertakten", on by default for OC and OC + UV):** after core and power limit the memory offset goes up in 250-MHz steps (halved to ±25 MHz after the first drop, up to "Mem Max" — +1500 MHz on an RTX 4080) while a memory load **measures the bandwidth**. GDDR6X retries failed transfers instead of crashing, so past its limit it gets *slower*; the result is the offset with the **highest measured bandwidth**, never a value inside the drop. Adds about 6–10 minutes. *(The tuner also contains a V/F-curve undervolt stage — not selectable in the GPU tab yet.)*
 - **Game-like load for the OC search:** a constant full load keeps the card at its power limit (~2500 MHz), but games crash at the *boost* point. The OC steps and the final test alternate heavy load with half-duty load that reaches the high-clock / high-voltage point games use (measured on an RTX 4080: 2790 MHz @ 1075 mV, exactly what Hunt: Showdown runs at)
 - **Instability is detected by wrong results, not only by crashes** — the stress worker repeats the same matrix product and compares every result with the first one (the gpu-burn / OCCT method); a single wrong value fails the step. Running into the power limit is treated as normal; only thermal / hardware slowdowns count as a limit
 - Automated step-by-step stability testing with stress worker — **refuses to tune without real GPU load** (measured during the baseline; ≥ 70 %), because an OC/UV test on an idle GPU would store unstable values as "stable". GPU load comes from the stress worker via `cupy` (`pip install "cupy-cuda12x[ctk]"` — `install.bat` offers it) or from FurMark running in parallel
@@ -213,11 +214,12 @@ GameOptimizerPro **2.0** is the finalized release: the complete feature set belo
 - Reviewed-and-verified-not-a-bug items were left unchanged rather than papered over
 
 **Since the release (still 2.0)**
+- 🧠 **Memory overclock in the Auto-Tune** — searched with a bandwidth measurement (replaces the fixed "Mem Offset" field)
 - 🎮 **Afterburner profiles verified live** on real hardware; a real bug found that way — frozen monitoring after an Afterburner restart — is fixed; OC steps now run a **game-like mixed load**; the memory stage keeps the bandwidth peak
 - 🔁 **v1 parity completed honestly** — an audit showed the earlier "full parity" claim was wrong: 18 more tweaks, **Deep Clean**, **Services Manager**, **Optimization Score**, **monitor advisor** and the **drift check** are ported; 6 v1 tweaks are deliberately left out (no effect on current drivers/Windows)
 - 🪟 **Windows 11 26H2:** new tweaks against the re-installed Copilot app / Dev Home, Click to Do, Paint/Notepad AI and the new AI host service; Recall and on-device AI now use the official policies
 - 🧪 After the first real use: no console window, final-test back-off in the tuner, either-or power plans / DNS, per-tweak drift dialog, several tweaks that reported wrongly fixed — see CHANGELOG, round 10
-- 🧪 389 automated checks in 16 test suites (in `tests/`), incl. a PowerShell parse check of every command
+- 🧪 409 automated checks in 17 test suites (in `tests/`), incl. a PowerShell parse check of every command
 
 See [CHANGELOG.md](CHANGELOG.md) for the full detail.
 

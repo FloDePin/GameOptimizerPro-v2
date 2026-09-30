@@ -612,6 +612,17 @@ verifiers (VERIFY_MAP stays 1:1) and full English descriptions.
     byte-compiles them). They lived in that scratchpad and were rebuilt from the
     session transcript — the loss is exactly the case the 24-h rule prevents.
 
+- **Round 11 — memory overclock in the Auto-Tune:** the user wants memory OC in
+  the tune. The tuner's memory stage (bandwidth-measured, result = bandwidth
+  peak) is now a checkbox in the GPU tab ("Speicher mit übertakten", on for OC
+  and OC + UV, off for "Nur UV"); the fixed "Mem Offset" field — a value that was
+  never searched and applied to every step — is replaced by "Mem Max" (from the
+  generation table: +1500 MHz on an RTX 4080). Steps start at 250 MHz and are
+  halved after the first drop down to ±25 MHz (±5 would add minutes for nothing);
+  "Mem Max" itself is tested once and nothing right next to a failed offset is
+  tested again. The final test runs with core + memory + power limit, and its
+  back-off alternates core and memory. Tests: `tests/test_memstage.py`.
+
 ### 🔎 Reviewed, verified NOT a bug
 
 Some reported items were checked against the actual code and left unchanged

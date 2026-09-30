@@ -49,11 +49,12 @@ Beenden) und über **`GameOptimizerPro.bat`** neu starten.
    Monitor anklicken → Erweiterte Anzeige → **60 Hz** (Dashboard zeigt es an).
 4. **DNS:** bei dir ist Cloudflare aktiv. „Alle auswählen“ nimmt jetzt nur noch *einen*
    DNS-Anbieter und *einen* Energieplan.
-5. **Optional: neuer Auto-Tune** (OC + UV). Das Feld **„Mem Offset (MHz)“ auf 0 lassen** — ein
-   fester Speicher-Offset wird nicht separat getestet; +1000 war im 2. Lauf der Knackpunkt.
-   Fällt der Endtest durch, nimmt der Tuner jetzt selbst einen Schritt zurück (Core −15,
-   dann Speicher halbieren) und testet erneut; gespeichert wird nur, was bestanden hat.
-   Der PC geht währenddessen nicht mehr in den Standby.
+5. **Neuer Auto-Tune — jetzt mit Speicher-OC** (OC + UV, Haken **„Speicher mit übertakten“**
+   ist gesetzt, „Mem Max“ steht auf +1500). Das alte Feld „Mem Offset“ gibt es nicht mehr: Es
+   setzte einen festen, nie gesuchten Wert. Jetzt sucht Stufe 4 den Speicher-Offset selbst und
+   misst dabei die Bandbreite (Dauer insgesamt ca. 30–45 min). Fällt der Endtest durch, nimmt
+   der Tuner selbst einen Schritt zurück (Core −15, dann Speicher halbieren) und testet erneut;
+   gespeichert wird nur, was bestanden hat. Der PC geht währenddessen nicht in den Standby.
 6. **System Cleaner:** löscht Temp-Dateien jetzt nur, wenn sie älter als 24 Stunden sind
    (vorher alles — das hat u. a. die Testdateien dieser Sitzung gelöscht).
 
@@ -322,9 +323,8 @@ lesen. Schreib mir einfach, was du gemacht hast, und dazu:
   Afterburners `FanMode`-Kodierung, also bleibt der Lüfter in Afterburner.
 - Beim Anwenden **neuer** Werte startet Afterburner kurz neu (einige Sekunden), weil er
   seine Profildatei nur beim Start liest.
-- Der Tuner enthält auch eine V/F-Kurven- und eine Speicher-Stufe (mit
-  Bandbreitenmessung; übernommen wird der Offset mit der höchsten gemessenen Bandbreite).
-  Diese Modi sind im GPU-Tab aber noch nicht auswählbar.
+- Der Tuner enthält auch eine V/F-Kurven-Stufe; die ist im GPU-Tab noch nicht auswählbar.
+  (Die Speicher-Stufe schon: Haken „Speicher mit übertakten“.)
 - **Audio-Verbesserungen / Exklusiver Modus:** Windows' Audiodienst verwaltet diese Werte
   selbst; direkt in die Registry geschrieben kamen sie auf dem Test-PC nicht an. Die Tweaks
   prüfen das jetzt und melden es ehrlich. Bis zur Lösung: im Sound-Menü unter

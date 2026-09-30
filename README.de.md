@@ -21,7 +21,8 @@
 
 ### 🎮 GPU Auto-Tuner
 - **3 Tune-Modi:** Nur Overclock, Nur Undervolt, OC + UV (empfohlen)
-- **So sucht er:** erhöht den Core-Offset schrittweise (z. B. +15 MHz); bei einem Fehlschlag geht er auf den **letzten stabilen Wert zurück und halbiert die Schrittweite** (15 → 7 → 5 MHz) und landet so mit ±5 MHz Genauigkeit an der Stabilitätsgrenze. Das Power-Limit sinkt bis zum **niedrigsten Wert, der unter Volllast höchstens 3 % Leistung kostet**. Ein 2-Minuten-Endtest prüft genau das Profil, das gespeichert wird. *(Der Tuner enthält außerdem eine V/F-Kurven-Stufe und eine Speicher-Stufe — der Speicher steigt nur, solange seine Bandbreite weiter steigt, weil GDDR6X über dem Limit langsamer wird statt abzustürzen, und übernommen wird der Offset mit der höchsten gemessenen Bandbreite —, diese Modi sind im GPU-Tab aber noch nicht auswählbar.)*
+- **So sucht er:** erhöht den Core-Offset schrittweise (z. B. +15 MHz); bei einem Fehlschlag geht er auf den **letzten stabilen Wert zurück und halbiert die Schrittweite** (15 → 7 → 5 MHz) und landet so mit ±5 MHz Genauigkeit an der Stabilitätsgrenze. Das Power-Limit sinkt bis zum **niedrigsten Wert, der unter Volllast höchstens 3 % Leistung kostet**. Ein 2-Minuten-Endtest prüft genau das Profil, das gespeichert wird.
+- **Speicher-OC („Speicher mit übertakten“, bei OC und OC + UV standardmäßig an):** Nach Core und Power-Limit steigt der Speicher-Offset in 250-MHz-Schritten (nach dem ersten Einbruch halbiert bis ±25 MHz, höchstens bis „Mem Max“ — bei einer RTX 4080 +1500 MHz), während eine Speicherlast **die Bandbreite misst**. GDDR6X wiederholt fehlerhafte Übertragungen, statt abzustürzen, und wird über dem Limit *langsamer*; übernommen wird der Offset mit der **höchsten gemessenen Bandbreite**, nie ein Wert im Einbruch. Dauert etwa 6–10 Minuten länger. *(Der Tuner enthält außerdem eine V/F-Kurven-Stufe — im GPU-Tab noch nicht auswählbar.)*
 - **Spielähnliche Last bei der OC-Suche:** Dauer-Volllast hält die Karte am Power-Limit (~2500 MHz), Spiele stürzen aber am *Boost*-Punkt ab. Die OC-Schritte und der Endtest wechseln deshalb zwischen Volllast und halber Last, die den Hochtakt-/Hochspannungs-Punkt von Spielen erreicht (gemessen auf einer RTX 4080: 2790 MHz @ 1075 mV — genau der Arbeitspunkt in Hunt: Showdown)
 - **Instabilität wird an falschen Ergebnissen erkannt, nicht erst am Absturz** — der Stress-Worker wiederholt dieselbe Matrix-Rechnung und vergleicht jedes Ergebnis mit dem ersten (Methode von gpu-burn / OCCT); ein einziger falscher Wert lässt den Schritt scheitern. Das Power-Limit zu erreichen gilt als normal; nur thermische / Hardware-Drosselung zählt als Grenze
 - Automatisierter, schrittweiser Stabilitätstest mit Stress-Worker — **verweigert das Tunen ohne echte GPU-Last** (gemessen in der Baseline; ≥ 70 %), weil ein OC/UV-Test bei leerlaufender GPU instabile Werte als „stabil" speichern würde. GPU-Last liefert der Stress-Worker über `cupy` (`pip install "cupy-cuda12x[ctk]"` — `install.bat` bietet es an) oder ein parallel laufendes FurMark
@@ -212,11 +213,12 @@ GameOptimizerPro **2.0** ist der finalisierte Release: der komplette Funktionsum
 - "Geprüft und als kein Bug bestätigt"-Punkte wurden bewusst nicht verändert statt übertüncht
 
 **Seit dem Release (weiterhin 2.0)**
+- 🧠 **Speicher-OC im Auto-Tune** — gesucht mit Bandbreitenmessung (ersetzt das feste Feld „Mem Offset“)
 - 🎮 **Afterburner-Profile live auf echter Hardware verifiziert**; ein dabei gefundener echter Bug — eingefrorenes Monitoring nach einem Afterburner-Neustart — ist behoben; OC-Schritte laufen jetzt mit **spielähnlicher Wechsellast**; die Speicher-Stufe übernimmt das Bandbreiten-Maximum
 - 🔁 **v1-Parität ehrlich vervollständigt** — eine Prüfung zeigte, dass die frühere „volle Parität“ nicht stimmte: 18 weitere Tweaks, **Deep Clean**, **Services Manager**, **Optimierungs-Score**, **Monitor-Berater** und die **Drift-Prüfung** sind portiert; 6 v1-Tweaks bewusst nicht (wirkungslos mit aktuellen Treibern/Windows)
 - 🪟 **Windows 11 26H2:** neue Tweaks gegen die wieder installierte Copilot-App / Dev Home, Click to Do, Paint-/Notepad-KI und den neuen KI-Hostdienst; Recall und geräteinterne KI jetzt über die offiziellen Richtlinien
 - 🧪 Nach dem ersten echten Einsatz: kein Konsolenfenster mehr, Endtest mit Rücknahme im Tuner, Energieplan/DNS als Entweder-oder, Drift-Dialog pro Tweak, mehrere falsch meldende Tweaks behoben — siehe CHANGELOG, Runde 10
-- 🧪 389 automatische Prüfungen in 16 Test-Suiten (in `tests/`), inkl. PowerShell-Syntaxprüfung jedes Befehls
+- 🧪 409 automatische Prüfungen in 17 Test-Suiten (in `tests/`), inkl. PowerShell-Syntaxprüfung jedes Befehls
 
 Vollständige Details in [CHANGELOG.md](CHANGELOG.md).
 

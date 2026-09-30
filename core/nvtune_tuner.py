@@ -102,6 +102,10 @@ class TunerConfig:
     mem_oc_enabled:  bool = True       # Run memory OC in FULL mode
     mem_oc_step_mhz: int  = 50         # Memory step size
     mem_oc_max_mhz:  int  = 1000       # Max memory offset
+    # Memory stage inside the OC / UV / OC+UV modes (GPU tab: "Speicher mit
+    # übertakten") and the search precision of the memory stage.
+    mem_stage:        bool = False
+    mem_min_step_mhz: int  = 5
     # Stage 2: lowest power limit that costs at most this much performance
     # under full load (RTX 40: ~70-80 % PL costs only a few % in games).
     power_max_loss_pct: float = 3.0
@@ -975,7 +979,7 @@ class AutoTuner:
 
         run_mem = (
             cfg.mem_oc_enabled and
-            mode in (TuneMode.FULL, TuneMode.MEM_ONLY)
+            (mode in (TuneMode.FULL, TuneMode.MEM_ONLY) or cfg.mem_stage)
         )
 
         if run_mem:
@@ -1013,16 +1017,20 @@ class AutoTuner:
             bw_at = {best_mem_offset: best_bw} if best_bw > 0 else {}
 
             # Adaptive stepping for Memory OC
-            MIN_MEM_STEP = 5   # MHz
+            MIN_MEM_STEP = max(1, cfg.mem_min_step_mhz)   # MHz
             cur_mem      = best_mem_offset
             cur_mem_step = cfg.mem_oc_step_mhz
             mem_step_n   = 0
             est_mem_steps = max(cfg.mem_oc_max_mhz // cfg.mem_oc_step_mhz, 1) + 6
+            # Highest offset still worth testing: 'Mem Max', then just below
+            # every offset that failed (a coarse step must not re-test it).
+            upper = cfg.mem_oc_max_mhz
 
             while not self._stop.is_set():
-                candidate_mem = cur_mem + cur_mem_step
-                if candidate_mem > cfg.mem_oc_max_mhz:
-                    self._log(f"Stage 4: Memory limit +{cfg.mem_oc_max_mhz}MHz reached")
+                candidate_mem = min(cur_mem + cur_mem_step, upper)
+                if candidate_mem <= cur_mem:
+                    if upper == cfg.mem_oc_max_mhz:
+                        self._log(f"Stage 4: Memory limit +{cfg.mem_oc_max_mhz}MHz reached")
                     break
 
                 if best_volt_mv > 0:
@@ -1062,6 +1070,7 @@ class AutoTuner:
                         f"avg={result.avg_temp:.1f}°C{bw_note}"
                     )
                 else:
+                    upper     = candidate_mem - MIN_MEM_STEP   # never re-test next to a failure
                     tdr_note  = " [TDR!]" if result.tdr_detected else ""
                     reason    = (f"Bandbreite {bw:.0f} < {best_bw:.0f} GB/s — Fehlerkorrektur "
                                  f"(EDC) bremst" if bw_drop and result.passed
