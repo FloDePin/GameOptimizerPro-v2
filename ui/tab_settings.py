@@ -135,10 +135,11 @@ class SettingsTab(tk.Frame):
         cln_f = tk.Frame(body, bg=BG2, padx=12, pady=10)
         cln_f.pack(fill="x", padx=14, pady=(0, 8))
         tk.Label(cln_f,
-                 text="Immer: Benutzer-Temp, Windows-Temp, CrashDumps. Optional (Deep Clean, "
-                      "aus v1): die angehakten Ziele unten. Niemals Dokumente oder Browserprofile "
-                      "(Passwörter, Verlauf, Lesezeichen). Dateien in Benutzung werden übersprungen "
-                      "und zählen nicht als freigegeben.",
+                 text="Immer: Benutzer-Temp, Windows-Temp, CrashDumps — nur Dateien, die älter als "
+                      "24 Stunden sind (frische Temp-Dateien laufender Programme bleiben). Optional "
+                      "(Deep Clean, aus v1): die angehakten Ziele unten. Niemals Dokumente oder "
+                      "Browserprofile (Passwörter, Verlauf, Lesezeichen). Dateien in Benutzung werden "
+                      "übersprungen und zählen nicht als freigegeben.",
                  font=FM, fg=DIM, bg=BG2, justify="left", wraplength=560).pack(anchor="w")
         deep_f = tk.Frame(cln_f, bg=BG2)
         deep_f.pack(anchor="w", fill="x", pady=(6, 0))

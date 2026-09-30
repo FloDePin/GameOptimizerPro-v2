@@ -41,6 +41,27 @@ def _make_tooltip(widget, text: str):
     widget.bind("<Leave>", _leave)
 from core.tweak_runner   import TweakRunner
 from core.tweak_verifier import TweakVerifier, VERIFY_MAP
+
+
+def _wheel_scroll(canvas):
+    """Mouse wheel over the WHOLE list. Binding on <Enter>/<Leave> of the canvas
+    alone broke it over the rows: moving onto a row (a child widget) fires
+    <Leave> on the canvas, which removed the binding — scrolling only worked in
+    the empty strip next to the tweaks."""
+    def on_wheel(e):
+        if canvas.yview() != (0.0, 1.0):
+            canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
+
+    def inside() -> bool:
+        try:
+            w = canvas.winfo_containing(*canvas.winfo_pointerxy())
+        except Exception:
+            return False
+        path = str(w) if w is not None else ""
+        return path == str(canvas) or path.startswith(str(canvas) + ".")
+
+    canvas.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", on_wheel))
+    canvas.bind("<Leave>", lambda e: None if inside() else canvas.unbind_all("<MouseWheel>"))
 from core.tweak_presets  import TweakPreset, BUILTIN_PRESETS, get_all_presets
 from core.export_import  import ExportImport
 from core.hardware       import HardwareInfo
@@ -76,6 +97,9 @@ class OptimizerTab(tk.Frame):
         self._dot_labels:    dict[str, tk.Label] = {} # tweak_id -> dot Label widget
         self._name_labels:   dict[str, tk.Label] = {} # tweak_id -> name Label widget
         self._verifying = False
+        self._bulk = False                 # "select all": no either-or reactions
+        self._batch_running = False        # one apply/revert batch at a time
+        self._action_btns: list[tk.Button] = []
         self._build()
 
     # ── Layout ────────────────────────────────────────────────────────────────
@@ -126,13 +150,16 @@ class OptimizerTab(tk.Frame):
             (">> Apply Selected",self._apply_selected, "#e53935", "#ffffff"),
             ("↩ Revert All",     self._revert_all,     "#f59e0b", "#000000"),
         ]:
-            tk.Button(
+            b = tk.Button(
                 bar, text=text, command=cmd,
                 font=("Consolas", 8, "bold"),
                 bg=bg, fg=fg, relief="flat",
                 padx=10, pady=6, cursor="hand2",
                 activebackground=bg
-            ).pack(side="right", padx=2, pady=4)
+            )
+            b.pack(side="right", padx=2, pady=4)
+            if cmd in (self._apply_selected, self._revert_all):
+                self._action_btns.append(b)
 
         # Live verify button
         self.btn_live_verify = tk.Button(
@@ -224,10 +251,7 @@ class OptimizerTab(tk.Frame):
         canvas.configure(yscrollcommand=sb.set)
         canvas.pack(side="left", fill="both", expand=True, padx=4, pady=2)
         sb.pack(side="right", fill="y")
-        canvas.bind("<Enter>", lambda e, c=canvas:
-                    c.bind_all("<MouseWheel>",
-                    lambda ev, cv=c: cv.yview_scroll(int(-1*(ev.delta/120)), "units")))
-        canvas.bind("<Leave>", lambda e, c=canvas: c.unbind_all("<MouseWheel>"))
+        _wheel_scroll(canvas)
         self._preset_inner = inner
         self._refresh_presets()
 
@@ -295,7 +319,11 @@ class OptimizerTab(tk.Frame):
                  justify="left", wraplength=680).pack(anchor="w", pady=(4, 0))
 
     def _apply_preset(self, preset):
-        tweaks   = [t for t in (get_by_id(tid) for tid in preset.tweak_ids) if t]
+        if self._batch_busy():
+            return
+        from core.tweaks import resolve_selection
+        tweaks   = [get_by_id(tid) for tid in resolve_selection(
+                        [tid for tid in preset.tweak_ids if get_by_id(tid)], self.runner._applied)]
         skipped  = [t for t in tweaks if not self._is_applicable(t)]
         to_apply = [t for t in tweaks
                     if self._is_applicable(t) and not self.runner.is_applied(t.id)]
@@ -314,13 +342,11 @@ class OptimizerTab(tk.Frame):
             self.log.append(f"Preset: {preset.icon} {preset.name}", "header")
             self._backup_before("PreApply")
             for i, t in enumerate(to_apply):
-                ok, out = self.runner.apply(t)
-                self.log.append(f"  {t.name}: {'✓' if ok else '✗ '+out[:60]}",
-                                "success" if ok else "error")
+                self._apply_one(t, prefix=f"  [{i+1}/{len(to_apply)}] ")
             self.log.append("Fertig.", "success")
             self.after(0, self._refresh_presets)
             self.after(600, self._live_verify)
-        threading.Thread(target=_run, daemon=True).start()
+        self._run_batch(_run)
 
     def _preview_preset(self, preset):
         lines = [f"{preset.icon} {preset.name}\n"]
@@ -387,10 +413,7 @@ class OptimizerTab(tk.Frame):
         canvas.configure(yscrollcommand=sb.set)
         canvas.pack(side="left", fill="both", expand=True, padx=4, pady=2)
         sb.pack(side="right", fill="y")
-        canvas.bind("<Enter>", lambda e, c=canvas:
-                    c.bind_all("<MouseWheel>",
-                    lambda ev, cv=c: cv.yview_scroll(int(-1*(ev.delta/120)), "units")))
-        canvas.bind("<Leave>", lambda e, c=canvas: c.unbind_all("<MouseWheel>"))
+        _wheel_scroll(canvas)
 
         for group in get_groups(category):
             tweaks = [t for t in ALL_TWEAKS
@@ -427,6 +450,7 @@ class OptimizerTab(tk.Frame):
         is_applied = self.runner.is_applied(tweak.id)
         var = tk.BooleanVar(value=is_applied)
         self._vars[tweak.id] = var
+        var.trace_add("write", lambda *_a, tid=tweak.id: self._on_toggle(tid))
 
         bg = "#161b22" if len(self._vars) % 2 == 0 else "#0d1117"
         row = tk.Frame(parent, bg=bg, pady=3)
@@ -505,7 +529,14 @@ class OptimizerTab(tk.Frame):
         tk.Label(badge_f, text=f"[{tweak.risk}]",
                  font=("Consolas", 7),
                  fg=risk_col.get(tweak.risk, DIM), bg=bg).pack()
-        if tweak.risk == "safe" and not tweak.requires_reboot:
+        # "einmalig" = a one-way action without a revert (removals, clean-ups) —
+        # it used to hang on EVERY safe tweak that needs no restart. Power plans
+        # and DNS providers are a choice: only one of them can be active.
+        from core.tweaks import alternatives_of
+        if alternatives_of(tweak.id):
+            tk.Label(badge_f, text="⇄ entweder-oder",
+                     font=("Consolas", 7), fg="#4b5563", bg=bg).pack()
+        elif not (tweak.revert_cmd or "").strip():
             tk.Label(badge_f, text="⟳ einmalig",
                      font=("Consolas", 7), fg="#4b5563", bg=bg).pack()
         if is_applied or verified_state is True:
@@ -796,15 +827,17 @@ class OptimizerTab(tk.Frame):
         if not mis:
             self.lbl_fix_result.config(text="Keine Abweichungen.", fg=DIM)
             return
+        if self._batch_busy():
+            return
         if not messagebox.askyesno("Beheben", f"{len(mis)} Tweak(s) erneut anwenden?"):
             return
         def _do():
             self._backup_before("PreFix")
-            ok_c = sum(1 for t in mis if self.runner.apply(t)[0])
+            ok_c = sum(1 for t in mis if self._apply_one(t)[0])
             self.after(0, lambda: self.lbl_fix_result.config(
                 text=f"{ok_c}/{len(mis)} behoben.", fg=OK))
             self.after(500, self._run_verify)
-        threading.Thread(target=_do, daemon=True).start()
+        self._run_batch(_do)
 
     # ── Export / Import Section ───────────────────────────────────────────────
 
@@ -968,37 +1001,127 @@ class OptimizerTab(tk.Frame):
 
     # ── Global actions ────────────────────────────────────────────────────────
 
+    def _on_toggle(self, tid: str):
+        """Either-or choices (power plan, DNS): ticking one unticks the others."""
+        if self._bulk:
+            return
+        v = self._vars.get(tid)
+        if v is None or not v.get():
+            return
+        from core.tweaks import alternatives_of
+        for other in alternatives_of(tid):
+            ov = self._vars.get(other)
+            if ov is not None and ov.get():
+                ov.set(False)
+
     def _select_all(self):
-        for v in self._vars.values(): v.set(True)
+        # Everything — but only ONE power plan and ONE DNS provider (it used to
+        # tick all of them; applied in a row, the last one silently won).
+        from core.tweaks import resolve_selection
+        keep = set(resolve_selection(list(self._vars), self.runner._applied))
+        self._bulk = True
+        try:
+            for tid, v in self._vars.items():
+                v.set(tid in keep)
+        finally:
+            self._bulk = False
+        left = [get_by_id(t) for t in self._vars if t not in keep]
+        if left:
+            from core.i18n import current_lang
+            self.log.append("Alle ausgewählt — außer den Alternativen (nur ein Energieplan / ein "
+                            "DNS-Anbieter möglich): " + ", ".join(
+                                tweak_name(t, current_lang()) for t in left if t), "dim")
+
+    def _batch_busy(self) -> bool:
+        if self._batch_running:
+            messagebox.showinfo(
+                "Bitte warten",
+                "Es läuft noch ein Vorgang — z. B. die Datenträgerbereinigung dauert einige "
+                "Minuten. Bitte warten, bis im Protokoll „Fertig.“ steht.")
+            return True
+        return False
+
+    def _set_batch(self, running: bool):
+        self._batch_running = running
+        for b in self._action_btns:
+            try:
+                b.config(state="disabled" if running else "normal")
+            except Exception:
+                pass
+
+    def _run_batch(self, work):
+        """Run `work` (a list of apply/revert steps) in a thread — never two at
+        once: a second click during a long tweak used to start a second batch
+        that applied the same tweaks in parallel."""
+        self._set_batch(True)
+
+        def _go():
+            try:
+                work()
+            finally:
+                self.after(0, lambda: self._set_batch(False))
+        threading.Thread(target=_go, daemon=True).start()
+
+    def _apply_one(self, t, prefix: str = "  "):
+        """Apply one tweak with visible progress; untick replaced alternatives."""
+        if getattr(t, "timeout_s", 60) > 60:
+            self.log.append(f"{prefix}{t.name} … läuft (kann einige Minuten dauern)", "dim")
+        ok, out = self.runner.apply(t)
+        self.log.append(f"{prefix}{t.name}: {'✓' if ok else '✗ ' + out[:100]}",
+                        "success" if ok else "error")
+        sup = list(self.runner.last_superseded)
+        if ok and sup:
+            names = ", ".join((get_by_id(x).name if get_by_id(x) else x) for x in sup)
+            self.log.append(f"{prefix}  ↳ ersetzt: {names}", "dim")
+
+            def _untick(ids=sup):
+                self._bulk = True
+                try:
+                    for x in ids:
+                        if x in self._vars:
+                            self._vars[x].set(False)
+                finally:
+                    self._bulk = False
+            self.after(0, _untick)
+        return ok, out
 
     def _deselect_all(self):
         for v in self._vars.values(): v.set(False)
 
     def _apply_selected(self):
-        selected = [t for t in ALL_TWEAKS
-                    if t.id in self._vars and self._vars[t.id].get()
-                    and not self.runner.is_applied(t.id)]
+        if self._batch_busy():
+            return
+        from core.tweaks import resolve_selection, alternatives_of
+        ids = resolve_selection([t.id for t in ALL_TWEAKS
+                                 if t.id in self._vars and self._vars[t.id].get()
+                                 and not self.runner.is_applied(t.id)],
+                                self.runner._applied)
+        selected = [get_by_id(i) for i in ids]
         if not selected:
             messagebox.showinfo("Nichts", "Keine neuen Tweaks ausgewählt.")
             return
         needs_rb = any(t.requires_reboot for t in selected)
         msg = f"{len(selected)} Tweak(s) anwenden?"
+        replaced = [get_by_id(a) for t in selected for a in alternatives_of(t.id)
+                    if self.runner.is_applied(a)]
+        if replaced:
+            msg += "\n\nErsetzt (Entweder-oder): " + ", ".join(t.name for t in replaced if t)
         if needs_rb: msg += "\n\n⚠ Einige benötigen einen Neustart."
         if not messagebox.askyesno("Anwenden", msg): return
+
         def _run():
             self.log.append(f"Wende {len(selected)} Tweak(s) an...", "header")
             self._backup_before("PreApply")
             for i, t in enumerate(selected):
-                ok, out = self.runner.apply(t)
-                self.log.append(
-                    f"  [{i+1}/{len(selected)}] {t.name}: {'✓' if ok else '✗ '+out[:80]}",
-                    "success" if ok else "error")
+                self._apply_one(t, prefix=f"  [{i+1}/{len(selected)}] ")
             self.log.append("Fertig.", "success")
             # Re-verify dots after apply
             self.after(500, self._live_verify)
-        threading.Thread(target=_run, daemon=True).start()
+        self._run_batch(_run)
 
     def _revert_all(self):
+        if self._batch_busy():
+            return
         applied = [t for t in ALL_TWEAKS if self.runner.is_applied(t.id) and t.revert_cmd]
         if not applied:
             messagebox.showinfo("Nichts", "Keine aktiven Tweaks mit Revert-Befehl.")
@@ -1013,4 +1136,5 @@ class OptimizerTab(tk.Frame):
                 self.log.append(f"  ↩ {t.name}: {'OK' if ok else out[:80]}",
                                 "success" if ok else "error")
             self.log.append("Revert abgeschlossen.", "success")
-        threading.Thread(target=_run, daemon=True).start()
+            self.after(500, self._live_verify)
+        self._run_batch(_run)

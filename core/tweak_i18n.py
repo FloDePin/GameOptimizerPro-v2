@@ -33,7 +33,7 @@ TWEAK_DESC_EN: dict[str, str] = {
     "disable_telemetry_tasks":
         "Disables all scheduled Windows tasks that collect telemetry data.",
     "ultimate_performance":
-        "Enables the Ultimate Performance power plan. CPU cores are no longer throttled. Increases power draw.",
+        "Enables the Ultimate Performance power plan. CPU cores are no longer throttled, and on mains power the screen never turns off and the PC never goes to sleep. Increases power draw. (Creates the plan only once — each apply used to add another copy; extra copies are removed.)",
     "disable_hpet":
         "Disables the High Precision Event Timer. Reduces system latency and improves frame times in games.",
     "timer_resolution":
@@ -93,7 +93,7 @@ TWEAK_DESC_EN: dict[str, str] = {
     "disable_tcp_autotuning":
         "Disables the automatic TCP receive window. Can reduce latency spikes. Slightly lower throughput at 1Gbit+.",
     "enable_rss":
-        "Enables Receive-Side Scaling on all adapters. Spreads network processing across CPU cores. Better on fast connections.",
+        "Enables Receive-Side Scaling on every adapter that offers it. Spreads network processing across CPU cores. Better on fast connections. (Says so honestly when the driver doesn't expose RSS to Windows.)",
     "w11_classic_context_menu":
         "Restores the classic right-click context menu in Windows 11. No more Show more options.",
     "w11_taskbar_left":
@@ -103,9 +103,9 @@ TWEAK_DESC_EN: dict[str, str] = {
     "w11_disable_snap_suggest":
         "Disables the automatic snap layout popup when hovering the maximise button.",
     "power_balanced":
-        "Sets the power plan to Balanced (Windows default).",
+        "Sets the power plan to Balanced (Windows default). Alternative to High Performance and Ultimate Performance — only one plan can be active. AMD's recommendation for X3D CPUs.",
     "power_high":
-        "Enables High Performance. A good balance between performance and power draw.",
+        "Enables High Performance. A good balance between performance and power draw; on mains power the screen never turns off and the PC never goes to sleep. (Alternative to Ultimate Performance and Balanced — only one plan can be active.)",
     "disable_usb_suspend":
         "Prevents USB devices (mouse, headset) from entering power saving mode. No more sudden disconnects.",
     "disable_audio_enhancements":
@@ -164,7 +164,7 @@ TWEAK_DESC_EN: dict[str, str] = {
     "nic_power_saving":
         "Turns off 'Allow the computer to turn off this device to save power' for every network adapter. Prevents dropouts and latency spikes caused by adapter power saving.",
     "power_display_sleep_15":
-        "Sets the monitor sleep timer to 15 minutes (AC) and 5 minutes (battery). Keeps the display from switching off mid-game while still saving power during longer breaks.",
+        "Sets the monitor sleep timer to 15 minutes (AC) and 5 minutes (battery) in every plan EXCEPT High Performance and Ultimate Performance — those keep the screen on while on mains power.",
     "power_sleep_off":
         "Disables system sleep entirely — the PC no longer suspends after being idle. Recommended for desktops that should keep running in the background (downloads, servers).",
     "power_cpu_min_100":
@@ -192,7 +192,7 @@ TWEAK_DESC_EN: dict[str, str] = {
     'clear_pagefile_shutdown':
         'Overwrites the pagefile at every shutdown so no memory remnants stay on disk (privacy). Makes shutdown slower — noticeably with a large pagefile.',
     'disable_memory_compression':
-        'Turns off RAM compression and saves CPU time while gaming. Only sensible with enough RAM (16 GB+) — otherwise Windows pages to disk earlier.',
+        'Turns off RAM compression and saves CPU time while gaming. Only sensible with enough RAM (16 GB+) — otherwise Windows pages to disk earlier. (If SysMain is disabled it is started briefly for the change and disabled again.)',
     'enable_ssd_trim':
         'Makes sure Windows tells SSDs about deleted blocks (TRIM), keeping SSD performance high long-term. Usually already on — this tweak checks and enforces it.',
     'disable_scheduled_defrag':

@@ -25,6 +25,7 @@
 - **Game-like load for the OC search:** a constant full load keeps the card at its power limit (~2500 MHz), but games crash at the *boost* point. The OC steps and the final test alternate heavy load with half-duty load that reaches the high-clock / high-voltage point games use (measured on an RTX 4080: 2790 MHz @ 1075 mV, exactly what Hunt: Showdown runs at)
 - **Instability is detected by wrong results, not only by crashes** — the stress worker repeats the same matrix product and compares every result with the first one (the gpu-burn / OCCT method); a single wrong value fails the step. Running into the power limit is treated as normal; only thermal / hardware slowdowns count as a limit
 - Automated step-by-step stability testing with stress worker — **refuses to tune without real GPU load** (measured during the baseline; ≥ 70 %), because an OC/UV test on an idle GPU would store unstable values as "stable". GPU load comes from the stress worker via `cupy` (`pip install "cupy-cuda12x[ctk]"` — `install.bat` offers it) or from FurMark running in parallel
+- **A failed final test is not the end:** the tuner takes one step back (core, then a memory offset, V/F voltage, or the power limit for heat) and tests again — only a configuration that passed the final test is ever saved. The PC is kept awake while a tune or stress test runs
 - **Abort really stops**: the running stress step ends immediately, the GPU goes back to stock (offsets 0, factory power limit) and nothing is applied afterwards; exiting the app or switching the language during a tune does the same
 - TDR (GPU driver timeout) detection via Windows Event Log
 - Crash Recovery — automatically restores last stable profile on next boot
@@ -54,7 +55,7 @@
 - **Network Latency Test** — one-click ping to your gateway + Cloudflare (1.1.1.1) & Google (8.8.8.8) with average/min/max latency, jitter and packet loss
 
 ### 🧹 System Cleaner & Safety
-- Always: temp/dump folders (user `%TEMP%`, `Windows\Temp`, `CrashDumps`)
+- Always: temp/dump folders (user `%TEMP%`, `Windows\Temp`, `CrashDumps`) — only files older than 24 hours, so running programs keep their fresh temp files
 - **Deep Clean (opt-in, each target separately):** browser *caches* (Chrome, Edge, Firefox), Windows Update download cache, thumbnails, prefetch, system logs & error reports, and the Recycle Bin (extra confirmation)
 - **Never** touches documents or browser profiles (passwords, history, bookmarks, cookies); skips files in use and only counts what was really deleted
 - Scan first to see how much can be freed per group, then clean with one click
@@ -65,7 +66,9 @@
 - **106 Tweaks** across Windows, Gaming, Network, Audio categories (incl. AMD GPU tweaks)
 - **Windows 11 24H2/26H2 AI & bloat:** Recall (policy + component removal), Click to Do, Paint AI (Cocreator, Image Creator, generative fill/erase), Notepad AI, on-device text/image generation, the AI host service (`WSAIFabricSvc`), and removal of the Microsoft 365 Copilot app / Dev Home that feature updates re-install — using Microsoft's documented policies where they exist
 - **Storage & RAM:** long paths, reserved storage, pagefile, memory compression, SSD TRIM, scheduled defrag, NVMe queue depth (only offered with an NVMe drive), write-cache buffer flushing (advanced), plus a one-time **safe Disk Cleanup** (no Downloads, no Recycle Bin, no Windows.old)
-- **Drift check at start:** tweaks you applied that a Windows update has reset are listed — re-apply (after a registry backup), mark as not applied, or ask again later
+- **Drift check at start:** tweaks you applied that a Windows update has reset are listed with one tick box each — ticked ones are re-applied (after a registry backup), unticked ones are no longer tracked; "later" asks again next time
+- **Either-or choices:** only one power plan and one DNS provider can be selected ("⇄ entweder-oder"); ticking one unticks the other, and the high-performance plans never turn the screen off or go to sleep on mains power
+- **One batch at a time** with visible progress for long tweaks (Disk Cleanup takes minutes); mouse wheel works over the whole list
 - Live status verification — reads actual Registry/Service state (not just JSON)
 - 3-state indicators: ● Green (verified active) / ◑ Amber (applied, unverified) / ○ Grey (inactive)
 - **Graduated one-click presets — 🟢 Minimal → 🟡 Medium → 🔴 Hard (Debloat)** — cumulative intensity tiers that apply a curated, escalating set of tweaks
@@ -213,7 +216,8 @@ GameOptimizerPro **2.0** is the finalized release: the complete feature set belo
 - 🎮 **Afterburner profiles verified live** on real hardware; a real bug found that way — frozen monitoring after an Afterburner restart — is fixed; OC steps now run a **game-like mixed load**; the memory stage keeps the bandwidth peak
 - 🔁 **v1 parity completed honestly** — an audit showed the earlier "full parity" claim was wrong: 18 more tweaks, **Deep Clean**, **Services Manager**, **Optimization Score**, **monitor advisor** and the **drift check** are ported; 6 v1 tweaks are deliberately left out (no effect on current drivers/Windows)
 - 🪟 **Windows 11 26H2:** new tweaks against the re-installed Copilot app / Dev Home, Click to Do, Paint/Notepad AI and the new AI host service; Recall and on-device AI now use the official policies
-- 🧪 313 automated checks in 15 test suites, incl. a PowerShell parse check of every command
+- 🧪 After the first real use: no console window, final-test back-off in the tuner, either-or power plans / DNS, per-tweak drift dialog, several tweaks that reported wrongly fixed — see CHANGELOG, round 10
+- 🧪 389 automated checks in 16 test suites (in `tests/`), incl. a PowerShell parse check of every command
 
 See [CHANGELOG.md](CHANGELOG.md) for the full detail.
 
@@ -251,6 +255,8 @@ GameOptimizerPro/
 │   ├── services.py           ← Services Manager logic (remembers original start types)
 │   ├── optimization_score.py ← Optimization Score + drift check
 │   ├── display_info.py       ← Monitor refresh-rate advisor
+│   ├── app_launch.py         ← Start without a console window (pythonw)
+│   ├── power_state.py        ← Keep the PC awake during tune / stress test
 │   ├── registry_backup.py    ← Exports affected registry branches as .reg
 │   ├── startup_control.py    ← Autostart list + enable/disable (StartupApproved flags)
 │   ├── restore_point.py      ← System Restore Point creator
@@ -290,7 +296,9 @@ GameOptimizerPro/
     ├── tab_settings.py       ← Autostart, setup checker, about
     ├── live_graph.py         ← Rolling voltage/clock/temp graph
     ├── startup_manager.py    ← Startup manager window
-    └── services_manager.py   ← Services manager window
+    ├── services_manager.py   ← Services manager window
+    └── drift_dialog.py       ← "Tweaks no longer active" dialog (one tick box per tweak)
+tests/                        ← Windows test battery: python tests\run_all_tests.py
 tools/
     └── ab_selftest.py        ← Afterburner self-test (info / dryrun / live / restore)
 ```

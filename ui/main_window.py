@@ -292,47 +292,68 @@ class GameOptimizerWindow(tk.Tk):
         def work():
             try:
                 from core import optimization_score
-                drifted = optimization_score.find_drift(applied, self.hw)
+                drifted, switched = optimization_score.check_applied(applied, self.hw)
             except Exception:
-                drifted = []
-            if drifted:
-                try:
+                drifted, switched = [], []
+            try:
+                if switched:
+                    self.after(0, lambda: self._adopt_switched(switched))
+                if drifted:
                     self.after(0, lambda: self._ask_drift(drifted))
-                except Exception:
-                    pass
+            except Exception:
+                pass
         threading.Thread(target=work, daemon=True).start()
 
+    def _adopt_switched(self, switched: list):
+        """Another choice of an either-or group is active (e.g. DNS changed by
+        hand): take it over quietly instead of offering to switch it back."""
+        from core.tweaks import get_by_id
+        opt = self._tab_frames.get("optimizer")
+        names = []
+        for old, new in switched:
+            self.runner.adopt(old, new)
+            vars_ = getattr(opt, "_vars", {})
+            if opt is not None:
+                opt._bulk = True
+            try:
+                if old in vars_:
+                    vars_[old].set(False)
+                if new in vars_:
+                    vars_[new].set(True)
+            finally:
+                if opt is not None:
+                    opt._bulk = False
+            t = get_by_id(new)
+            names.append(t.name if t else new)
+        self.set_status("Übernommen (aktuell aktive Wahl): " + ", ".join(names))
+
     def _ask_drift(self, drifted: list):
+        """One decision per tweak (ticked = apply again, unticked = stop asking)."""
         from core.tweaks import get_by_id
         from core.tweak_i18n import tweak_name
         from core.i18n import current_lang
-        tweaks = [t for t in (get_by_id(i) for i in drifted) if t]
-        if not tweaks:
-            return
-        names = "\n".join(f"  • {tweak_name(t, current_lang())}" for t in tweaks[:20])
-        if len(tweaks) > 20:
-            names += f"\n  … und {len(tweaks) - 20} weitere"
-        ans = messagebox.askyesnocancel(
-            "GameOptimizerPro — Tweaks nicht mehr aktiv",
-            f"{len(tweaks)} Tweak(s), die du angewendet hast, sind nicht (mehr) vollständig "
-            f"aktiv — z. B. von einem Windows-Update zurückgesetzt, oder die Tweak-Version ist "
-            f"neuer und setzt inzwischen mehr:\n\n{names}\n\n"
-            "Ja = jetzt erneut anwenden (vorher Registry-Backup)\n"
-            "Nein = als 'nicht angewendet' markieren (keine erneute Nachfrage)\n"
-            "Abbrechen = beim nächsten Start wieder fragen",
-            icon="warning", parent=self)
-        if ans is None:
-            return
-        if ans is False:
-            for t in tweaks:
-                self.runner._applied.pop(t.id, None)
+        from ui.drift_dialog import DriftDialog
+        items = [(t.id, tweak_name(t, current_lang()))
+                 for t in (get_by_id(i) for i in drifted) if t]
+        if items:
+            self._drift_dialog = DriftDialog(self, items, on_done=self._handle_drift)
+
+    def _handle_drift(self, reapply: list, drop: list):
+        from core.tweaks import get_by_id
+        from core.tweak_i18n import tweak_name
+        from core.i18n import current_lang
+        opt = self._tab_frames.get("optimizer")
+        if drop:
+            for tid in drop:
+                self.runner._applied.pop(tid, None)
             self.runner._save_state()
-            opt = self._tab_frames.get("optimizer")
-            for t in tweaks:
-                var = getattr(opt, "_vars", {}).get(t.id)
+            for tid in drop:
+                var = getattr(opt, "_vars", {}).get(tid)
                 if var is not None:
                     var.set(False)
-            self.set_status(f"{len(tweaks)} Tweak(s) als nicht angewendet markiert.")
+            self.set_status(f"{len(drop)} Tweak(s) als nicht angewendet markiert.")
+        tweaks = [t for t in (get_by_id(i) for i in reapply) if t]
+        if not tweaks:
             return
         self.set_status(f"Wende {len(tweaks)} Tweak(s) erneut an …")
 
@@ -342,7 +363,7 @@ class GameOptimizerWindow(tk.Tk):
             for t in tweaks:
                 ok, out = self.runner.apply(t)
                 if not ok:
-                    failed.append(f"{tweak_name(t, current_lang())}: {out[:120]}")
+                    failed.append(f"{tweak_name(t, current_lang())}: {out[:160]}")
             n_ok = len(tweaks) - len(failed)
 
             def done():
@@ -452,7 +473,8 @@ class GameOptimizerWindow(tk.Tk):
         from pathlib import Path
         base = Path(__file__).resolve().parent.parent
         try:
-            subprocess.Popen([sys.executable, str(base / "GameOptimizerPro.py")],
+            from core.app_launch import gui_python      # pythonw: no console window
+            subprocess.Popen([gui_python(), str(base / "GameOptimizerPro.py")],
                              cwd=str(base))
         except Exception:
             pass

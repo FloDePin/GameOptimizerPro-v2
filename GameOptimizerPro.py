@@ -29,6 +29,7 @@ from core.game_monitor   import GameMonitor
 from core.temp_monitor   import TempMonitor
 from core.update_checker import UpdateChecker
 from core                import i18n
+from core.app_launch     import gui_python, owns_console
 from ui.main_window      import GameOptimizerWindow
 
 
@@ -40,7 +41,7 @@ def restart_app():
     so every label is rebuilt in the new language with no leftovers.
     """
     try:
-        python = sys.executable
+        python = gui_python()             # pythonw: no console window
         script = str(BASE / "GameOptimizerPro.py")
         # Launch a fresh instance, then exit this one
         subprocess = __import__("subprocess")
@@ -72,10 +73,27 @@ def ask_admin_msgbox() -> bool:
 def relaunch_admin():
     # lpDirectory = str(BASE): ohne das setzt UAC das Arbeitsverzeichnis oft auf
     # C:\Windows\System32 — relative Pfade würden dann dort landen.
+    # pythonw.exe, not sys.executable: started via python.exe (double-click on
+    # the .py) the elevated instance kept a black console window open.
     ctypes.windll.shell32.ShellExecuteW(
-        None, "runas", sys.executable,
+        None, "runas", gui_python(),
         " ".join(f'"{a}"' for a in sys.argv), str(BASE), 1
     )
+    sys.exit(0)
+
+
+NO_ADMIN_PROMPT = "--no-admin-prompt"
+
+
+def relaunch_windowless(extra_args=()):
+    """Same app via pythonw.exe, then end this instance — its console window
+    closes with it. No-op when there is no pythonw.exe (no endless relaunch)."""
+    exe = gui_python()
+    if os.path.basename(exe).lower() != "pythonw.exe":
+        return
+    import subprocess
+    args = [a for a in sys.argv[1:] if a != NO_ADMIN_PROMPT] + list(extra_args)
+    subprocess.Popen([exe, str(BASE / "GameOptimizerPro.py")] + args, cwd=str(BASE))
     sys.exit(0)
 
 
@@ -419,10 +437,15 @@ def main():
     i18n.init_lang()
 
     # Admin check — use Win32 MessageBox (no tkinter instance needed)
-    if os.name == "nt" and not is_admin():
+    if os.name == "nt" and not is_admin() and NO_ADMIN_PROMPT not in sys.argv:
         if ask_admin_msgbox():
             relaunch_admin()
         # Continue without admin (some features won't work)
+
+    # Started with python.exe in a console of its own (double-click on the .py):
+    # continue windowless. The flag keeps the admin question from coming twice.
+    if owns_console():
+        relaunch_windowless([] if is_admin() else [NO_ADMIN_PROMPT])
 
     GameOptimizerApp().run()
 

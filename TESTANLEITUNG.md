@@ -15,12 +15,47 @@ Profil übernommen (NVML las **288 W** zurück), gleiche Werte gingen ohne Neust
 | 4 | Trockenlauf `dryrun` | **nein** | 1 min | ✅ alles OK |
 | 5 | Live-Test `live` | kurz, danach automatisch zurück | 2 min | ✅ 0 Fehler |
 | 6 | Kurven-Test `live --curve` (optional) | kurz, danach automatisch zurück | 2 min | offen |
-| 7 | Test in der App | ja, Reset-Knopf vorhanden | 3 min | offen |
-| 7b | Neue Funktionen prüfen (Dashboard, Dienste, Deep Clean, 26H2-Tweaks) | teils | 10 min | offen |
-| 8 | Erster Auto-Tune | ja, Abbruch setzt zurück | 20–30 min | offen |
+| 7 | Test in der App | ja, Reset-Knopf vorhanden | 3 min | ✅ erledigt |
+| 7b | Neue Funktionen prüfen (Dashboard, Dienste, Deep Clean, 26H2-Tweaks) | teils | 10 min | ✅ erledigt — Befunde siehe unten |
+| 8 | Erster Auto-Tune | ja, Abbruch setzt zurück | 20–30 min | ✅ zweimal gelaufen (+179 MHz / 97 %; 2. Lauf mit Mem +1000 im Endtest durchgefallen) |
+| 8b | **Nach dem Update: Punkte unten abarbeiten** | ja | 30 min | offen |
 | 9 | Danach: im Alltag prüfen und als Standard setzen | ja | — | offen |
 
 **Wichtig für alle Schritte ab 3:** Kein Spiel und keine 3D-Anwendung offen lassen.
+
+---
+
+## Jetzt (nach dem Update von Runde 10) — das solltest du tun
+
+Deine Tests haben einiges aufgedeckt, alles ist behoben (Details: CHANGELOG, Runde 10).
+Der Ordner auf deinem PC ist schon aktuell — die App nur **einmal schließen** (Tray-Symbol →
+Beenden) und über **`GameOptimizerPro.bat`** neu starten.
+
+1. **Kein schwarzes Python-Fenster mehr.** Auch ein Doppelklick auf `GameOptimizerPro.py`
+   startet jetzt ohne Konsole (es blitzt höchstens kurz auf).
+2. **Dialog „Tweaks nicht mehr aktiv“** erscheint ein paar Sekunden nach dem Start — jetzt
+   mit **einem Haken pro Tweak**:
+   - **Ultimate Performance Plan** → Haken lassen. Die neue Version entfernt die **14
+     überzähligen Kopien** des Plans und stellt im Netzbetrieb **Bildschirm und Standby auf
+     „nie“** (vorher: Bildschirm aus nach 15 min).
+   - **Disable Audio Enhancements / Exclusive Audio Lock** → Haken lassen. Kommt danach
+     „Windows hat die Einstellung nicht übernommen“, ist das die ehrliche Meldung (vorher
+     stand fälschlich ✓) — das klären wir im nächsten Live-Test.
+   - **Win11: Taskbar Icons Left-Aligned** → Haken **weg**, falls du die Taskleiste bewusst
+     wieder mittig hast; dann fragt die App nicht mehr.
+   - **Store-Empfehlungen** → nach Wunsch.
+   - „Übernehmen“ klicken.
+3. **Monitore 2 und 3** laufen immer noch mit 50 Hz → Einstellungen → System → Bildschirm →
+   Monitor anklicken → Erweiterte Anzeige → **60 Hz** (Dashboard zeigt es an).
+4. **DNS:** bei dir ist Cloudflare aktiv. „Alle auswählen“ nimmt jetzt nur noch *einen*
+   DNS-Anbieter und *einen* Energieplan.
+5. **Optional: neuer Auto-Tune** (OC + UV). Das Feld **„Mem Offset (MHz)“ auf 0 lassen** — ein
+   fester Speicher-Offset wird nicht separat getestet; +1000 war im 2. Lauf der Knackpunkt.
+   Fällt der Endtest durch, nimmt der Tuner jetzt selbst einen Schritt zurück (Core −15,
+   dann Speicher halbieren) und testet erneut; gespeichert wird nur, was bestanden hat.
+   Der PC geht währenddessen nicht mehr in den Standby.
+6. **System Cleaner:** löscht Temp-Dateien jetzt nur, wenn sie älter als 24 Stunden sind
+   (vorher alles — das hat u. a. die Testdateien dieser Sitzung gelöscht).
 
 ---
 
@@ -290,6 +325,10 @@ lesen. Schreib mir einfach, was du gemacht hast, und dazu:
 - Der Tuner enthält auch eine V/F-Kurven- und eine Speicher-Stufe (mit
   Bandbreitenmessung; übernommen wird der Offset mit der höchsten gemessenen Bandbreite).
   Diese Modi sind im GPU-Tab aber noch nicht auswählbar.
+- **Audio-Verbesserungen / Exklusiver Modus:** Windows' Audiodienst verwaltet diese Werte
+  selbst; direkt in die Registry geschrieben kamen sie auf dem Test-PC nicht an. Die Tweaks
+  prüfen das jetzt und melden es ehrlich. Bis zur Lösung: im Sound-Menü unter
+  Eigenschaften → Erweitert von Hand ausschalten.
 - Der **Core-Offset** lässt sich nicht per NVML zurücklesen (der Treiber meldet
   Afterburners Offset dort nicht) — maßgeblich ist die Anzeige in Afterburner. Das
   **Power-Limit** wird dagegen per NVML geprüft.

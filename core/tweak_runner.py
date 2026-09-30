@@ -3,7 +3,7 @@ GameOptimizerPro Tweak Runner
 Executes PowerShell tweaks as subprocess, tracks state, provides revert.
 """
 
-import subprocess, os, json, logging
+import subprocess, os, json, logging, threading
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
@@ -18,7 +18,10 @@ class TweakRunner:
         # path, which would land elsewhere when the app is started from another
         # working dir (autostart / UAC relaunch) and lose the applied-state.
         self._state_file = self._log_dir / "applied_tweaks.json"
+        self._lock = threading.RLock()
+        self.last_superseded: list[str] = []
         self._applied: dict[str, str] = self._load_state()
+        self.normalized = self._normalize()
 
         logfile = self._log_dir / f"tweaks_{datetime.now().strftime('%Y%m%d')}.log"
         logging.basicConfig(
@@ -35,10 +38,42 @@ class TweakRunner:
             except: pass
         return {}
 
+    def _normalize(self) -> list[str]:
+        """Either-or tweaks applied together by older versions (both DNS
+        providers, several power plans): only the one applied LAST is in effect —
+        drop the others from the list, otherwise the drift check would ping-pong
+        between them. Returns the dropped ids."""
+        from core.tweaks import EXCLUSIVE_GROUPS
+        dropped = []
+        with self._lock:
+            for group in EXCLUSIVE_GROUPS:
+                members = [t for t in group if t in self._applied]
+                if len(members) > 1:
+                    newest = max(members, key=lambda t: str(self._applied.get(t) or ""))
+                    for t in members:
+                        if t != newest:
+                            del self._applied[t]
+                            dropped.append(t)
+            if dropped:
+                self._save_state()
+        return dropped
+
+    def adopt(self, old_id: str, new_id: str):
+        """An either-or choice was changed outside the app (e.g. the DNS): the
+        choice that is really active is the one this app manages from now on."""
+        with self._lock:
+            if old_id in self._applied:
+                del self._applied[old_id]
+                self._applied[new_id] = datetime.now().isoformat()
+                self._save_state()
+
     def _save_state(self):
-        self._state_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(self._state_file, "w", encoding="utf-8") as f:
-            json.dump(self._applied, f, indent=2)
+        with self._lock:
+            self._state_file.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self._state_file.with_suffix(".tmp")
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(self._applied, f, indent=2)
+            os.replace(tmp, self._state_file)
 
     def is_applied(self, tweak_id: str) -> bool:
         return tweak_id in self._applied
@@ -52,9 +87,19 @@ class TweakRunner:
         cmd = tweak.ps_command.strip()
         ok, out = self._run_ps(cmd, getattr(tweak, "timeout_s", 60))
         self.logger.info(f"APPLY {tweak.id}: {'OK' if ok else 'FAIL'} | {out[:200]}")
+        self.last_superseded = []
         if ok:
-            self._applied[tweak.id] = datetime.now().isoformat()
-            self._save_state()
+            from core.tweaks import alternatives_of
+            with self._lock:
+                self._applied[tweak.id] = datetime.now().isoformat()
+                # an either-or alternative is replaced by this one (e.g. DNS)
+                self.last_superseded = [t for t in alternatives_of(tweak.id)
+                                        if t in self._applied]
+                for t in self.last_superseded:
+                    del self._applied[t]
+                self._save_state()
+            if self.last_superseded:
+                self.logger.info(f"SUPERSEDED by {tweak.id}: {', '.join(self.last_superseded)}")
         if on_result:
             on_result(tweak.id, ok, out)
         return ok, out
@@ -72,8 +117,9 @@ class TweakRunner:
         ok, out = self._run_ps(tweak.revert_cmd.strip(), getattr(tweak, "timeout_s", 60))
         self.logger.info(f"REVERT {tweak.id}: {'OK' if ok else 'FAIL'} | {out[:200]}")
         if ok and tweak.id in self._applied:
-            del self._applied[tweak.id]
-            self._save_state()
+            with self._lock:
+                self._applied.pop(tweak.id, None)
+                self._save_state()
         if on_result: on_result(tweak.id, ok, out)
         return ok, out
 
@@ -140,7 +186,7 @@ class TweakRunner:
                  "-WindowStyle", "Hidden",
                  "-ExecutionPolicy", "Bypass", "-Command", command],
                 capture_output=True, text=True, timeout=timeout,
-                encoding="utf-8", errors="replace",
+                encoding="oem" if os.name == "nt" else "utf-8", errors="replace",
                 creationflags=flags,
                 startupinfo=startupinfo,
             )

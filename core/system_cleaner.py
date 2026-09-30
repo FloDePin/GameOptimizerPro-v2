@@ -7,8 +7,13 @@ Absturzberichte, Papierkorb. Alle Pfade werden intern aus festen Windows-Wurzeln
 gebaut — nie aus Benutzereingaben — und fassen NIE Dokumente oder Browserprofile
 (Passwörter, Verlauf, Lesezeichen) an; bei Browsern nur die Cache-Ordner.
 Dateien, die gerade in Benutzung sind, werden übersprungen (kein Fehler) und
-zählen NICHT als freigegeben.
+zählen NICHT als freigegeben. In den Temp-Ordnern nur Dateien, die älter als
+24 Stunden sind: laufende Programme halten ihre Temp-Dateien nicht immer offen —
+live gesehen, dass sonst frische Arbeitsdateien eines laufenden Programms
+verschwanden (so macht es z. B. auch CCleaner).
 """
+
+import time
 
 import fnmatch
 import glob
@@ -27,6 +32,7 @@ class CleanTarget:
     pattern:    str  = "*"        # file name filter (deep targets: *.pf, thumbcache_*.db …)
     recursive:  bool = True
     key:        str  = ""         # deep-clean group this folder belongs to
+    min_age_h:  float = 0         # only files older than this (temp folders: 24 h)
 
 
 @dataclass
@@ -35,6 +41,22 @@ class CleanResult:
     bytes_freed:   int  = 0
     errors:        int  = 0            # übersprungene (in Benutzung / kein Zugriff)
     per_target:    list = field(default_factory=list)  # (label, files, bytes)
+
+
+TEMP_MIN_AGE_H = 24
+
+
+def _old_enough(fp: str, hours: float, now: float) -> bool:
+    """Newest of modification / creation time older than `hours` (a file
+    extracted with an old modification date is still new)."""
+    if hours <= 0:
+        return True
+    try:
+        st = os.stat(fp)
+    except OSError:
+        return False
+    born = getattr(st, "st_birthtime", st.st_ctime)
+    return now - max(st.st_mtime, born) >= hours * 3600
 
 
 def get_targets() -> list[CleanTarget]:
@@ -56,7 +78,8 @@ def get_targets() -> list[CleanTarget]:
         if p.lower() in seen:
             continue
         seen.add(p.lower())
-        out.append(CleanTarget(label=label, path=p, exists=os.path.isdir(p)))
+        out.append(CleanTarget(label=label, path=p, exists=os.path.isdir(p),
+                               min_age_h=TEMP_MIN_AGE_H))
     return out
 
 
@@ -148,16 +171,19 @@ def _is_safe(path: str, key: str = "") -> bool:
 
 
 def _files(t: CleanTarget):
+    now = time.time()
     if t.recursive:
         for root, _dirs, files in os.walk(t.path, topdown=False):
             for f in files:
-                if fnmatch.fnmatch(f.lower(), t.pattern.lower()):
+                if (fnmatch.fnmatch(f.lower(), t.pattern.lower())
+                        and _old_enough(os.path.join(root, f), t.min_age_h, now)):
                     yield root, f
     else:
         try:
             for f in os.listdir(t.path):
-                if (fnmatch.fnmatch(f.lower(), t.pattern.lower())
-                        and os.path.isfile(os.path.join(t.path, f))):
+                fp = os.path.join(t.path, f)
+                if (fnmatch.fnmatch(f.lower(), t.pattern.lower()) and os.path.isfile(fp)
+                        and _old_enough(fp, t.min_age_h, now)):
                     yield t.path, f
         except OSError:
             return

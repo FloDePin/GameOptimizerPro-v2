@@ -4,6 +4,10 @@ logs/
 profiles/
 .claude/
 
+# Third-party tools dropped next to the app (FurMark, PresentMon binaries)
+FurMark*/
+tools/*.exe
+
 # Virtual environments
 venv/
 .venv/

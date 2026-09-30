@@ -506,12 +506,33 @@ exit 0
     Tweak(
         id="ultimate_performance",
         name="Ultimate Performance Plan",
-        desc="Aktiviert den 'Ultimative Leistung' Energiesparplan. CPU-Kerne werden nicht mehr gedrosselt. Erhöht Stromverbrauch.",
+        desc="Aktiviert den 'Ultimative Leistung' Energiesparplan. CPU-Kerne werden nicht mehr gedrosselt, "
+             "und im Netzbetrieb gehen Bildschirm und PC nie aus bzw. in den Standby. Erhöht Stromverbrauch. "
+             "(Legt den Plan nur einmal an — früher kam bei jedem Anwenden eine weitere Kopie dazu; "
+             "überzählige Kopien werden entfernt.)",
         category="Windows", group="Performance",
-        ps_command='''
-powercfg -duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61 2>$null
-$plan=powercfg -list|Select-String "Ultimative Leistung|Ultimate Performance"|Select-Object -First 1
-if($plan){$guid=$plan.ToString().Split()[3];if($guid){powercfg -setactive $guid}}
+        ps_command=r'''
+$re='[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}'
+$ult=@(powercfg /L 2>$null | Where-Object { $_ -match 'Ultimat' } | ForEach-Object { [regex]::Match($_,$re).Value } | Where-Object { $_ })
+$act=[regex]::Match((powercfg /getactivescheme 2>$null | Out-String),$re).Value
+if($ult.Count -eq 0){
+    $o=(powercfg -duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61 2>&1 | Out-String)
+    $new=[regex]::Match($o,$re).Value
+    if(-not $new){ Write-Output "Plan 'Ultimative Leistung' nicht verfuegbar: $o"; exit 1 }
+    $ult=@($new)
+}
+$keep=$(if($ult -contains $act){ $act } else { $ult[0] })
+powercfg -setactive $keep
+# Every earlier apply added one more copy of the plan: remove the extra ones.
+foreach($g in $ult){ if($g -ne $keep){ powercfg -delete $g 2>$null | Out-Null } }
+# High-performance plan: on mains power the screen never turns off and the PC never sleeps.
+powercfg /SETACVALUEINDEX $keep SUB_VIDEO VIDEOIDLE 0
+powercfg /SETACVALUEINDEX $keep SUB_SLEEP STANDBYIDLE 0
+powercfg /SETACVALUEINDEX $keep SUB_SLEEP HIBERNATEIDLE 0
+powercfg -setactive $keep
+$now=[regex]::Match((powercfg /getactivescheme 2>$null | Out-String),$re).Value
+if($now -ne $keep){ Write-Output "Plan liess sich nicht aktivieren"; exit 1 }
+Write-Output "Aktiv: Ultimative Leistung ($keep), Bildschirm/Standby im Netzbetrieb: nie; entfernte Kopien: $($ult.Count - 1)"
 ''',
         revert_cmd='powercfg -setactive 381b4222-f694-41f0-9685-ff5bb260df2e',
     ),
@@ -1029,18 +1050,31 @@ foreach($a in $adapters){Set-DnsClientServerAddress -InterfaceIndex $a.Interface
     Tweak(
         id="enable_rss",
         name="Enable Receive-Side Scaling (RSS)",
-        desc="Aktiviert RSS auf allen Adaptern. Verteilt Netzwerkverarbeitung auf mehrere CPU-Kerne. Besser bei schnellen Verbindungen.",
+        desc="Aktiviert RSS auf allen Adaptern, die es anbieten. Verteilt Netzwerkverarbeitung auf mehrere "
+             "CPU-Kerne. Besser bei schnellen Verbindungen. (Meldet ehrlich, wenn der Treiber RSS nicht über "
+             "Windows einstellbar macht.)",
         category="Network", group="TCP",
-        ps_command='''
-$adapters=Get-NetAdapter|Where-Object{$_.Status -eq "Up"}
-foreach($a in $adapters){Enable-NetAdapterRss -Name $a.Name -ErrorAction SilentlyContinue}
+        ps_command=r'''
+$n=0; $ok=0; $msg=@()
+foreach($a in @(Get-NetAdapter -EA SilentlyContinue | Where-Object { $_.Status -eq 'Up' })){
+    $r=Get-NetAdapterRss -Name $a.Name -EA SilentlyContinue
+    if(-not $r){ $msg+="$($a.Name): Treiber meldet keine RSS-Einstellung"; continue }
+    $n++
+    try { Enable-NetAdapterRss -Name $a.Name -EA Stop; $ok++ } catch { $msg+="$($a.Name): $($_.Exception.Message)" }
+}
+$msg
+if($ok -gt 0){ Write-Output "RSS aktiv auf $ok von $n Adapter(n)"; exit 0 }
+if($n -eq 0){ Write-Output "Kein aktiver Adapter bietet RSS ueber Windows an (Treiber)"; exit 1 }
+exit 1
 ''',
         # RSS is enabled by default on virtually all modern adapters, so the
         # honest "revert" is to leave it enabled (the Windows default) rather
         # than force it off — which would leave the PC worse than before.
-        revert_cmd='''
-$adapters=Get-NetAdapter|Where-Object{$_.Status -eq "Up"}
-foreach($a in $adapters){Enable-NetAdapterRss -Name $a.Name -ErrorAction SilentlyContinue}
+        revert_cmd=r'''
+foreach($a in @(Get-NetAdapter -EA SilentlyContinue | Where-Object { $_.Status -eq 'Up' })){
+    if(Get-NetAdapterRss -Name $a.Name -EA SilentlyContinue){ Enable-NetAdapterRss -Name $a.Name -EA SilentlyContinue }
+}
+exit 0
 ''',
     ),
 
@@ -1100,16 +1134,28 @@ exit 0
     Tweak(
         id="power_balanced",
         name="Power Plan: Balanced",
-        desc="Setzt den Energiesparplan auf 'Ausbalanciert' (Windows Standard).",
+        desc="Setzt den Energiesparplan auf 'Ausbalanciert' (Windows Standard). Alternative zu 'Höchstleistung' "
+             "und 'Ultimative Leistung' — es kann nur ein Plan aktiv sein. Für AMD-X3D-CPUs die Empfehlung von AMD.",
         category="Windows", group="Power Plan",
         ps_command='powercfg -setactive 381b4222-f694-41f0-9685-ff5bb260df2e',
     ),
     Tweak(
         id="power_high",
         name="Power Plan: High Performance",
-        desc="Aktiviert 'Hohe Leistung'. Guter Kompromiss zwischen Performance und Stromverbrauch.",
+        desc="Aktiviert 'Höchstleistung'. Guter Kompromiss zwischen Performance und Stromverbrauch; im "
+             "Netzbetrieb gehen Bildschirm und PC nie aus bzw. in den Standby. (Alternative zu "
+             "'Ultimative Leistung' und 'Ausbalanciert' — es kann nur ein Plan aktiv sein.)",
         category="Windows", group="Power Plan",
-        ps_command='powercfg -setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c',
+        ps_command=r'''
+$g='8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c'
+if(-not (powercfg /L 2>$null | Select-String $g)){ powercfg -duplicatescheme $g $g 2>$null | Out-Null }
+powercfg -setactive $g
+# High-performance plan: on mains power the screen never turns off and the PC never sleeps.
+powercfg /SETACVALUEINDEX $g SUB_VIDEO VIDEOIDLE 0
+powercfg /SETACVALUEINDEX $g SUB_SLEEP STANDBYIDLE 0
+powercfg /SETACVALUEINDEX $g SUB_SLEEP HIBERNATEIDLE 0
+powercfg -setactive $g
+''',
     ),
     Tweak(
         id="disable_usb_suspend",
@@ -1173,20 +1219,10 @@ powercfg -setactive SCHEME_CURRENT
         desc="Deaktiviert Windows Audio-Verbesserungen (Bass Boost, EQ etc.). "
              "Reduziert Audio-Latenz und CPU-Last. Empfohlen fur Gaming.",
         category="Audio", group="Latency",
-        ps_command=(
-            "Get-ChildItem 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Render'"
-            " -Recurse -EA SilentlyContinue | Where-Object {$_.Name -like '*Properties*'} |"
-            " ForEach-Object {"
-            " Set-ItemProperty -Path $_.PSPath"
-            " -Name '{1da5d803-d492-4edd-8c23-e0c0ffee7f0e},5' -Value 0 -EA SilentlyContinue }"
-        ),
-        revert_cmd=(
-            "Get-ChildItem 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Render'"
-            " -Recurse -EA SilentlyContinue | Where-Object {$_.Name -like '*Properties*'} |"
-            " ForEach-Object {"
-            " Set-ItemProperty -Path $_.PSPath"
-            " -Name '{1da5d803-d492-4edd-8c23-e0c0ffee7f0e},5' -Value 1 -EA SilentlyContinue }"
-        ),
+        # PKEY_AudioEndpoint_Disable_SysFx: ENDPOINT_SYSFX_DISABLED = 1 (it wrote 0 =
+        # enabled). The audio service owns this store: check that the value arrived.
+        ps_command='$n=0; $ok=0; foreach($k in @(Get-ChildItem \'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Render\' -EA SilentlyContinue)){ $p=Join-Path $k.PSPath \'Properties\'; if(-not (Test-Path $p)){ continue }; $n++; Set-ItemProperty -Path $p -Name \'{1da5d803-d492-4edd-8c23-e0c0ffee7f0e},5\' -Value 1 -Type DWord -EA SilentlyContinue; if((Get-ItemProperty -LiteralPath $p -EA SilentlyContinue).\'{1da5d803-d492-4edd-8c23-e0c0ffee7f0e},5\' -eq 1){ $ok++ } }; if($ok -gt 0){ Write-Output "Audioverbesserungen aus: $ok von $n Wiedergabegeraet(en)"; exit 0 }; Write-Output "Windows hat die Einstellung nicht uebernommen (0 von $n) - im Sound-Menue unter Eigenschaften > Erweitert > \'Audioverbesserungen\' ausschalten"; exit 1',
+        revert_cmd="$n=0; $ok=0; foreach($k in @(Get-ChildItem 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Render' -EA SilentlyContinue)){ $p=Join-Path $k.PSPath 'Properties'; if(-not (Test-Path $p)){ continue }; $n++; Set-ItemProperty -Path $p -Name '{1da5d803-d492-4edd-8c23-e0c0ffee7f0e},5' -Value 0 -Type DWord -EA SilentlyContinue; if((Get-ItemProperty -LiteralPath $p -EA SilentlyContinue).'{1da5d803-d492-4edd-8c23-e0c0ffee7f0e},5' -eq 0){ $ok++ } }; exit 0",
         risk="safe",
     ),
 
@@ -1195,14 +1231,8 @@ powercfg -setactive SCHEME_CURRENT
         name="Disable Exclusive Audio Lock",
         desc="Verhindert dass Games das Audiogeraet exklusiv sperren und Discord/Spotify stumm machen.",
         category="Audio", group="Latency",
-        ps_command=(
-            "Get-ChildItem 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Render'"
-            " -EA SilentlyContinue | ForEach-Object {"
-            " $props = Join-Path $_.PSPath 'Properties';"
-            " if (Test-Path $props) {"
-            " Set-ItemProperty -Path $props -Name '{b3f8fa53-0004-438e-9003-51a46e139bfc},3' -Value 0 -EA SilentlyContinue;"
-            " Set-ItemProperty -Path $props -Name '{b3f8fa53-0004-438e-9003-51a46e139bfc},4' -Value 0 -EA SilentlyContinue } }"
-        ),
+        # The audio service owns this store: check that the values arrived.
+        ps_command='$n=0; $ok=0; foreach($k in @(Get-ChildItem \'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Render\' -EA SilentlyContinue)){ $p=Join-Path $k.PSPath \'Properties\'; if(-not (Test-Path $p)){ continue }; $n++; Set-ItemProperty -Path $p -Name \'{b3f8fa53-0004-438e-9003-51a46e139bfc},3\' -Value 0 -Type DWord -EA SilentlyContinue; Set-ItemProperty -Path $p -Name \'{b3f8fa53-0004-438e-9003-51a46e139bfc},4\' -Value 0 -Type DWord -EA SilentlyContinue; $r=Get-ItemProperty -LiteralPath $p -EA SilentlyContinue; if($r.\'{b3f8fa53-0004-438e-9003-51a46e139bfc},3\' -eq 0 -and $r.\'{b3f8fa53-0004-438e-9003-51a46e139bfc},4\' -eq 0){ $ok++ } }; if($ok -gt 0){ Write-Output "Exklusiv-Modus aus: $ok von $n Wiedergabegeraet(en)"; exit 0 }; Write-Output "Windows hat die Einstellung nicht uebernommen (0 von $n) - im Sound-Menue unter Eigenschaften > Erweitert > \'Exklusiver Modus\' ausschalten"; exit 1',
         revert_cmd=(
             "Get-ChildItem 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Render'"
             " -EA SilentlyContinue | ForEach-Object {"
@@ -1362,8 +1392,8 @@ powercfg -setactive SCHEME_CURRENT
         name="Disable Network Adapter Power Saving",
         desc="Deaktiviert 'Computer kann das Gerät ausschalten, um Energie zu sparen' für alle Netzwerkadapter. Verhindert Verbindungsabbrüche und Latenz-Spitzen durch Energiesparfunktionen des Adapters.",
         category="Network", group="Adapter",
-        ps_command=r"""$c='HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-e325-11ce-bfc1-08002be10318}'; Get-ChildItem $c -EA SilentlyContinue | ForEach-Object { if(Get-ItemProperty $_.PSPath -Name NetCfgInstanceId -EA SilentlyContinue){ Set-ItemProperty -Path $_.PSPath -Name PnPCapabilities -Value 24 -Type DWord -Force -EA SilentlyContinue } }""",
-        revert_cmd=r"""$c='HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-e325-11ce-bfc1-08002be10318}'; Get-ChildItem $c -EA SilentlyContinue | ForEach-Object { if(Get-ItemProperty $_.PSPath -Name NetCfgInstanceId -EA SilentlyContinue){ Remove-ItemProperty -Path $_.PSPath -Name PnPCapabilities -Force -EA SilentlyContinue } }""",
+        ps_command='$c=\'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e972-e325-11ce-bfc1-08002be10318}\'; $n=0; foreach($k in @(Get-ChildItem $c -EA SilentlyContinue | Where-Object { $_.PSChildName -match \'^\\d{4}$\' })){ if((Get-ItemProperty $k.PSPath -EA SilentlyContinue).NetCfgInstanceId){ Set-ItemProperty -Path $k.PSPath -Name PnPCapabilities -Value 24 -Type DWord -Force -EA SilentlyContinue; if($?){ $n++ } } }; if($n -gt 0){ Write-Output "Energiesparen aus fuer $n Netzwerkadapter"; exit 0 } else { exit 1 }',
+        revert_cmd="$c='HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e972-e325-11ce-bfc1-08002be10318}'; $n=0; foreach($k in @(Get-ChildItem $c -EA SilentlyContinue | Where-Object { $_.PSChildName -match '^\\d{4}$' })){ if((Get-ItemProperty $k.PSPath -EA SilentlyContinue).NetCfgInstanceId){ Remove-ItemProperty -Path $k.PSPath -Name PnPCapabilities -Force -EA SilentlyContinue; if($?){ $n++ } } }; exit 0",
         requires_reboot=True,
         tags=["latency", "network"],
     ),
@@ -1375,10 +1405,11 @@ powercfg -setactive SCHEME_CURRENT
     Tweak(
         id="power_display_sleep_15",
         name="Display Sleep = 15 Minuten",
-        desc="Setzt den Monitor-Schlaf-Timer auf 15 Minuten (Netz) und 5 Minuten (Akku). Verhindert, dass der Monitor mitten im Spielen abschaltet, spart aber bei längerer Pause weiter Energie.",
+        desc="Setzt den Monitor-Schlaf-Timer auf 15 Minuten (Netz) und 5 Minuten (Akku) — in allen Plänen "
+             "AUSSER 'Höchstleistung' und 'Ultimative Leistung': dort bleibt der Bildschirm im Netzbetrieb an.",
         category="Windows", group="Power Plan",
-        ps_command=_power_all("SUB_VIDEO", "VIDEOIDLE", 900, 300),
-        revert_cmd=_power_all("SUB_VIDEO", "VIDEOIDLE", 600, 120),
+        ps_command='$re=\'[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\'; $n=0; foreach($l in (powercfg /L 2>$null)){ $m=[regex]::Match($l,$re); if(-not $m.Success){ continue }; if($l -match \'Ultimat\' -or $l -match \'8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c\'){ continue }; powercfg /SETACVALUEINDEX $m.Value SUB_VIDEO VIDEOIDLE 900 2>$null | Out-Null; powercfg /SETDCVALUEINDEX $m.Value SUB_VIDEO VIDEOIDLE 300 2>$null | Out-Null; $n++ }; powercfg /SETACTIVE SCHEME_CURRENT 2>$null | Out-Null; Write-Output "$n Energieplan(e) gesetzt (Hoechstleistung/Ultimativ bleiben: nie)"',
+        revert_cmd='$re=\'[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\'; $n=0; foreach($l in (powercfg /L 2>$null)){ $m=[regex]::Match($l,$re); if(-not $m.Success){ continue }; if($l -match \'Ultimat\' -or $l -match \'8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c\'){ continue }; powercfg /SETACVALUEINDEX $m.Value SUB_VIDEO VIDEOIDLE 600 2>$null | Out-Null; powercfg /SETDCVALUEINDEX $m.Value SUB_VIDEO VIDEOIDLE 120 2>$null | Out-Null; $n++ }; powercfg /SETACTIVE SCHEME_CURRENT 2>$null | Out-Null; Write-Output "$n Energieplan(e) gesetzt (Hoechstleistung/Ultimativ bleiben: nie)"',
         tags=["power"],
     ),
     Tweak(
@@ -1537,10 +1568,11 @@ reg add "HKU\.DEFAULT\Control Panel\Keyboard" /v InitialKeyboardIndicators /t RE
         id="disable_memory_compression",
         name="Speicherkomprimierung deaktivieren",
         desc="Schaltet die RAM-Komprimierung ab und spart damit CPU-Zeit beim Spielen. Nur mit genug RAM "
-             "sinnvoll (16 GB+) — sonst lagert Windows früher auf die Platte aus.",
+             "sinnvoll (16 GB+) — sonst lagert Windows früher auf die Platte aus. (Ist SysMain deaktiviert, "
+             "wird der Dienst dafür kurz gestartet und danach wieder deaktiviert.)",
         category="Windows", group="Speicher & RAM",
-        ps_command='Disable-MMAgent -MemoryCompression -ErrorAction Stop',
-        revert_cmd='Enable-MMAgent -MemoryCompression -ErrorAction Stop',
+        ps_command="$s=Get-Service SysMain -EA SilentlyContinue; $was=$(if($s){ [string]$s.StartType } else { '' }); if($was -eq 'Disabled'){ Set-Service SysMain -StartupType Manual -EA SilentlyContinue; Start-Service SysMain -EA SilentlyContinue }; $err=$null; try { Disable-MMAgent -MemoryCompression -EA Stop } catch { $err=$_.Exception.Message }; if($was -eq 'Disabled'){ Stop-Service SysMain -Force -EA SilentlyContinue; Set-Service SysMain -StartupType Disabled -EA SilentlyContinue }; if($err){ Write-Output $err; exit 1 }; if($was -eq 'Disabled'){ Write-Output 'SysMain kurz gestartet und wieder deaktiviert' }",
+        revert_cmd="$s=Get-Service SysMain -EA SilentlyContinue; $was=$(if($s){ [string]$s.StartType } else { '' }); if($was -eq 'Disabled'){ Set-Service SysMain -StartupType Manual -EA SilentlyContinue; Start-Service SysMain -EA SilentlyContinue }; $err=$null; try { Enable-MMAgent -MemoryCompression -EA Stop } catch { $err=$_.Exception.Message }; if($was -eq 'Disabled'){ Stop-Service SysMain -Force -EA SilentlyContinue; Set-Service SysMain -StartupType Disabled -EA SilentlyContinue }; if($err){ Write-Output $err; exit 1 }; if($was -eq 'Disabled'){ Write-Output 'SysMain kurz gestartet und wieder deaktiviert' }",
         requires_reboot=True, risk="moderate",
     ),
     Tweak(
@@ -1760,6 +1792,39 @@ reg add "HKLM\SOFTWARE\GameOptimizerPro" /v SR_AudioPriority /t REG_DWORD /d 1 /
         risk="safe",
     ),
 ]
+
+
+# ── Either-or choices ───────────────────────────────────────────────────────
+# Only ONE tweak of each group can be in effect — applying one replaces the
+# others (the last one wins; "select all" once applied Cloudflare AND Google DNS,
+# and ticked all three power plans). The first entry is the one the presets use.
+EXCLUSIVE_GROUPS: list[tuple[str, ...]] = [
+    ("ultimate_performance", "power_high", "power_balanced"),   # power plan
+    ("dns_cloudflare", "dns_google"),                           # DNS provider
+]
+
+
+def alternatives_of(tweak_id: str) -> list[str]:
+    """The other members of `tweak_id`'s either-or group(s)."""
+    out: list[str] = []
+    for group in EXCLUSIVE_GROUPS:
+        if tweak_id in group:
+            out += [t for t in group if t != tweak_id and t not in out]
+    return out
+
+
+def resolve_selection(ids, applied=()) -> list[str]:
+    """A selection without contradictions (order kept): per either-or group the
+    member that is already applied, else the first selected one in group order."""
+    ids = list(dict.fromkeys(ids))
+    chosen = set(ids)
+    applied = set(applied)
+    for group in EXCLUSIVE_GROUPS:
+        members = [t for t in group if t in chosen]
+        if len(members) > 1:
+            keep = next((t for t in members if t in applied), members[0])
+            chosen -= set(members) - {keep}
+    return [t for t in ids if t in chosen]
 
 
 def get_by_category(category: str) -> list[Tweak]:

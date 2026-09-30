@@ -94,12 +94,12 @@ VERIFY_MAP: dict[str, str] = {
 
     # ── Performance ───────────────────────────────────────────────────────────
     "ultimate_performance": (
-        '$p=powercfg -getactivescheme; '
-        'if($p -match "Ultimat|Ultimate"){"1"}else{"0"}'
+        "$p=powercfg -getactivescheme; $a=[regex]::Matches((powercfg /query SCHEME_CURRENT SUB_VIDEO VIDEOIDLE 2>$null | Out-String),'0x[0-9a-fA-F]{8}'); $b=[regex]::Matches((powercfg /query SCHEME_CURRENT SUB_SLEEP STANDBYIDLE 2>$null | Out-String),'0x[0-9a-fA-F]{8}'); if($p -match 'Ultimat' -and $a.Count -ge 2 -and $b.Count -ge 2 -and [Convert]::ToInt32($a[$a.Count-2].Value.Substring(2),16) -eq 0 -and [Convert]::ToInt32($b[$b.Count-2].Value.Substring(2),16) -eq 0){'1'}else{'0'}"
     ),
+    # bcdedit needs admin rights: without them it's unknown, not "inactive"
     "disable_hpet": (
-        '$v=bcdedit /enum | Select-String "useplatformtick"; '
-        'if($v -match "Yes"){"1"}else{"0"}'
+        '$o=(bcdedit /enum 2>&1 | Out-String); if($LASTEXITCODE -ne 0){ throw "bcdedit" }; '
+        'if($o -match "useplatformtick\\s+(Yes|Ja)"){"1"}else{"0"}'
     ),
     "timer_resolution": (
         '$v=(Get-ItemProperty "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\kernel" '
@@ -260,8 +260,8 @@ VERIFY_MAP: dict[str, str] = {
         'if($s -eq "Running"){"1"}else{"0"}'
     ),
     "disable_tcp_autotuning": (
-        '$v=netsh int tcp show global 2>$null|Select-String "Receive Window Auto-Tuning Level";'
-        'if($v -match "disabled"){"1"}else{"0"}'
+        '$v=netsh int tcp show global 2>$null|Select-String "Auto-Tuning|Abstimmung";'
+        'if(-not $v){ throw "netsh" }; if("$v" -match "disabled"){"1"}else{"0"}'
     ),
     "enable_rss": (
         '$adapters=Get-NetAdapter|Where-Object{$_.Status -eq "Up"};'
@@ -278,8 +278,7 @@ VERIFY_MAP: dict[str, str] = {
         'if($p -match "381b4222-f694-41f0-9685-ff5bb260df2e"){"1"}else{"0"}'
     ),
     "power_high": (
-        '$p=powercfg -getactivescheme;'
-        'if($p -match "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c"){"1"}else{"0"}'
+        "$p=powercfg -getactivescheme; $a=[regex]::Matches((powercfg /query SCHEME_CURRENT SUB_VIDEO VIDEOIDLE 2>$null | Out-String),'0x[0-9a-fA-F]{8}'); $b=[regex]::Matches((powercfg /query SCHEME_CURRENT SUB_SLEEP STANDBYIDLE 2>$null | Out-String),'0x[0-9a-fA-F]{8}'); if($p -match '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c' -and $a.Count -ge 2 -and $b.Count -ge 2 -and [Convert]::ToInt32($a[$a.Count-2].Value.Substring(2),16) -eq 0 -and [Convert]::ToInt32($b[$b.Count-2].Value.Substring(2),16) -eq 0){'1'}else{'0'}"
     ),
 
     # ── Audio ────────────────────────────────────────────────────────────────────
@@ -314,7 +313,7 @@ VERIFY_MAP: dict[str, str] = {
         " -Name '{1da5d803-d492-4edd-8c23-e0c0ffee7f0e},5' -EA SilentlyContinue;"
         " if ($v) { $v.'{1da5d803-d492-4edd-8c23-e0c0ffee7f0e},5' } else { -1 } } |"
         ' Measure-Object -Maximum -Minimum | ForEach-Object {'
-        ' if ($_.Count -gt 0 -and $_.Maximum -eq 0 -and $_.Minimum -eq 0) {"1"} else {"0"} }'
+        ' if ($_.Count -gt 0 -and $_.Maximum -eq 1 -and $_.Minimum -eq 1) {"1"} else {"0"} }'
     ),
     "disable_audio_exclusive_lock": (
         r'Get-ChildItem "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\MMDevices\Audio\Render"'
@@ -454,8 +453,9 @@ VERIFY_MAP: dict[str, str] = {
     ),
     # powercfg: die LETZTEN zwei Hex-Werte der Ausgabe sind der aktuelle AC- bzw.
     # DC-Index (die Zeilen davor sind statische "mögliche Einstellungen").
+    # Checked on 'Ausbalanciert': the high-performance plans keep the screen on.
     "power_display_sleep_15": (
-        '$o=(powercfg /query SCHEME_CURRENT SUB_VIDEO VIDEOIDLE 2>$null | Out-String); '
+        '$o=(powercfg /query 381b4222-f694-41f0-9685-ff5bb260df2e SUB_VIDEO VIDEOIDLE 2>$null | Out-String); '
         '$m=[regex]::Matches($o,"0x[0-9a-fA-F]{8}"); '
         'if($m.Count -ge 2 -and [Convert]::ToInt32($m[$m.Count-2].Value.Substring(2),16) -eq 900){"1"}else{"0"}'
     ),
@@ -513,8 +513,10 @@ VERIFY_MAP: dict[str, str] = {
     'clear_pagefile_shutdown': (
         '$v=(Get-ItemProperty \'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Memory Management\' -Name \'ClearPageFileAtShutdown\' -EA SilentlyContinue).\'ClearPageFileAtShutdown\'; if($v -eq 1){"1"}else{"0"}'
     ),
+    # Without SysMain there is no compression store at all (no 'Memory Compression' process).
     'disable_memory_compression': (
-        '$m=Get-MMAgent -EA SilentlyContinue; if($m -and -not $m.MemoryCompression){"1"}else{"0"}'
+        '$m=Get-MMAgent -EA SilentlyContinue; $p=Get-Process -Name "Memory Compression" -EA SilentlyContinue; '
+        'if(($m -and -not $m.MemoryCompression) -or (-not $m -and -not $p)){"1"}else{"0"}'
     ),
     'enable_ssd_trim': (
         '$q=@(fsutil behavior query DisableDeleteNotify 2>$null); $l=@($q | Where-Object { $_ -match \'NTFS\' })[0]; if(-not $l){ $l=@($q | Where-Object { $_ -match \'=\' })[0] }; if($l -match \'=\\s*0\\b\'){"1"}else{"0"}'
@@ -593,7 +595,7 @@ class TweakVerifier:
             # multi-statement form used by most registry checks.
             lines.append(
                 f'try {{ $__r=$({cmd}); Write-Output "{tid}|$__r" }}'
-                f' catch {{ Write-Output "{tid}|0" }}'
+                f' catch {{ Write-Output "{tid}|ERR" }}'
             )
         script = "\n".join(lines)
 
@@ -625,7 +627,7 @@ class TweakVerifier:
                 if len(parts) == 2:
                     tid_out = parts[0].strip()
                     val     = parts[1].strip()
-                    if tid_out in VERIFY_MAP:
+                    if tid_out in VERIFY_MAP and val != "ERR":
                         parsed[tid_out] = (val == "1")
 
             for tid in ids:

@@ -120,12 +120,8 @@ class StartupLoader:
     def _gui_python() -> str:
         """pythonw.exe next to the running interpreter, so the logon task never
         opens a console window — even if the app was started with python.exe."""
-        exe = sys.executable
-        if exe.lower().endswith("python.exe"):
-            w = exe[:-len("python.exe")] + "pythonw.exe"
-            if os.path.exists(w):
-                return w
-        return exe
+        from core.app_launch import gui_python
+        return gui_python()
 
     @staticmethod
     def harden_task(task_name: str = TASK_NAME) -> bool:

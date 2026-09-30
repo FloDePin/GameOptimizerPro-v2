@@ -207,6 +207,8 @@ class StressTab(tk.Frame):
         max_t = self.v_max_temp.get()
 
         def _run():
+            from core.power_state import keep_awake
+            keep_awake(True)                 # released when this thread ends
             proc = None
             if os.path.exists(worker):
                 flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
@@ -257,6 +259,7 @@ class StressTab(tk.Frame):
                 time.sleep(1.0)
 
             self._kill_proc(proc)            # only OUR worker, never a newer run's
+            keep_awake(False)
             if gen != self._run_gen:
                 return                       # stopped/superseded: _stop_internal reported it
             avg_usage = round(sum(usages) / len(usages), 1) if usages else 0.0

@@ -25,6 +25,7 @@
 - **Spielähnliche Last bei der OC-Suche:** Dauer-Volllast hält die Karte am Power-Limit (~2500 MHz), Spiele stürzen aber am *Boost*-Punkt ab. Die OC-Schritte und der Endtest wechseln deshalb zwischen Volllast und halber Last, die den Hochtakt-/Hochspannungs-Punkt von Spielen erreicht (gemessen auf einer RTX 4080: 2790 MHz @ 1075 mV — genau der Arbeitspunkt in Hunt: Showdown)
 - **Instabilität wird an falschen Ergebnissen erkannt, nicht erst am Absturz** — der Stress-Worker wiederholt dieselbe Matrix-Rechnung und vergleicht jedes Ergebnis mit dem ersten (Methode von gpu-burn / OCCT); ein einziger falscher Wert lässt den Schritt scheitern. Das Power-Limit zu erreichen gilt als normal; nur thermische / Hardware-Drosselung zählt als Grenze
 - Automatisierter, schrittweiser Stabilitätstest mit Stress-Worker — **verweigert das Tunen ohne echte GPU-Last** (gemessen in der Baseline; ≥ 70 %), weil ein OC/UV-Test bei leerlaufender GPU instabile Werte als „stabil" speichern würde. GPU-Last liefert der Stress-Worker über `cupy` (`pip install "cupy-cuda12x[ctk]"` — `install.bat` bietet es an) oder ein parallel laufendes FurMark
+- **Ein durchgefallener Endtest ist nicht das Ende:** Der Tuner nimmt einen Schritt zurück (Core, dann einen Speicher-Offset, die V/F-Spannung oder bei Hitze das Power-Limit) und testet erneut — gespeichert wird nur, was den Endtest bestanden hat. Während Tune und Stresstest bleibt der PC wach
 - **Abbruch stoppt wirklich**: Der laufende Stress-Schritt endet sofort, die GPU geht auf Standard zurück (Offsets 0, Werks-Power-Limit), und danach wird nichts mehr angewendet; Beenden der App oder Sprachwechsel während eines Tunes tun dasselbe
 - TDR-Erkennung (GPU-Treiber-Timeout) über das Windows-Ereignisprotokoll
 - Crash Recovery — stellt beim nächsten Systemstart automatisch das letzte stabile Profil wieder her
@@ -53,7 +54,7 @@
 - **Netzwerk-Latenz-Test** — Ein-Klick-Ping zu Gateway + Cloudflare & Google mit Ø/min/max-Latenz, Jitter, Paketverlust
 
 ### 🧹 System Cleaner & Sicherheit
-- Immer: Temp-/Dump-Ordner (`%TEMP%`, `Windows\Temp`, `CrashDumps`)
+- Immer: Temp-/Dump-Ordner (`%TEMP%`, `Windows\Temp`, `CrashDumps`) — nur Dateien, die älter als 24 Stunden sind, damit laufende Programme ihre frischen Temp-Dateien behalten
 - **Deep Clean (freiwillig, jedes Ziel einzeln):** Browser-*Caches* (Chrome, Edge, Firefox), Windows-Update-Downloadcache, Miniaturansichten, Prefetch, System-Logs & Fehlerberichte und der Papierkorb (mit Extra-Rückfrage)
 - Fasst **nie** Dokumente oder Browserprofile an (Passwörter, Verlauf, Lesezeichen, Cookies); überspringt Dateien in Benutzung und zählt nur, was wirklich gelöscht wurde
 - Erst scannen (zeigt freigebbaren Speicher je Gruppe), dann per Klick bereinigen
@@ -64,7 +65,9 @@
 - **106 Tweaks** in den Kategorien Windows, Gaming, Network, Audio (inkl. AMD-GPU-Tweaks)
 - **Windows 11 24H2/26H2 — KI & Bloat:** Recall (Richtlinie + Entfernen der Komponente), Click to Do, Paint-KI (Cocreator, Image Creator, generatives Füllen/Löschen), Notepad-KI, geräteinterne Text-/Bildgenerierung, der KI-Hostdienst (`WSAIFabricSvc`) und das Entfernen der Microsoft-365-Copilot-App / Dev Home, die Funktionsupdates wieder installieren — über Microsofts dokumentierte Richtlinien, wo es sie gibt
 - **Speicher & RAM:** lange Pfade, reservierter Speicher, Auslagerungsdatei, Speicherkomprimierung, SSD-TRIM, geplante Defragmentierung, NVMe-Queue-Tiefe (nur mit NVMe-Laufwerk angeboten), Schreibcache-Leerung (fortgeschritten), dazu eine einmalige **sichere Datenträgerbereinigung** (kein Downloads-Ordner, kein Papierkorb, kein Windows.old)
-- **Drift-Prüfung beim Start:** Tweaks, die du angewendet hast und die ein Windows-Update zurückgesetzt hat, werden aufgelistet — erneut anwenden (vorher Registry-Backup), als nicht angewendet markieren oder später erneut fragen
+- **Drift-Prüfung beim Start:** Tweaks, die du angewendet hast und die ein Windows-Update zurückgesetzt hat, werden mit je einem Haken aufgelistet — mit Haken erneut anwenden (vorher Registry-Backup), ohne Haken nicht mehr nachfragen; „Später“ fragt beim nächsten Start wieder
+- **Entweder-oder:** nur ein Energieplan und ein DNS-Anbieter wählbar („⇄ entweder-oder“); ein Haken nimmt den anderen weg, und die Höchstleistungs-Pläne schalten im Netzbetrieb weder Bildschirm noch PC ab
+- **Immer nur ein Durchlauf gleichzeitig**, mit sichtbarem Fortschritt bei langen Tweaks (die Datenträgerbereinigung dauert Minuten); Mausrad funktioniert über der ganzen Liste
 - Live-Statusverifizierung — liest den tatsächlichen Registry-/Dienst-Zustand (nicht nur die JSON-Datei)
 - 3-stufige Statusanzeige: ● Grün (verifiziert aktiv) / ◑ Amber (angewendet, ungeprüft) / ○ Grau (inaktiv)
 - **Abgestufte Ein-Klick-Presets — 🟢 Minimal → 🟡 Mittel → 🔴 Hart (Debloat)** — kumulative Intensitätsstufen, die ein kuratiertes, ansteigendes Tweak-Set anwenden
@@ -212,7 +215,8 @@ GameOptimizerPro **2.0** ist der finalisierte Release: der komplette Funktionsum
 - 🎮 **Afterburner-Profile live auf echter Hardware verifiziert**; ein dabei gefundener echter Bug — eingefrorenes Monitoring nach einem Afterburner-Neustart — ist behoben; OC-Schritte laufen jetzt mit **spielähnlicher Wechsellast**; die Speicher-Stufe übernimmt das Bandbreiten-Maximum
 - 🔁 **v1-Parität ehrlich vervollständigt** — eine Prüfung zeigte, dass die frühere „volle Parität“ nicht stimmte: 18 weitere Tweaks, **Deep Clean**, **Services Manager**, **Optimierungs-Score**, **Monitor-Berater** und die **Drift-Prüfung** sind portiert; 6 v1-Tweaks bewusst nicht (wirkungslos mit aktuellen Treibern/Windows)
 - 🪟 **Windows 11 26H2:** neue Tweaks gegen die wieder installierte Copilot-App / Dev Home, Click to Do, Paint-/Notepad-KI und den neuen KI-Hostdienst; Recall und geräteinterne KI jetzt über die offiziellen Richtlinien
-- 🧪 313 automatische Prüfungen in 15 Test-Suiten, inkl. PowerShell-Syntaxprüfung jedes Befehls
+- 🧪 Nach dem ersten echten Einsatz: kein Konsolenfenster mehr, Endtest mit Rücknahme im Tuner, Energieplan/DNS als Entweder-oder, Drift-Dialog pro Tweak, mehrere falsch meldende Tweaks behoben — siehe CHANGELOG, Runde 10
+- 🧪 389 automatische Prüfungen in 16 Test-Suiten (in `tests/`), inkl. PowerShell-Syntaxprüfung jedes Befehls
 
 Vollständige Details in [CHANGELOG.md](CHANGELOG.md).
 
@@ -245,6 +249,8 @@ GameOptimizerPro/
 │   ├── services.py           ← Services-Manager-Logik (merkt sich Original-Starttypen)
 │   ├── optimization_score.py ← Optimierungs-Score + Drift-Prüfung
 │   ├── display_info.py       ← Monitor-Berater (Bildwiederholrate)
+│   ├── app_launch.py         ← Start ohne Konsolenfenster (pythonw)
+│   ├── power_state.py        ← PC während Tune/Stresstest wach halten
 │   ├── registry_backup.py    ← Exportiert betroffene Registry-Zweige als .reg
 │   ├── startup_control.py    ← Autostart-Liste + an/aus (StartupApproved-Flags)
 │   ├── restore_point.py      ← Wiederherstellungspunkt erstellen
@@ -284,7 +290,9 @@ GameOptimizerPro/
     ├── tab_settings.py       ← Autostart, Setup-Checker, Über
     ├── live_graph.py         ← Rollierendes Spannungs-/Takt-/Temperatur-Diagramm
     ├── startup_manager.py    ← Startup-Manager-Fenster
-    └── services_manager.py   ← Services-Manager-Fenster
+    ├── services_manager.py   ← Services-Manager-Fenster
+    └── drift_dialog.py       ← Dialog „Tweaks nicht mehr aktiv“ (ein Haken pro Tweak)
+tests/                        ← Windows-Testbatterie: python tests\run_all_tests.py
 tools/
     └── ab_selftest.py        ← Afterburner-Selbsttest (info / dryrun / live / restore)
 ```

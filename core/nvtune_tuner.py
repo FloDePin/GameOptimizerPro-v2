@@ -481,6 +481,43 @@ class AutoTuner:
             return "Thermische/Hardware-Drosselung"
         return "Crash" if r.crash_detected else "Unstable"
 
+    # A failed final test is not the end: take one step back and run the final
+    # test again — only a configuration that PASSED it is ever saved.
+    FINAL_RETRIES = 4
+
+    @staticmethod
+    def _final_backoff(cfg: "TunerConfig", r: StressResult, attempt: int,
+                       core: int, volt: int, mem: int, pwr: int):
+        """One step back after failed final test number `attempt` (1-based).
+        -> (core, volt, mem, pwr, what) or None when nothing is left to take back.
+        Thermal failures lower the power limit first; instability (wrong results,
+        crash, driver reset) takes back what is most likely at its edge: the V/F
+        undervolt, then the core offset (found with 45-s steps, right at the edge),
+        alternating with the memory offset (errors that slip past GDDR6X's error
+        correction also show up as wrong results)."""
+        unstable = r.compute_error or r.crash_detected or r.tdr_detected
+        thermal = not unstable and (r.throttle_hit or r.max_temp >= cfg.max_temp_c)
+        if thermal and pwr - cfg.power_step_pct >= cfg.power_min_pct:
+            p2 = pwr - cfg.power_step_pct
+            return core, volt, mem, p2, f"Power-Limit {pwr}→{p2} % (Temperatur)"
+        if volt > 0:
+            v2 = volt + cfg.vf_step_mv
+            return core, v2, mem, pwr, f"V/F-Spannung {volt}→{v2} mV"
+        mem_turn = attempt % 2 == 0 and mem > 0
+        if core > 0 and not mem_turn:
+            c2 = max(0, core - cfg.core_step_mhz)
+            return c2, volt, mem, pwr, f"Core +{core}→+{c2} MHz"
+        if mem > 0:
+            m2 = mem // 2 if attempt < 4 and mem > 100 else 0
+            return core, volt, m2, pwr, f"Speicher +{mem}→+{m2} MHz"
+        if core > 0:
+            c2 = max(0, core - cfg.core_step_mhz)
+            return c2, volt, mem, pwr, f"Core +{core}→+{c2} MHz"
+        if pwr < 100:
+            p2 = min(100, pwr + cfg.power_step_pct)
+            return core, volt, mem, p2, f"Power-Limit {pwr}→{p2} %"
+        return None
+
     def _save_stable(self, core, mem, pwr):
         """Save current values as last-known-stable for crash recovery."""
         if self.cr:
@@ -521,6 +558,8 @@ class AutoTuner:
 
     def _run_safe(self):
         self._open_run_log()
+        from core.power_state import keep_awake
+        keep_awake(True)          # no sleep / screen-off in the middle of a step
         try:
             self._run()
         except TunerApplyError as e:
@@ -536,6 +575,7 @@ class AutoTuner:
             if self.cr:
                 self.cr.clear_tuning_flag()
         finally:
+            keep_awake(False)
             self._close_run_log()
 
     # Minimum average GPU load during the baseline for a meaningful test.
@@ -1075,39 +1115,58 @@ class AutoTuner:
         if self._stop.is_set(): return
 
         # ── Final Test ─────────────────────────────────────────────────────────
-        self._set_state(TunerState.FINAL_TEST)
-        vf_note  = f" | VF {best_volt_mv}mV" if best_volt_mv > 0 else ""
-        mem_note = f" | Mem+{best_mem_offset}MHz" if best_mem_offset else ""
-        self._log(
-            f"Final test: +{best_core}MHz | {best_pwr}% pwr{vf_note}{mem_note} "
-            f"| {cfg.final_test_s}s")
-        self._progress(
-            75,
-            f"Final verification: +{best_core}MHz | {best_pwr}%{vf_note}{mem_note} "
-            f"({cfg.final_test_s}s)"
-        )
-
         # Verify the EXACT configuration that will be saved — including the
-        # Stage-3 V/F undervolt and the Stage-4 memory OC. Testing only core+power
-        # (as before) meant the saved profile's undervolt/mem-OC were never
-        # verified as a whole, and the stability score reflected a milder setup.
-        if best_volt_mv > 0:
-            self._apply_vf(best_core, best_volt_mv, target_freq, best_mem_offset)
-        else:
-            self._apply(best_core, best_mem_offset, best_pwr)
-        time.sleep(2)
-
-        def _tick_final(e, d, s):
+        # Stage-3 V/F undervolt and the Stage-4 memory OC. If it fails, take one
+        # step back and run the final test again (it used to save an UNTESTED
+        # "conservative" profile and stop).
+        self._set_state(TunerState.FINAL_TEST)
+        attempt, retries_used = 1, []
+        while True:
+            vf_note  = f" | VF {best_volt_mv}mV" if best_volt_mv > 0 else ""
+            mem_note = f" | Mem+{best_mem_offset}MHz" if best_mem_offset else ""
+            tries    = f" | Versuch {attempt}/{self.FINAL_RETRIES + 1}" if attempt > 1 else ""
+            self._log(
+                f"Final test: +{best_core}MHz | {best_pwr}% pwr{vf_note}{mem_note} "
+                f"| {cfg.final_test_s}s{tries}")
             self._progress(
-                75 + int(e / d * 20),
-                f"Final: {e}/{d}s | {s.temp}°C | {s.voltage_mv:.0f}mV | {s.core_mhz:.0f}MHz"
+                75,
+                f"Final verification: +{best_core}MHz | {best_pwr}%{vf_note}{mem_note} "
+                f"({cfg.final_test_s}s){tries}"
             )
-            if self._cb_tick: self._cb_tick(s)
+            if best_volt_mv > 0:
+                self._apply_vf(best_core, best_volt_mv, target_freq, best_mem_offset)
+            else:
+                self._apply(best_core, best_mem_offset, best_pwr)
+            time.sleep(2)
 
-        final = stress.run(cfg.final_test_s, cfg.max_temp_c, on_tick=_tick_final,
-                           mode="mixed")
-        if self._stop.is_set():   # aborted mid-step: don't act on it
-            return
+            def _tick_final(e, d, s):
+                self._progress(
+                    75 + int(e / d * 20),
+                    f"Final: {e}/{d}s | {s.temp}°C | {s.voltage_mv:.0f}mV | {s.core_mhz:.0f}MHz"
+                )
+                if self._cb_tick: self._cb_tick(s)
+
+            final = stress.run(cfg.final_test_s, cfg.max_temp_c, on_tick=_tick_final,
+                               mode="mixed")
+            if self._stop.is_set():   # aborted mid-step: don't act on it
+                return
+            if final.passed:
+                break
+            back = (self._final_backoff(cfg, final, attempt, best_core, best_volt_mv,
+                                        best_mem_offset, best_pwr)
+                    if attempt <= self.FINAL_RETRIES else None)
+            tdr_note = " [TDR!]" if final.tdr_detected else ""
+            if back is None:
+                self._log(f"  Final test ✗{tdr_note}  {self._fail_reason(final)} — "
+                          f"nichts mehr zurückzunehmen", "warning")
+                break
+            best_core, best_volt_mv, best_mem_offset, best_pwr, what = back
+            retries_used.append(what)
+            self._set_state(TunerState.BACKOFF)
+            self._log(f"  Final test ✗{tdr_note}  {self._fail_reason(final)} — zurück: "
+                      f"{what} → Endtest wird wiederholt", "warning")
+            attempt += 1
+            self._set_state(TunerState.FINAL_TEST)
 
         # ── Save ───────────────────────────────────────────────────────────────
         self._set_state(TunerState.SAVING)
@@ -1141,6 +1200,7 @@ class AutoTuner:
                 notes=(
                     f"[{mode_tag}] Core+{best_core}MHz | "
                     f"Mem+{best_mem_offset}MHz | "
+                    + (f"Endtest nach {len(retries_used)} Rücknahme(n) | " if retries_used else "") +
                     f"Pwr {best_pwr}% | "
                     + (f"VF {best_volt_mv}mV | " if best_volt_mv > 0 else "") +
                     f"MaxTemp {final.max_temp:.0f}°C | "
@@ -1154,6 +1214,9 @@ class AutoTuner:
             # Track as last applied for startup loader
             if self.cr:
                 self.cr.save_last_applied(profile.to_dict())
+            if retries_used:
+                self._log(f"Endtest bestanden nach {len(retries_used)} Rücknahme(n): "
+                          + "; ".join(retries_used))
             self._log(f"Profile saved: {profile.name}")
             self._log(f"  Mode:        {mode_tag}")
             self._log(f"  Core offset:  +{best_core}MHz")
@@ -1171,29 +1234,18 @@ class AutoTuner:
                 f"{vf_str} | Score {score}/100"
             )
         else:
-            safe_core = (max(0, best_core - cfg.core_step_mhz)
-                         if mode != TuneMode.UV_ONLY else 0)
-            safe_pwr  = min(100, best_pwr + cfg.power_step_pct)
+            # Never save something that did not pass: back to stock, say so.
             self._log(
-                f"Final failed ({final.abort_reason}) — saving conservative profile",
-                "warning"
-            )
-            profile = TuneProfile(
-                name=f"GOP_{mode_tag}_Safe_{datetime.now().strftime('%m%d_%H%M')}",
-                core_offset_mhz=safe_core,
-                mem_offset_mhz=0,
-                power_limit_pct=safe_pwr,
-                is_stable=True,
-                stability_score=55,
-                notes=f"[{mode_tag}] Conservative | +{safe_core}MHz | {safe_pwr}%",
-                created_at=datetime.now().isoformat(),
-                gpu_name=gpu_name,
-            )
-            self.best_profile = profile
-            self.pm.save(profile)
-            self._apply(safe_core, 0, safe_pwr)
-            self._progress(
-                100, f"Safe profile: +{safe_core}MHz | {safe_pwr}%")
+                f"Endtest nicht bestanden ({self._fail_reason(final)}), auch nach "
+                f"{len(retries_used)} Rücknahme(n) — KEIN Profil gespeichert, GPU auf "
+                f"Standard zurückgesetzt. Temperaturen/Kühlung prüfen oder mit kleinerem "
+                f"'Core Max' bzw. ohne Speicher-Offset erneut tunen.", "error")
+            self._reset_locked()
+            if self.cr:
+                self.cr.clear_tuning_flag()
+            self._progress(100, "✗ Endtest nicht bestanden — kein Profil gespeichert, GPU auf Standard")
+            self._set_state(TunerState.ERROR)
+            return
 
         # Clean up crash flag — we finished cleanly
         if self.cr:

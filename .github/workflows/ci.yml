@@ -17,7 +17,7 @@ jobs:
           python-version: "3.12"
 
       - name: Byte-compile all Python sources
-        run: python -m py_compile GameOptimizerPro.py _stress_worker.py core/*.py ui/*.py tools/*.py
+        run: python -m py_compile GameOptimizerPro.py _stress_worker.py core/*.py ui/*.py tools/*.py tests/*.py tests/fakecupy/cupy/*.py
 
       - name: Check for doubled-backslash reg.exe paths
         run: |

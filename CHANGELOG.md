@@ -547,6 +547,71 @@ verifiers (VERIFY_MAP stays 1:1) and full English descriptions.
     process or shared memory now use test names, so they run safely next to a
     running Afterburner.
 
+- **Round 10 — first real use** (findings from a full day of real use on the
+  test PC: select-all apply of 97 tweaks, two complete Auto-Tunes, the cleaner):
+  - **No console window.** Started any other way than `GameOptimizerPro.bat`
+    (double-click on the `.py` → Python install manager → `python.exe`), the
+    admin relaunch and the language restart re-used that `python.exe`, and a
+    black console stayed open. They now start `pythonw.exe`; a console that
+    exists only for the app (double-click) is left by relaunching windowless.
+  - **Auto-Tune: a failed final test is no longer the end.** It used to save an
+    *untested* "conservative" profile (core −1 step, power +5 %, memory 0),
+    marked it stable and stop. Now it takes one step back and runs the final
+    test again — core −1 step, then the memory offset halved (a user-set
+    memory offset, e.g. +1000 MHz, was in play in the real run), V/F undervolt
+    +25 mV first, power limit −5 % first for thermal failures — up to 4 times.
+    Only a configuration that PASSED is saved; if none does, nothing is saved
+    and the card goes back to stock with a clear message. The PC is kept awake
+    (no sleep / screen-off) while a tune or the stress test runs.
+  - **Either-or tweaks.** "Select all" ticked all three power plans and both DNS
+    providers — applied one after another, the last one silently won (the log
+    shows Cloudflare *and* Google applied). Power plan and DNS are now
+    either-or groups: select all / "All Safe" take one (the presets' choice or
+    the one already applied), ticking one unticks the others (badge
+    "⇄ entweder-oder"), applying one replaces the other in the app's state,
+    and old states with both are cleaned up. A choice changed outside the app
+    (e.g. DNS switched by hand) is taken over instead of being "re-applied".
+  - **Power plans.** "Ultimate Performance" ran `powercfg -duplicatescheme` on
+    every apply — **15 copies** of the plan were found on the test PC. It now
+    reuses an existing one and removes the extra copies. The high-performance
+    plans keep the screen on and never go to sleep / hibernate on mains power
+    (battery values untouched); "Display sleep = 15 min" no longer writes into
+    them (the active Ultimate plan turned the screen off after 15 minutes).
+    The plan checks include this, so an older installation shows the plan once
+    as "not fully active" and offers to re-apply it.
+  - **Optimizer list:** the mouse wheel works over the tweak rows (it only worked
+    in the empty strip next to them — moving onto a row fired `<Leave>` on the
+    canvas, which removed the binding); **one batch at a time** — a second click
+    while the Disk Cleanup ran (minutes) started a parallel batch that applied
+    every tweak twice; long tweaks show "läuft …"; the "⟳ einmalig" badge sat on
+    every safe tweak — it now marks only one-way actions.
+  - **Tweaks that reported wrongly:** *network adapter power saving* worked on
+    all 14 adapters but reported ✗ (the class key has a locked `Properties`
+    subkey; its access error set PowerShell's exit code); *RSS* now only touches
+    adapters that offer it and logs why otherwise; *memory compression* failed
+    when SysMain was disabled (by the Prefetch/Superfetch tweak) — SysMain is
+    started briefly and disabled again; *audio enhancements* wrote
+    `PKEY_AudioEndpoint_Disable_SysFx = 0`, which means **enabled** (documented:
+    1 = disabled; inherited from v1) — and on the test PC none of the values
+    had arrived on any of the 19 endpoints, so this tweak and *exclusive mode*
+    now check after writing and say so honestly instead of a false ✓ (how to
+    make Windows' audio service keep them is left for the next live test);
+    PowerShell output is decoded in the OEM code page (umlauts in the log).
+  - **Status checks:** a check that throws (e.g. `Get-AppxPackage -AllUsers` or
+    `bcdedit` without admin rights) now counts as *unknown*, not *inactive*;
+    the TCP auto-tuning check only understood English Windows (German:
+    "Autom. Abstimmungsgrad Empfangsfenster") and always said "inactive".
+  - **Drift dialog:** one decision per tweak (ticked = apply again, unticked =
+    stop asking) instead of one yes/no for all — re-applying the power plan
+    must not force back a taskbar layout changed on purpose.
+  - **Temp cleaner:** only files older than 24 hours (like CCleaner). It deleted
+    every unlocked file in `%TEMP%` — including the working files of a running
+    program: found when a clean-up during the live test wiped the whole
+    scratchpad of the test session.
+  - **Tests are in the repository now** (`tests/`, 389 checks in 16 suites; CI
+    byte-compiles them). They lived in that scratchpad and were rebuilt from the
+    session transcript — the loss is exactly the case the 24-h rule prevents.
+
 ### 🔎 Reviewed, verified NOT a bug
 
 Some reported items were checked against the actual code and left unchanged

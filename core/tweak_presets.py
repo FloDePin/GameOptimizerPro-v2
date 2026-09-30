@@ -236,8 +236,10 @@ BUILTIN_PRESETS: list[TweakPreset] = [
 
 
 def get_all_safe_ids() -> list[str]:
-    from core.tweaks import ALL_TWEAKS
-    return [t.id for t in ALL_TWEAKS if t.risk == "safe"]
+    # Without the either-or alternatives: it used to apply all three power plans
+    # and both DNS providers (the last one applied won).
+    from core.tweaks import ALL_TWEAKS, resolve_selection
+    return resolve_selection([t.id for t in ALL_TWEAKS if t.risk == "safe"])
 
 
 def get_preset(preset_id: str) -> Optional[TweakPreset]:
