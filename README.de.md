@@ -44,7 +44,7 @@
 
 ### ⚡ Stress Test
 - **Interner Stabilitätstest** — eingebauter GPU/CPU-Stress-Worker mit einstellbarer Dauer und **Auto-Abbruch bei Max-Temperatur**; inkl. Dead-Man-Switch, damit nie ein verwaister 100%-CPU-Prozess zurückbleibt. Schlägt bei **falschen Ergebnissen (Rechenfehlern)**, **Worker-Absturz oder TDR** fehl, meldet die **durchschnittliche GPU-Last** und sagt klar „kein GPU-Stress" statt „bestanden", wenn die GPU nicht ausgelastet war (kein `cupy`); ein gestoppter Test liefert kein Ergebnis
-- **FurMark 1 und FurMark 2** — gefunden neben der App, in den üblichen Installationsordnern oder dort, wohin du zeigst (bleibt nach einem Neustart gespeichert), mit Versionsanzeige; FurMark 2 bekommt seine eigene Kommandozeile (`--demo … --max-time …`) mit **Demo-Auswahl** (OpenGL / Vulkan, Knot), Auflösung inkl. deiner nativen und Dauer
+- **FurMark 1 und FurMark 2** — gefunden neben der App, in den üblichen Installationsordnern oder dort, wohin du zeigst (bleibt nach einem Neustart gespeichert), mit Versionsanzeige; FurMark 2 bekommt seine eigene Kommandozeile (`--demo … --max-time …`) mit **Demo-Auswahl** (OpenGL / Vulkan, Knot), Auflösung inkl. deiner nativen und Dauer. **Standard: 8× Kantenglättung** — mit FPS-Limit oder im Treiber erzwungenem VSync/G-SYNC (normales Gaming-Setup) rendert FurMark sonst am Limit und lastet die GPU nur ~45 % aus; die App liest FurMarks eigene FPS/Last mit und sagt das
 - **3DMark** — in jeder Steam-Bibliothek gefunden (oder als Standalone-Installation), Start über Steam; den Test wählst du in 3DMark (Stresstests per Kommandozeile gibt es nur in der Professional Edition)
 - **Aufzeichnung während FurMark / 3DMark läuft** — Spitzentemperatur, durchschnittlicher und minimaler Takt unter Last, maximale Leistung und **Treiber-Resets (TDR)**, mit Zusammenfassung am Ende („kein Treiber-Reset“ / „nicht stabil!“)
 
@@ -231,7 +231,7 @@ GameOptimizerPro **2.0** ist der finalisierte Release: der komplette Funktionsum
 - 🖥 **Neue Oberfläche (CustomTkinter)** — Seitenleiste, Karten passen sich der Fensterbreite an, Tuner-Log immer sichtbar, Suche im Optimizer; Autostart- und Dienste-Manager sind jetzt Seiten
 - 🔥 **FurMark 1/2 + 3DMark** mit Aufzeichnung von Temperatur, Takt, Leistung und Treiber-Resets während des Tests; FurMark-Pfad bleibt gespeichert
 - 🔊 **Audio-Tweaks funktionieren unter Windows 11 26H2** — über die Windows-Audio-API statt gesperrter Registry-Schlüssel
-- 🧪 520 automatische Prüfungen in 19 Test-Suiten (in `tests/`), inkl. PowerShell-Syntaxprüfung jedes Befehls und der ganzen Oberfläche unter echter Hauptschleife
+- 🧪 527 automatische Prüfungen in 19 Test-Suiten (in `tests/`), inkl. PowerShell-Syntaxprüfung jedes Befehls und der ganzen Oberfläche unter echter Hauptschleife
 
 Vollständige Details in [CHANGELOG.md](CHANGELOG.md).
 

@@ -40,7 +40,11 @@ App beim Start einmal, ob sie es installieren soll → **Ja** (dauert 10–30 s)
 3. **Stresstest → FurMark:** zeigt „✓ FurMark 2 (v2.10.2)“. Demo, Auflösung und Dauer wählen →
    **FurMark starten**. Wenn FurMark fertig ist, steht unter „Live-GPU während des Tests“ die
    Zusammenfassung (Spitzentemperatur, Takt unter Last, max. Leistung, Treiber-Reset ja/nein).
-   Nach einem Neustart der App ist FurMark weiterhin verknüpft.
+   Nach einem Neustart der App ist FurMark weiterhin verknüpft. Kantenglättung bleibt auf
+   **„8× (volle Last)“**: Mit G-SYNC + VSync im Treiber (und/oder FPS-Limit) rendert FurMark sonst
+   nur bis zur Bildwiederholrate und lastet die GPU nur halb aus (im Test: 162–165 FPS, 45 %).
+   Mit 8× lief sie trotz VSync auf 100 % (274 W). Deine NVIDIA-Einstellungen musst du dafür nicht
+   ändern.
 4. **Stresstest → 3DMark:** **3DMark starten** öffnet 3DMark über Steam. Den Test wählst du in
    3DMark (z. B. einen Stresstest). GameOptimizerPro zeichnet mit, bis du 3DMark schließt.
 5. **Audio-Tweaks:** Optimizer → Audio → „Disable Audio Enhancements“ und „Exclusive Audio Lock“

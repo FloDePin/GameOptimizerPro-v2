@@ -129,11 +129,36 @@ def remember(path: str) -> str:
     return path
 
 
+MSAA_CHOICES = (0, 2, 4, 8)
+
+
 def build_args(path: str, width: int, height: int, seconds: int,
-               demo: str = "furmark-gl") -> list[str]:
+               demo: str = "furmark-gl", msaa: int = 0) -> list[str]:
+    """FurMark 2: its own command line; --vsync 0 (a driver-forced VSync still
+    wins — then only a heavier load helps: MSAA). FurMark 1: its switches."""
     if is_v2(path):
-        return [path, "--demo", demo if demo in DEMOS else "furmark-gl",
+        args = [path, "--demo", demo if demo in DEMOS else "furmark-gl",
                 "--width", str(width), "--height", str(height),
-                "--max-time", str(int(seconds))]
+                "--max-time", str(int(seconds)), "--vsync", "0"]
+        if msaa in MSAA_CHOICES and msaa:
+            args += ["--msaa", str(msaa)]
+        return args
     return [path, f"/width={width}", f"/height={height}",
             f"/max_time={int(seconds) * 1000}", "/nogui", "/run_mode=1"]
+
+
+def parse_stats(text: str) -> dict:
+    """FurMark 2 prints 'Demo Quick Stats' when it ends: frames, FPS
+    min/avg/max and per GPU the max temperature / usage and core clocks."""
+    import re
+    out: dict = {}
+    m = re.search(r"FPS \(min/avg/max\)\s*:\s*(\d+)\s*/\s*(\d+)\s*/\s*(\d+)", text or "")
+    if m:
+        out["fps_min"], out["fps_avg"], out["fps_max"] = (int(x) for x in m.groups())
+    for key, pat in (("frames", r"frames\s*:\s*(\d+)"), ("max_temp", r"max temperature:\s*(\d+)"),
+                     ("max_usage", r"max usage:\s*(\d+)"), ("clock_max", r"max core clock:\s*(\d+)"),
+                     ("clock_min", r"min core clock:\s*(\d+)")):
+        m = re.search(pat, text or "")
+        if m:
+            out[key] = int(m.group(1))
+    return out

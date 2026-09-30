@@ -38,8 +38,16 @@ fm1 = Path(tmp) / "FurMark1"; fm1.mkdir()
 check(furmark.normalize(str(fm2 / "FurMark_GUI.exe")) == str(fm2 / "furmark.exe"), "GUI exe -> CLI runner")
 check(furmark.is_v2(str(fm2 / "furmark.exe")) and not furmark.is_v2(str(fm1 / "FurMark.exe")), "v1/v2 told apart")
 a2 = furmark.build_args(str(fm2 / "furmark.exe"), 2560, 1440, 90, "furmark-knot-vk")
-check(a2[1:] == ["--demo", "furmark-knot-vk", "--width", "2560", "--height", "1440", "--max-time", "90"],
-      f"FurMark 2 command line: {a2[1:]}")
+check(a2[1:] == ["--demo", "furmark-knot-vk", "--width", "2560", "--height", "1440", "--max-time", "90",
+                 "--vsync", "0"], f"FurMark 2 command line: {a2[1:]}")
+a8 = furmark.build_args(str(fm2 / "furmark.exe"), 2560, 1440, 90, "furmark-gl", 8)
+check(a8[-2:] == ["--msaa", "8"] and "--vsync" in a8, "8x MSAA (GPU-bound even under an FPS cap / VSync)")
+check("--msaa" not in furmark.build_args(str(fm2 / "furmark.exe"), 1920, 1080, 60, "furmark-gl", 3),
+      "invalid MSAA value ignored")
+st = furmark.parse_stats('[ Demo Quick Stats ]\n- frames               : 9707\n- duration             : 60005 ms\n- FPS (min/avg/max)    : 157 / 162 / 163\n- GPU 0: NVIDIA GeForce RTX 4080 [10DE-2704]\n  .max temperature: 58°C\n  .max usage: 45%\n  .max core clock: 2956 MHz\n  .min core clock: 2610 MHz\n')
+check(st == {"fps_min": 157, "fps_avg": 162, "fps_max": 163, "frames": 9707, "max_temp": 58,
+             "max_usage": 45, "clock_max": 2956, "clock_min": 2610}, f"FurMark's own stats parsed: {st}")
+check(furmark.parse_stats("") == {} and furmark.parse_stats(None) == {}, "no output -> no stats")
 check(furmark.build_args(str(fm2 / "furmark.exe"), 1920, 1080, 60, "bogus")[2] == "furmark-gl",
       "unknown demo -> furmark-gl")
 a1 = furmark.build_args(str(fm1 / "FurMark.exe"), 1920, 1080, 60)

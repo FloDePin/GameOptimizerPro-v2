@@ -696,6 +696,16 @@ verifiers (VERIFY_MAP stays 1:1) and full English descriptions.
       coloured buttons fade; grids balance their rows (3 + 3, not 5 + 1); the
       sidebar drops the system card when the window is too low; the Autostart
       "Status" column showed the long description instead of "✓ Safe" (old bug).
+    - *Stress test, live:* FurMark ran at exactly 162 FPS with 41–45 % GPU
+      load (189 W) — the NVIDIA App's frame limit; with the limit off, at
+      165 FPS: the driver's forced VSync + G-SYNC, which FurMark's own
+      `--vsync 0` can't override. A normal gaming setup, so the app adapts:
+      FurMark 2 now runs with 8x MSAA by default (GPU-bound under the cap:
+      100 % load, 274 W, 126 FPS at 1080p), reads FurMark's own stats (FPS,
+      max GPU load — `furmark.exe` is a console program, which also opened a
+      console window before) and explains a low load (FPS limit / VSync)
+      instead of only saying "no load". The internal test was unaffected
+      (compute load, no frames): 100 % load, passed.
     - *Test:* `test_real_profile.py` read the base V/F curve from `[Startup]`,
       which Afterburner empties when "apply overclocking at system startup" is
       off (seen on the test PC); the app itself already took it from the
@@ -706,8 +716,9 @@ verifiers (VERIFY_MAP stays 1:1) and full English descriptions.
   - Tests: `tests/test_round12.py` (logic: settings, FurMark/3DMark detection
     and command lines, audio API scripts, remnant scan, the install guard) and
     `tests/test_ui_round12.py` (the whole new UI with fakes under a real main
-    loop); the older UI suites follow the new structure — 520 checks in 19
-    suites, all green.
+    loop), `tests/live_stress_check.py` (live: internal test + FurMark with
+    the real app); the older UI suites follow the new structure — 527 checks
+    in 19 suites, all green.
 
 ### 🔎 Reviewed, verified NOT a bug
 

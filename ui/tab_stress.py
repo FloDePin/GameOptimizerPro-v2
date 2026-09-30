@@ -113,6 +113,12 @@ class StressTab(Page):
         self.v_fur_demo = tk.StringVar(value=furmark.DEMOS.get(
             app_settings.get("furmark_demo", "furmark-gl"), furmark.DEMOS["furmark-gl"]))
         self.opt_demo = self._option(fc.body, "Demo", self.v_fur_demo, list(furmark.DEMOS.values()))
+        self._msaa_labels = {tr("aus", "off"): 0, "2×": 2, "4×": 4, tr("8× (volle Last)", "8× (full load)"): 8}
+        saved_msaa = int(app_settings.get("furmark_msaa", 8))
+        self.v_fur_msaa = tk.StringVar(value=next((k for k, v in self._msaa_labels.items() if v == saved_msaa),
+                                                  tr("8× (volle Last)", "8× (full load)")))
+        self.opt_msaa = self._option(fc.body, tr("Kantenglättung", "Anti-aliasing"), self.v_fur_msaa,
+                                     list(self._msaa_labels))
         native = f"{self.winfo_screenwidth()}x{self.winfo_screenheight()}"
         res_opts = RESOLUTIONS + ([native] if native not in RESOLUTIONS else [])
         res_opts.sort(key=lambda r: int(r.split("x")[0]) * int(r.split("x")[1]))
@@ -356,6 +362,7 @@ class StressTab(Page):
             v2 = furmark.is_v2(p)
             self.lbl_furmark_path.config(text=f"✓ {furmark.describe(p)}\n{p}", fg=GREEN)
             self.opt_demo.configure(state="normal" if v2 else "disabled")
+            self.opt_msaa.configure(state="normal" if v2 else "disabled")
             self.btn_fur_start.configure(state="normal")
             self.btn_fur_dl.pack_forget()
         else:
@@ -379,13 +386,20 @@ class StressTab(Page):
         w, h = res.split("x")
         secs = self.v_fur_dur.get()
         demo = next((k for k, v in furmark.DEMOS.items() if v == self.v_fur_demo.get()), "furmark-gl")
+        msaa = self._msaa_labels.get(self.v_fur_msaa.get(), 8)
         app_settings.set("furmark_res", res)
         app_settings.set("furmark_seconds", secs)
         app_settings.set("furmark_demo", demo)
+        app_settings.set("furmark_msaa", msaa)
         try:
-            # FurMark 2 has its own command line (--demo/--width/--max-time)
-            proc = subprocess.Popen(furmark.build_args(self._furmark_path, int(w), int(h), secs, demo),
-                                    cwd=os.path.dirname(self._furmark_path))
+            # FurMark 2 has its own command line (--demo/--width/--max-time/--msaa).
+            # furmark.exe is a console program: no console window, and its own
+            # stats (FPS, max GPU usage) are read when it ends.
+            proc = subprocess.Popen(furmark.build_args(self._furmark_path, int(w), int(h), secs, demo, msaa),
+                                    cwd=os.path.dirname(self._furmark_path),
+                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                    stdin=subprocess.DEVNULL, text=True, errors="replace",
+                                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         except Exception as e:
             messagebox.showerror("Launch Error", str(e))
             return
@@ -453,7 +467,10 @@ class StressTab(Page):
         self._ext_gen += 1
         gen = self._ext_gen
         s = {"name": name, "t0": time.time(), "peak": 0, "clk": [], "pwr": 0.0, "use": [],
-             "tdr": False, "status": status, "stopped": False}
+             "use_all": [], "tdr": False, "status": status, "stopped": False, "out": []}
+        pipe = getattr(proc, "stdout", None)
+        if pipe is not None:           # drain continuously: a full pipe would block FurMark
+            threading.Thread(target=lambda: s["out"].append(pipe.read() or ""), daemon=True).start()
         self._ext = s
         self.btn_rec_stop.pack(side="right")
         self.lbl_session.config(text=f"● {name}: {tr('Aufzeichnung läuft …', 'recording …')}", fg=AMBER)
@@ -485,6 +502,7 @@ class StressTab(Page):
                 try:
                     st = self.monitor.read()
                     if running:
+                        s["use_all"].append(float(st.gpu_usage or 0))
                         s["peak"] = max(s["peak"], st.temp)
                         s["pwr"] = max(s["pwr"], float(st.gpu_power_w or 0))
                         if (st.gpu_usage or 0) >= 50:          # only under real load
@@ -525,12 +543,25 @@ class StressTab(Page):
                 load = "keine GPU-Last über 50 % gemessen"
             text = (f"{s['name']}: {dur} s aufgezeichnet — Peak {s['peak']} °C, max. {s['pwr']:.0f} W, "
                     f"{load}")
+            stats = furmark.parse_stats("".join(s.get("out") or [])) if s.get("out") else {}
+            if stats.get("fps_avg"):
+                text += (f" — FurMark: Ø {stats['fps_avg']} FPS (min {stats.get('fps_min', '?')}), "
+                         f"max. GPU-Last {stats.get('max_usage', '?')} %")
+            use_all = s.get("use_all") or []
+            avg_all = sum(use_all) / len(use_all) if use_all else 0.0
+            low = (stats.get("max_usage", 100) < 90) or (use_all and avg_all < 85)
             if s["tdr"]:
                 text += " — ⚠ Treiber-Reset (TDR) erkannt: nicht stabil!"
                 col, tag = ERR, "error"
             else:
                 text += " — kein Treiber-Reset"
-                col, tag = (GREEN, "success") if clk else (AMBER, "warning")
+                col, tag = (GREEN, "success") if clk and not low else (AMBER, "warning")
+            if low and not s["tdr"]:
+                text += (f"\n⚠ Die GPU war nicht voll ausgelastet (Ø {avg_all:.0f} %) — dann ist das kein "
+                         "Stresstest. Häufige Ursache: ein FPS-Limit oder erzwungenes VSync/G-Sync "
+                         "(NVIDIA App → Grafik → Max. Bildfrequenz / Vertikale Synchronisierung). "
+                         "Abhilfe: Kantenglättung „8×“ wählen — damit arbeitet die GPU unter dem Limit "
+                         "voll — oder das Limit für den Test ausschalten.")
         self.lbl_session.config(text=text, fg=col)
         self.log.append(text, tag)
         st = s.get("status")

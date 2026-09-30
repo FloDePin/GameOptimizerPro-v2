@@ -311,7 +311,11 @@ def s_gpu():
 # ── stress test ───────────────────────────────────────────────────────────────
 PROCS = []
 class FakeProc:
-    def __init__(self, n): self.n = n; self.returncode = None
+    def __init__(self, n, out=None):
+        self.n = n; self.returncode = None
+        if out is not None:
+            import io
+            self.stdout = io.StringIO(out)
     def poll(self):
         self.n -= 1
         if self.n <= 0:
@@ -334,7 +338,8 @@ def s_stress():
     st.v_fur_dur.set(90)
     st._launch_furmark()
     check(PROCS and PROCS[-1][1:] == ["--demo", "furmark-vk", "--width", "2560", "--height", "1440",
-                                      "--max-time", "90"], f"FurMark 2 started with its own switches: {PROCS[-1][1:] if PROCS else None}")
+                                      "--max-time", "90", "--vsync", "0", "--msaa", "8"],
+          f"FurMark 2 started with its own switches, 8x MSAA by default: {PROCS[-1][1:] if PROCS else None}")
     check(app_settings.get("furmark_res") == "2560x1440" and app_settings.get("furmark_demo") == "furmark-vk",
           "FurMark choices remembered")
     check(st._ext is not None and st.btn_rec_stop.winfo_manager(), "recording of the external test started")
@@ -348,6 +353,21 @@ def s_stress2():
     check(st._ext is None and "Peak 64 °C" in txt and "max. 280 W" in txt and "Ø Takt 2745 MHz" in txt
           and "kein Treiber-Reset" in txt, f"summary after FurMark ended: {txt!r}")
     check(not st.btn_rec_stop.winfo_manager(), "stop-recording button hidden again")
+    check("nicht voll ausgelastet" not in txt, "full load -> no load warning")
+    # an FPS cap / forced VSync: FurMark ran, but the GPU idled half the time
+    FakeMon.read_orig = FakeMon.read
+    FakeMon.read = lambda self: GpuStats(name="NVIDIA GeForce RTX 4080", temp=57, core_mhz=2800.0,
+                                         gpu_power_w=187.0, power_w=187.0, gpu_usage=44.0)
+    st._start_session("FurMark", proc=FakeProc(3, '[ Demo Quick Stats ]\n- frames               : 9707\n- duration             : 60005 ms\n- FPS (min/avg/max)    : 157 / 162 / 163\n- GPU 0: NVIDIA GeForce RTX 4080 [10DE-2704]\n  .max temperature: 58°C\n  .max usage: 45%\n  .max core clock: 2956 MHz\n  .min core clock: 2610 MHz\n'), status=st.lbl_fur_status)
+
+@step(6500)
+def s_stress3():
+    st = w._tab_frames["stress"]
+    FakeMon.read = FakeMon.read_orig
+    txt = st.lbl_session.cget("text")
+    check("FurMark: Ø 162 FPS (min 157), max. GPU-Last 45 %" in txt, f"FurMark's own FPS / load shown: {txt[:160]!r}")
+    check("nicht voll ausgelastet" in txt and "Max. Bildfrequenz" in txt and "8×" in txt,
+          "capped run explained (FPS limit / VSync) with the fix, not just 'no load'")
 
 # ── settings ──────────────────────────────────────────────────────────────────
 @step(100)

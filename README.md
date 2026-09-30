@@ -44,7 +44,7 @@
 
 ### ⚡ Stress Test
 - **Internal stability test** — built-in GPU/CPU stress worker with configurable duration and a **max-temp auto-abort**; includes a dead-man switch so it never leaves an orphaned 100%-CPU process behind. Fails on **wrong results (computation errors)**, a **worker crash or a TDR**, reports the **average GPU load**, and says plainly "no GPU stress" instead of "passed" when the GPU wasn't loaded (no `cupy`); a stopped test reports no result
-- **FurMark 1 and FurMark 2** — detected next to the app, in the usual install folders or where you point it (remembered after a restart), shown with version; FurMark 2 gets its own command line (`--demo … --max-time …`) with a **demo choice** (OpenGL / Vulkan, Knot), resolution incl. your native one and duration
+- **FurMark 1 and FurMark 2** — detected next to the app, in the usual install folders or where you point it (remembered after a restart), shown with version; FurMark 2 gets its own command line (`--demo … --max-time …`) with a **demo choice** (OpenGL / Vulkan, Knot), resolution incl. your native one and duration. **8x MSAA by default**: with an FPS limit or the driver's forced VSync/G-SYNC (a normal gaming setup) FurMark otherwise renders at the cap and loads the GPU only ~45 % — the app reads FurMark's own FPS/load and says so
 - **3DMark** — found in every Steam library (or a standalone install), started through Steam; you pick the test in 3DMark (command-line stress tests exist only in the Professional Edition)
 - **Recording while FurMark / 3DMark runs** — peak temperature, average and minimum clock under load, maximum power and **driver resets (TDR)**, with a summary at the end ("no driver reset" / "not stable!")
 
@@ -232,7 +232,7 @@ GameOptimizerPro **2.0** is the finalized release: the complete feature set belo
 - 🖥 **New interface (CustomTkinter)** — sidebar, cards that adapt to the window width, tuner log always visible, search in the optimizer; Autostart and Services manager are pages now
 - 🔥 **FurMark 1/2 + 3DMark** with recording of temperature, clocks, power and driver resets during the test; FurMark location remembered
 - 🔊 **Audio tweaks work on Windows 11 26H2** — through the Windows audio API instead of locked registry keys
-- 🧪 520 automated checks in 19 test suites (in `tests/`), incl. a PowerShell parse check of every command and the whole UI under a real main loop
+- 🧪 527 automated checks in 19 test suites (in `tests/`), incl. a PowerShell parse check of every command and the whole UI under a real main loop
 
 See [CHANGELOG.md](CHANGELOG.md) for the full detail.
 

@@ -29,6 +29,8 @@ for k in ("furmark_path", "3dmark_path"):           # keep the user's links, nev
         app_settings.set(k, real_settings[k])
 from core import i18n
 i18n.init_lang()
+if os.environ.get("GOP_LANG") in ("de", "en"):      # e.g. GOP_LANG=en — not saved to disk
+    i18n._current_lang = os.environ["GOP_LANG"]
 from GameOptimizerPro import detect_hw
 from core.nvtune_core import GpuMonitor, AfterburnerController, ProfileManager
 from core.nvtune_tuner import AutoTuner, TunerConfig
