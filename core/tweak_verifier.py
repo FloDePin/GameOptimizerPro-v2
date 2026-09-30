@@ -306,26 +306,13 @@ VERIFY_MAP: dict[str, str] = {
         ' -Name "UserDuckingPreference" -EA SilentlyContinue).UserDuckingPreference;'
         'if($v -eq 3){"1"}else{"0"}'
     ),
+    # active playback devices: FX store value 1 (written by the audio service)
     "disable_audio_enhancements": (
-        r'Get-ChildItem "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\MMDevices\Audio\Render"'
-        ' -Recurse -EA SilentlyContinue | Where-Object { $_.PSChildName -eq "Properties" } |'
-        " ForEach-Object { $v = Get-ItemProperty -Path $_.PSPath"
-        " -Name '{1da5d803-d492-4edd-8c23-e0c0ffee7f0e},5' -EA SilentlyContinue;"
-        " if ($v) { $v.'{1da5d803-d492-4edd-8c23-e0c0ffee7f0e},5' } else { -1 } } |"
-        ' Measure-Object -Maximum -Minimum | ForEach-Object {'
-        ' if ($_.Count -gt 0 -and $_.Maximum -eq 1 -and $_.Minimum -eq 1) {"1"} else {"0"} }'
+        "$r=@(); foreach($k in Get-ChildItem 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Render' -EA SilentlyContinue){ if((Get-ItemProperty $k.PSPath -Name DeviceState -EA SilentlyContinue).DeviceState -ne 1){ continue }; $r += (Get-ItemProperty -LiteralPath (Join-Path $k.PSPath 'FxProperties') -EA SilentlyContinue).'{1da5d803-d492-4edd-8c23-e0c0ffee7f0e},5' }; if($r.Count -gt 0 -and -not ($r | Where-Object { $_ -ne 1 })){'1'}else{'0'}"
     ),
+    # active playback devices: exclusive mode 0 / priority 0
     "disable_audio_exclusive_lock": (
-        r'Get-ChildItem "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\MMDevices\Audio\Render"'
-        " -EA SilentlyContinue | ForEach-Object {"
-        " $props = Join-Path $_.PSPath 'Properties'; if (Test-Path $props) {"
-        " $v3 = Get-ItemProperty -Path $props -Name '{b3f8fa53-0004-438e-9003-51a46e139bfc},3' -EA SilentlyContinue;"
-        " $v4 = Get-ItemProperty -Path $props -Name '{b3f8fa53-0004-438e-9003-51a46e139bfc},4' -EA SilentlyContinue;"
-        " $ok3 = ($v3 -and $v3.'{b3f8fa53-0004-438e-9003-51a46e139bfc},3' -eq 0);"
-        " $ok4 = ($v4 -and $v4.'{b3f8fa53-0004-438e-9003-51a46e139bfc},4' -eq 0);"
-        ' if ($ok3 -and $ok4) {1} else {0} } } |'
-        ' Measure-Object -Maximum -Minimum | ForEach-Object {'
-        ' if ($_.Count -gt 0 -and $_.Minimum -eq 1) {"1"} else {"0"} }'
+        "$r=@(); foreach($k in Get-ChildItem 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Render' -EA SilentlyContinue){ if((Get-ItemProperty $k.PSPath -Name DeviceState -EA SilentlyContinue).DeviceState -ne 1){ continue }; $p=Get-ItemProperty -LiteralPath (Join-Path $k.PSPath 'Properties') -EA SilentlyContinue; $r += $p.'{b3f8fa53-0004-438e-9003-51a46e139bfc},3'; $r += $p.'{b3f8fa53-0004-438e-9003-51a46e139bfc},4' }; if($r.Count -gt 0 -and -not ($r | Where-Object { $_ -ne 0 })){'1'}else{'0'}"
     ),
 
     # ── Windows 11 ────────────────────────────────────────────────────────────────

@@ -7,3 +7,5 @@ Pillow>=9.5
 numpy>=1.26
 WMI>=1.5
 psutil>=5.9
+# Oberfläche (seit v2.0 Runde 12)
+customtkinter>=5.2

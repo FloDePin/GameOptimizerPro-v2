@@ -1,50 +1,71 @@
 """
-GameOptimizerPro v2.1 — Main Window
-Layout inspired by v1.0: dark bg, colored tab buttons, hardware info bar,
-compact header, status bar at bottom.
+GameOptimizerPro v2.0 — Main Window (CustomTkinter)
+Sidebar navigation on the left, the page on the right, status bar at the
+bottom. Pages are built the first time they are opened (the optimizer and the
+GPU tuner shortly after start-up in the background), so the window is up at once.
 """
 
 import threading
 import tkinter as tk
-from tkinter import ttk, messagebox
+import traceback
 from datetime import datetime
 from pathlib import Path
+from tkinter import messagebox
 
-from ui.widgets       import *
-from ui.tab_dashboard  import DashboardTab
-from ui.tab_optimizer  import OptimizerTab
-from ui.tab_gpu        import GpuTunerTab
-from ui.tab_stress     import StressTab
-from ui.tab_compare    import CompareTab
-from ui.tab_bios       import BiosGuideTab
-from ui.tab_games      import GamesTab
-from ui.tab_diagnose   import DiagnoseTab
-from ui.startup_manager import StartupManagerWindow
-from ui.services_manager import ServicesManagerWindow
-from ui.tab_settings   import SettingsTab
+import customtkinter as ctk
+
 from core.hardware     import HardwareInfo
 from core.nvtune_core  import GpuMonitor, AfterburnerController, ProfileManager
 from core.nvtune_tuner import AutoTuner
 from core.tweak_runner import TweakRunner
+from ui import theme
+from ui.theme import (ACC, AMBER, APP_BG, BORDER, CARD_BG, DIM, ERR, F_MONO, F_S, F_XS, GREEN,
+                      HEADER_BG, HOVER, MUTED, PAGE_COLORS, RED, SIDEBAR_BG, TEXT, TEXT2, WHITE,
+                      ctk_font, icon_image, tint, tr)
+from ui.components import WrapLabel
 
 APP_NAME    = "GameOptimizerPro"
 APP_VERSION = "v2.0"
 
-# Tab definitions: (key, label, color_active, color_bg)
+BASE = Path(__file__).resolve().parent.parent
+
+# Sidebar: (key, German label, English label)
 TAB_DEFS = [
-    ("dashboard", "[SYS]  Dashboard",  "#e53935", "#1a0a0a"),
-    ("optimizer", "[WIN]  Optimizer",   "#e53935", "#1a0a0a"),
-    ("gpu",       "[GPU]  GPU Tuner",   "#00b4d8", "#001a20"),
-    ("stress",    "[TEST] Stress Test", "#f59e0b", "#1a1200"),
-    ("compare",   "[CMP]  Compare",     "#7c3aed", "#100a1a"),
-    ("bios",      "[BIOS] BIOS Guide",  "#f59e0b", "#1a1200"),
-    ("games",     "[GME]  Games & History", "#22c55e", "#001a0a"),
-    ("diagnose",  "[DIAG] Diagnose",    "#00d9ff", "#001a20"),
-    ("settings",  "[SET]  Settings",    "#6b7280", "#0f0f0f"),
+    ("dashboard", "Dashboard",          "Dashboard"),
+    ("optimizer", "Optimizer",          "Optimizer"),
+    ("gpu",       "GPU-Tuner",          "GPU Tuner"),
+    ("stress",    "Stresstest",         "Stress Test"),
+    ("compare",   "Profilvergleich",    "Compare"),
+    ("bios",      "BIOS-Guide",         "BIOS Guide"),
+    ("games",     "Spiele & Verlauf",   "Games & History"),
+    ("diagnose",  "Diagnose",           "Diagnose"),
+    ("startup",   "Autostart",          "Startup Apps"),
+    ("services",  "Dienste",            "Services"),
+    ("settings",  "Einstellungen",      "Settings"),
 ]
+TAB_COLORS = dict(PAGE_COLORS, startup=ACC, services=AMBER)
+PREBUILD = ("optimizer", "gpu")          # built in the background after start-up
 
 
-class GameOptimizerWindow(tk.Tk):
+def _short_gpu(name: str) -> str:
+    for p in ("NVIDIA GeForce ", "NVIDIA ", "AMD Radeon ", "AMD ", "Intel(R) "):
+        if name.startswith(p):
+            return name[len(p):]
+    return name
+
+
+def _short_cpu(name: str) -> str:
+    out = name.replace("(R)", "").replace("(TM)", "").replace(" CPU", "")
+    for cut in (" Processor", " with Radeon"):
+        i = out.find(cut)
+        if i > 0:
+            out = out[:i]
+    for w in (" 4-Core", " 6-Core", " 8-Core", " 12-Core", " 16-Core", " 24-Core", " 32-Core"):
+        out = out.replace(w, "")
+    return " ".join(out.split())
+
+
+class GameOptimizerWindow(ctk.CTk):
     def __init__(
         self,
         hw:      HardwareInfo,
@@ -66,174 +87,316 @@ class GameOptimizerWindow(tk.Tk):
         self.startup_loader = startup_loader
         self.game_monitor   = game_monitor
 
-        self._active_tab    = "dashboard"
-        self._tab_frames:   dict[str, tk.Frame] = {}
-        self._tab_btns:     dict[str, tk.Button] = {}
+        self._active_tab    = ""
+        self._tab_frames:   dict[str, tk.Widget] = {}
+        self._tab_btns:     dict[str, ctk.CTkButton] = {}
+        self._tab_bars:     dict[str, tk.Frame] = {}
+        self._geo_job       = None
 
         self._setup_window()
+        self._build_layout()
         self._build_header()
-        self._build_hw_bar()
         self._build_tab_bar()
+        self._build_hw_bar()
         self._build_content()
         self._build_status_bar()
         self._show_tab("dashboard")
         self._start_updater()
         # v1: did a Windows update undo tweaks applied earlier? (after start-up)
         self.after(4000, self._start_drift_check)
+        for i, key in enumerate(PREBUILD):
+            self.after(1500 + 1500 * i, lambda k=key: self._ensure_page(k))
 
     # ── Window ────────────────────────────────────────────────────────────────
 
     def _setup_window(self):
-        self.title(f"{APP_NAME} {APP_VERSION} -- by FloDePin")
-        self.geometry("1000x920")
-        self.minsize(900, 720)
-        self.configure(bg="#0d1117")
-        apply_ttk_style(self)   # global dark theme + option_add overrides
+        self.title(f"{APP_NAME} {APP_VERSION} — by FloDePin")
+        icon = theme.app_icon_path()
+        if icon:
+            try:
+                self.iconbitmap(icon)
+            except tk.TclError:
+                pass
+        theme.setup(self)
+        self.minsize(1000, 700)
+        self._restore_geometry()
+        # A <Configure> binding on the window fires for EVERY widget inside it (the
+        # toplevel is in each widget's bindtags): CustomTkinter's own size
+        # bookkeeping plus the position saver ran ~2600 times per page layout —
+        # about 0.4 s for the optimizer page, and again on every resize. A private
+        # bindtag delivers only the window's own events.
+        self.unbind("<Configure>")
+        self.bindtags(("GOPWindowOnly",) + tuple(self.bindtags()))
+        self.bind_class("GOPWindowOnly", "<Configure>", self._update_dimensions_event, add="+")
+        self.bind_class("GOPWindowOnly", "<Configure>", self._on_configure, add="+")
+        for i, (key, *_x) in enumerate(TAB_DEFS[:9], 1):
+            self.bind(f"<Control-Key-{i}>", lambda e, k=key: self._show_tab(k))
 
-    # ── Header ────────────────────────────────────────────────────────────────
+    def _restore_geometry(self):
+        """Last size/position — only if that spot is still on a connected monitor."""
+        w, h, x, y = 1260, 860, None, None
+        try:
+            from core import app_settings
+            g = app_settings.get("window") or {}
+            w = max(1000, int(g.get("w", w)))
+            h = max(700, int(g.get("h", h)))
+            if "x" in g and "y" in g and self._on_screen(int(g["x"]) + 60, int(g["y"]) + 20):
+                x, y = int(g["x"]), int(g["y"])
+        except Exception:
+            pass
+        if x is None:
+            sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
+            w, h = min(w, sw - 40), min(h, sh - 80)
+            x, y = max(0, (sw - w) // 2), max(0, (sh - h) // 2 - 20)
+        self.geometry(f"{w}x{h}+{x}+{y}")
+
+    @staticmethod
+    def _on_screen(x: int, y: int) -> bool:
+        try:
+            import ctypes
+            from ctypes import wintypes
+            pt = wintypes.POINT(x, y)
+            return bool(ctypes.windll.user32.MonitorFromPoint(pt, 0))   # 0 = DEFAULTTONULL
+        except Exception:
+            return False
+
+    def _on_configure(self, e):
+        if e.widget is not self:
+            return
+        if self._geo_job is not None:
+            try:
+                self.after_cancel(self._geo_job)
+            except tk.TclError:
+                pass
+        self._geo_job = self.after(1200, self._save_geometry)
+
+    def _save_geometry(self):
+        self._geo_job = None
+        try:
+            if self.state() != "normal":
+                return
+            from core import app_settings
+            app_settings.set("window", {"w": self.winfo_width(), "h": self.winfo_height(),
+                                        "x": self.winfo_x(), "y": self.winfo_y()})
+        except Exception:
+            pass
+
+    def _build_layout(self):
+        self.grid_columnconfigure(1, weight=1)
+        self.grid_rowconfigure(0, weight=1)
+        self._sidebar = tk.Frame(self, bg=SIDEBAR_BG, width=224)
+        self._sidebar.grid(row=0, column=0, sticky="ns")
+        self._sidebar.pack_propagate(False)
+        tk.Frame(self, bg=BORDER, width=1).grid(row=0, column=0, sticky="nse")
+        self._content = tk.Frame(self, bg=APP_BG)
+        self._content.grid(row=0, column=1, sticky="nsew")
+
+    # ── Sidebar: brand ────────────────────────────────────────────────────────
 
     def _build_header(self):
-        hdr = tk.Frame(self, bg="#0d1117")
-        hdr.pack(fill="x", padx=14, pady=(12, 0))
+        brand = tk.Frame(self._sidebar, bg=SIDEBAR_BG)
+        brand.pack(fill="x", padx=16, pady=(16, 12))
+        self._brand = brand
+        logo = ctk.CTkFrame(brand, width=36, height=36, corner_radius=10, fg_color=tint(RED, SIDEBAR_BG, 0.22))
+        logo.pack(side="left")
+        logo.pack_propagate(False)
+        theme.icon_label(logo, "bolt", ACC, 15, bg=tint(RED, SIDEBAR_BG, 0.22)).place(relx=0.5, rely=0.5, anchor="center")
+        names = tk.Frame(brand, bg=SIDEBAR_BG)
+        names.pack(side="left", padx=(9, 0))
+        row = tk.Frame(names, bg=SIDEBAR_BG)
+        row.pack(anchor="w")
+        tk.Label(row, text="GameOptimizer", font=("Segoe UI Semibold", 11), fg=TEXT, bg=SIDEBAR_BG,
+                 bd=0, padx=0).pack(side="left")
+        tk.Label(row, text="Pro", font=("Segoe UI Semibold", 11), fg=RED, bg=SIDEBAR_BG,
+                 bd=0, padx=0).pack(side="left")
+        tk.Label(names, text=f"{APP_VERSION} · by FloDePin", font=F_XS, fg=DIM, bg=SIDEBAR_BG).pack(anchor="w")
 
-        tk.Label(
-            hdr, text=APP_NAME,
-            font=("Segoe UI", 22, "bold"),
-            fg="#e53935", bg="#0d1117"
-        ).pack(side="left")
-
-        ver_f = tk.Frame(hdr, bg="#0d1117")
-        ver_f.pack(side="left", padx=10)
-        tk.Label(
-            ver_f, text=f"Windows & Gaming Optimizer {APP_VERSION} -- by FloDePin",
-            font=("Segoe UI", 9), fg="#6b7280", bg="#0d1117"
-        ).pack(anchor="w")
-
-        # Right side: AB / NVML / MAHM indicators
-        ind = tk.Frame(hdr, bg="#0d1117")
-        ind.pack(side="right")
-        self.lbl_mahm = tk.Label(ind, text="MAHM: ?", font=("Consolas", 9), bg="#0d1117")
-        self.lbl_nvml = tk.Label(ind, text="NVML: ?", font=("Consolas", 9), bg="#0d1117")
-        self.lbl_ab   = tk.Label(ind, text="AB: ?",   font=("Consolas", 9), bg="#0d1117")
-        self.lbl_time = tk.Label(ind, text="",        font=("Consolas", 9), fg="#4b5563", bg="#0d1117")
-        # DE/EN language toggle button — always visible
-        # Shows the language you can switch TO, so the action is clear
-        from core.i18n import current_lang
-        _next_lang_label = "DE" if current_lang() == "en" else "EN"
-        self.btn_lang = tk.Button(
-            ind, text=_next_lang_label,
-            command=self._toggle_lang,
-            font=("Consolas", 8, "bold"),
-            bg="#1c2128", fg="#00d9ff",
-            relief="flat", padx=8, pady=2, cursor="hand2",
-            activebackground="#2d333b"
-        )
-        for w in (self.lbl_time, self.btn_lang, self.lbl_mahm, self.lbl_nvml, self.lbl_ab):
-            w.pack(side="right", padx=6)
-        self._refresh_indicators()
-
-    # ── HW info bar (like v1.0) ───────────────────────────────────────────────
-
-    def _build_hw_bar(self):
-        bar = tk.Frame(self, bg="#0d1117")
-        bar.pack(fill="x", padx=14, pady=(4, 6))
-
-        # Line 1: GPU | RAM | NVMe
-        line1 = (
-            f"GPU: {self.hw.gpu_name[:34]}    |    "
-            f"RAM: {self.hw.ram_total_gb:.0f} GB    |    "
-            f"NVMe: {'yes' if self.hw.has_nvme else 'none'}"
-        )
-        # Line 2: CPU | OS
-        line2 = (
-            f"CPU: {self.hw.cpu_name[:44]}    |    "
-            f"{'Win11' if self.hw.is_win11 else 'Win10'} (Build {self.hw.os_build})"
-        )
-        tk.Label(bar, text=line1, font=("Consolas", 8),
-                 fg="#00b4d8", bg="#0d1117", anchor="w").pack(fill="x")
-        tk.Label(bar, text=line2, font=("Consolas", 8),
-                 fg="#00b4d8", bg="#0d1117", anchor="w").pack(fill="x")
-
-        # Separator line
-        tk.Frame(self, bg="#2d333b", height=1).pack(fill="x", padx=0)
-
-    # ── Tab bar (colored buttons like v1.0) ───────────────────────────────────
+    # ── Sidebar: navigation ───────────────────────────────────────────────────
 
     def _build_tab_bar(self):
-        # Colored tab buttons, laid out in rows of PER_ROW. Rendered from the full
-        # TAB_DEFS so EVERY tab (incl. Games/Settings/Diagnose) gets a button —
-        # the old fixed 2-row layout silently dropped the last row.
-        PER_ROW = 3
-        tab_bar = tk.Frame(self, bg="#161b22")
-        tab_bar.pack(fill="x")
+        nav = tk.Frame(self._sidebar, bg=SIDEBAR_BG)
+        nav.pack(fill="x", padx=(0, 12))
+        self._nav = nav
+        for key, de, en in TAB_DEFS:
+            row = tk.Frame(nav, bg=SIDEBAR_BG)
+            row.pack(fill="x", pady=1)
+            bar = tk.Frame(row, bg=SIDEBAR_BG, width=3)
+            bar.pack(side="left", fill="y", padx=(0, 9))
+            btn = ctk.CTkButton(row, text=tr(de, en), anchor="w", height=34, corner_radius=9,
+                                image=icon_image(key, DIM, 18), compound="left",
+                                fg_color="transparent", hover_color=HOVER, text_color=TEXT2,
+                                font=ctk_font(13), command=lambda k=key: self._show_tab(k))
+            btn.pack(side="left", fill="x", expand=True)
+            self._tab_btns[key] = btn
+            self._tab_bars[key] = bar
 
-        for i in range(0, len(TAB_DEFS), PER_ROW):
-            row_frame = tk.Frame(tab_bar, bg="#161b22")
-            row_frame.pack(fill="x")
-            for key, label, color, _ in TAB_DEFS[i:i + PER_ROW]:
-                btn = tk.Button(
-                    row_frame,
-                    text=label,
-                    font=("Consolas", 9, "bold"),
-                    bg="#1c2128", fg="#6b7280",
-                    activebackground=color,
-                    activeforeground="#ffffff",
-                    relief="flat", bd=0,
-                    padx=16, pady=8,
-                    cursor="hand2",
-                    command=lambda k=key: self._show_tab(k)
-                )
-                btn.pack(side="left", fill="x", expand=True)
-                self._tab_btns[key] = btn
+    def _style_nav(self):
+        for key, btn in self._tab_btns.items():
+            color = TAB_COLORS.get(key, ACC)
+            active = key == self._active_tab
+            btn.configure(fg_color=tint(color, SIDEBAR_BG, 0.16) if active else "transparent",
+                          text_color=WHITE if active else TEXT2,
+                          image=icon_image(key, color if active else DIM, 18),
+                          font=ctk_font(13, "bold" if active else "normal"))
+            self._tab_bars[key].configure(bg=color if active else SIDEBAR_BG)
 
-        tk.Frame(self, bg="#2d333b", height=1).pack(fill="x")
+    # ── Sidebar: system + indicators ─────────────────────────────────────────
 
-    # ── Content area ──────────────────────────────────────────────────────────
+    def _build_hw_bar(self):
+        foot = tk.Frame(self._sidebar, bg=SIDEBAR_BG)
+        foot.pack(side="bottom", fill="x", padx=14, pady=(8, 12))
+        self._foot = foot
+
+        card = ctk.CTkFrame(foot, fg_color=CARD_BG, corner_radius=10, border_width=1, border_color=BORDER)
+        card.pack(fill="x")
+        self._hw_card = card
+        inner = tk.Frame(card, bg=CARD_BG)
+        inner.pack(fill="x", padx=12, pady=10)
+        tk.Label(inner, text=tr("SYSTEM", "SYSTEM"), font=("Segoe UI Semibold", 7), fg=MUTED,
+                 bg=CARD_BG).pack(anchor="w", pady=(0, 3))
+        hw = self.hw
+        vram = round(hw.gpu_vram_mb / 1024) if hw.gpu_vram_mb >= 512 else 0
+        lines = [
+            (_short_gpu(hw.gpu_name) + (f" · {vram} GB" if vram else ""), TEXT),
+            (_short_cpu(hw.cpu_name), TEXT2),
+            (f"{hw.ram_total_gb:.0f} GB {hw.ram_type or 'RAM'}"
+             + (" · NVMe" if hw.has_nvme else ""), TEXT2),
+            (f"{'Windows 11' if hw.is_win11 else 'Windows 10' if hw.is_win10 else 'Windows'}"
+             f" · Build {hw.os_build}", DIM),
+        ]
+        for text, col in lines:
+            WrapLabel(inner, text=text, font=F_XS, fg=col, bg=CARD_BG, pad=2).pack(fill="x")
+
+        ind = tk.Frame(foot, bg=SIDEBAR_BG)
+        ind.pack(fill="x", pady=(10, 0))
+        self._hw_ind = ind
+        self.lbl_ab   = tk.Label(ind, text="● AB",   font=F_XS, fg=DIM, bg=SIDEBAR_BG)
+        self.lbl_nvml = tk.Label(ind, text="● NVML", font=F_XS, fg=DIM, bg=SIDEBAR_BG)
+        self.lbl_mahm = tk.Label(ind, text="● MAHM", font=F_XS, fg=DIM, bg=SIDEBAR_BG)
+        for w in (self.lbl_ab, self.lbl_nvml, self.lbl_mahm):
+            w.pack(side="left", padx=(0, 8))
+
+        bottom = tk.Frame(foot, bg=SIDEBAR_BG)
+        bottom.pack(fill="x", pady=(8, 0))
+        self.lbl_time = tk.Label(bottom, text="", font=F_MONO, fg=DIM, bg=SIDEBAR_BG)
+        self.lbl_time.pack(side="left")
+        from core.i18n import current_lang
+        # Shows the language you can switch TO, so the action is clear
+        self.btn_lang = ctk.CTkButton(bottom, text="DE" if current_lang() == "en" else "EN",
+                                      image=icon_image("globe", TEXT2, 14), compound="left",
+                                      width=64, height=26, corner_radius=8, font=ctk_font(12, "bold"),
+                                      fg_color=CARD_BG, hover_color=HOVER, text_color=TEXT2,
+                                      command=self._toggle_lang)
+        self.btn_lang.pack(side="right")
+        self._refresh_indicators()
+        self._sidebar.bind("<Configure>", self._fit_sidebar, add="+")
+
+    def _fit_sidebar(self, _e=None):
+        """Hide the system card when the sidebar is too low for everything —
+        otherwise the clock / language row at the bottom is cut off."""
+        card = self._hw_card
+        need = (self._brand.winfo_reqheight() + self._nav.winfo_reqheight()
+                + self._foot.winfo_reqheight() + 16 + 12 + 8 + 12)
+        if card.winfo_manager():
+            if need > self._sidebar.winfo_height():
+                card.pack_forget()
+        elif need + card.winfo_reqheight() <= self._sidebar.winfo_height():
+            card.pack(fill="x", before=self._hw_ind)
+
+    # ── Pages ─────────────────────────────────────────────────────────────────
 
     def _build_content(self):
-        self._content = tk.Frame(self, bg="#0d1117")
-        self._content.pack(fill="both", expand=True)
+        """Pages are created on first use (see _ensure_page)."""
+        self._page_factories = {
+            "dashboard": self._make_dashboard, "optimizer": self._make_optimizer,
+            "gpu": self._make_gpu, "stress": self._make_stress, "compare": self._make_compare,
+            "bios": self._make_bios, "games": self._make_games, "diagnose": self._make_diagnose,
+            "startup": self._make_startup, "services": self._make_services,
+            "settings": self._make_settings,
+        }
 
-        base = Path(__file__).resolve().parent.parent
+    def _make_dashboard(self, parent):
+        from ui.tab_dashboard import DashboardTab
+        return DashboardTab(parent, self.hw, self.monitor)
 
-        self._tab_frames["dashboard"] = DashboardTab(
-            self._content, self.hw, self.monitor)
-        self._tab_frames["optimizer"] = OptimizerTab(
-            self._content, self.runner, self.hw,
-            profiles_dir=str(base / "profiles"),
-            logs_dir=str(base / "logs"))
-        self._tab_frames["gpu"]       = GpuTunerTab(
-            self._content, self.monitor, self.ab, self.pm, self.tuner)
-        self._tab_frames["stress"]    = StressTab(
-            self._content, self.monitor)
-        self._tab_frames["compare"]   = CompareTab(
-            self._content, self.pm)
-        self._tab_frames["bios"]      = BiosGuideTab(
-            self._content, self.hw)
-        self._tab_frames["games"]     = GamesTab(
-            self._content, self.game_monitor, self.pm,
-            str(Path(__file__).resolve().parent.parent / "logs"))
-        self._tab_frames["diagnose"]  = DiagnoseTab(self._content)
-        self._tab_frames["settings"]  = SettingsTab(
-            self._content, self.ab, self.monitor, self.startup_loader)
+    def _make_optimizer(self, parent):
+        from ui.tab_optimizer import OptimizerTab
+        return OptimizerTab(parent, self.runner, self.hw, profiles_dir=str(BASE / "profiles"),
+                            logs_dir=str(BASE / "logs"))
+
+    def _make_gpu(self, parent):
+        from ui.tab_gpu import GpuTunerTab
+        return GpuTunerTab(parent, self.monitor, self.ab, self.pm, self.tuner)
+
+    def _make_stress(self, parent):
+        from ui.tab_stress import StressTab
+        return StressTab(parent, self.monitor)
+
+    def _make_compare(self, parent):
+        from ui.tab_compare import CompareTab
+        return CompareTab(parent, self.pm)
+
+    def _make_bios(self, parent):
+        from ui.tab_bios import BiosGuideTab
+        return BiosGuideTab(parent, self.hw)
+
+    def _make_games(self, parent):
+        from ui.tab_games import GamesTab
+        return GamesTab(parent, self.game_monitor, self.pm, str(BASE / "logs"))
+
+    def _make_diagnose(self, parent):
+        from ui.tab_diagnose import DiagnoseTab
+        return DiagnoseTab(parent)
+
+    def _make_startup(self, parent):
+        from ui.startup_manager import StartupManagerPage
+        return StartupManagerPage(parent)
+
+    def _make_services(self, parent):
+        from ui.services_manager import ServicesManagerPage
+        return ServicesManagerPage(parent)
+
+    def _make_settings(self, parent):
+        from ui.tab_settings import SettingsTab
+        return SettingsTab(parent, self.ab, self.monitor, self.startup_loader)
+
+    def _ensure_page(self, key: str):
+        page = self._tab_frames.get(key)
+        if page is not None:
+            return page
+        try:
+            page = self._page_factories[key](self._content)
+        except Exception:
+            # A broken page must not take the whole window down.
+            page = tk.Frame(self._content, bg=APP_BG)
+            tk.Label(page, text=tr("Diese Seite konnte nicht geladen werden:",
+                                   "This page could not be loaded:"),
+                     font=("Segoe UI Semibold", 12), fg=ERR, bg=APP_BG).pack(anchor="w", padx=24, pady=(24, 6))
+            WrapLabel(page, text=traceback.format_exc()[-1500:], font=F_MONO, fg=TEXT2,
+                      bg=APP_BG).pack(fill="x", padx=24)
+        self._tab_frames[key] = page
+        return page
 
     def _show_tab(self, key: str):
+        if key not in self._page_factories:
+            return
+        page = self._ensure_page(key)
+        old = self._tab_frames.get(self._active_tab)
+        if old is not None and old is not page:
+            old.pack_forget()
+            if hasattr(old, "on_hide"):
+                try:
+                    old.on_hide()
+                except Exception:
+                    pass
         self._active_tab = key
-
-        # Hide all, show selected
-        for k, frame in self._tab_frames.items():
-            frame.pack_forget()
-        self._tab_frames[key].pack(fill="both", expand=True)
-
-        # Update button colors
-        for k, btn in self._tab_btns.items():
-            tab_color = next(c for tk_key, _, c, _ in TAB_DEFS if tk_key == k)
-            if k == key:
-                btn.config(bg=tab_color, fg="#ffffff",
-                           font=("Consolas", 9, "bold"))
-            else:
-                btn.config(bg="#1c2128", fg="#6b7280",
-                           font=("Consolas", 9))
+        page.pack(fill="both", expand=True)
+        if hasattr(page, "on_show"):
+            try:
+                page.on_show()
+            except Exception:
+                pass
+        self._style_nav()
 
     # ── Status bar ────────────────────────────────────────────────────────────
 
@@ -244,33 +407,24 @@ class GameOptimizerWindow(tk.Tk):
             pass
 
     def _build_status_bar(self):
-        tk.Frame(self, bg="#2d333b", height=1).pack(fill="x")
-        status = tk.Frame(self, bg="#161b22", height=28)
-        status.pack(fill="x")
-        status.pack_propagate(False)
-
+        bar = tk.Frame(self, bg=HEADER_BG, height=32)
+        bar.grid(row=1, column=0, columnspan=2, sticky="ew")
+        bar.pack_propagate(False)
+        tk.Frame(bar, bg=BORDER, height=1).pack(side="top", fill="x")
+        try:
+            import ctypes
+            admin = bool(ctypes.windll.shell32.IsUserAnAdmin())
+        except Exception:
+            admin = False
+        tk.Label(bar, text=("● Admin" if admin else tr("● Ohne Admin-Rechte", "● Not elevated")),
+                 font=F_XS, fg=GREEN if admin else AMBER, bg=HEADER_BG).pack(side="left", padx=(14, 10))
+        ctk.CTkButton(bar, text=tr("Log-Ordner", "Log folder"), image=icon_image("folder", TEXT2, 14),
+                      compound="left", height=24, width=0, corner_radius=7, font=ctk_font(12),
+                      fg_color="transparent", hover_color=HOVER, text_color=TEXT2,
+                      command=self._open_log).pack(side="right", padx=(0, 10), pady=3)
         self.lbl_status = tk.Label(
-            status,
-            text="Ready -- select tweaks and click Apply Selected.",
-            font=("Consolas", 8), fg="#6b7280", bg="#161b22",
-            anchor="w"
-        )
-        self.lbl_status.pack(side="left", padx=10)
-
-        # Quick action buttons (like v1.0 bottom bar)
-        for text, cmd in [
-            ("🚀 Startup Mgr", self._open_startup_mgr),
-            ("⚙ Services Mgr", self._open_services),
-            ("[Log] Open Log",  self._open_log),
-        ]:
-            tk.Button(
-                status, text=text,
-                font=("Consolas", 8),
-                bg="#1c2128", fg="#9ca3af",
-                relief="flat", padx=10, pady=4,
-                cursor="hand2",
-                command=cmd
-            ).pack(side="right", padx=2, pady=2)
+            bar, text=tr("Bereit.", "Ready."), font=F_S, fg=DIM, bg=HEADER_BG, anchor="w")
+        self.lbl_status.pack(side="left", fill="x", expand=True)
 
     # ── Drift check (v1: baseline) ────────────────────────────────────────────
 
@@ -359,11 +513,18 @@ class GameOptimizerWindow(tk.Tk):
 
         def work():
             self.runner.backup_registry("PreDriftReapply")
-            failed = []
+            failed, failed_ids = [], []
             for t in tweaks:
                 ok, out = self.runner.apply(t)
                 if not ok:
                     failed.append(f"{tweak_name(t, current_lang())}: {out[:160]}")
+                    failed_ids.append(t.id)
+            # A tweak that could not be applied is not in effect: stop tracking
+            # it, otherwise this dialog asked again at every start.
+            if failed_ids:
+                for tid in failed_ids:
+                    self.runner._applied.pop(tid, None)
+                self.runner._save_state()
             n_ok = len(tweaks) - len(failed)
 
             def done():
@@ -372,7 +533,13 @@ class GameOptimizerWindow(tk.Tk):
                 if any(t.requires_reboot for t in tweaks):
                     msg += "\nEinige wirken erst nach einem Neustart."
                 if failed:
-                    msg += "\n\nFehlgeschlagen:\n" + "\n".join(failed)
+                    msg += ("\n\nFehlgeschlagen (als nicht angewendet markiert — keine "
+                            "erneute Nachfrage):\n" + "\n".join(failed))
+                    opt = self._tab_frames.get("optimizer")
+                    for tid in failed_ids:
+                        var = getattr(opt, "_vars", {}).get(tid)
+                        if var is not None:
+                            var.set(False)
                 (messagebox.showwarning if failed else messagebox.showinfo)(
                     "GameOptimizerPro", msg, parent=self)
             try:
@@ -382,16 +549,16 @@ class GameOptimizerWindow(tk.Tk):
         threading.Thread(target=work, daemon=True).start()
 
     def _open_startup_mgr(self):
-        """Open our custom Startup Manager window."""
-        StartupManagerWindow(self)
+        """Autostart entries (was a separate window, now a page)."""
+        self._show_tab("startup")
 
     def _open_services(self):
-        """Open our own Services Manager (v1 parity) — it links to services.msc."""
-        ServicesManagerWindow(self)
+        """Services manager (v1 parity) — a page, links to services.msc."""
+        self._show_tab("services")
 
     def _open_log(self):
         import subprocess as sp
-        log_dir = Path(__file__).resolve().parent.parent / "logs"
+        log_dir = BASE / "logs"
         try:
             sp.Popen(["explorer.exe", str(log_dir)])
         except Exception as e:
@@ -400,28 +567,18 @@ class GameOptimizerWindow(tk.Tk):
     # ── Updater ───────────────────────────────────────────────────────────────
 
     def _refresh_indicators(self):
-        self.lbl_ab.config(
-            text=f"AB: {'✓' if self.ab.available else '✗'}",
-            fg="#22c55e" if self.ab.available else "#ef4444"
-        )
-        self.lbl_nvml.config(
-            text=f"NVML: {'✓' if self.monitor.nvml.available else '✗'}",
-            fg="#22c55e" if self.monitor.nvml.available else "#f59e0b"
-        )
-        mahm_ok = self.monitor.mahm.available
-        self.lbl_mahm.config(
-            text=f"MAHM: {'✓' if mahm_ok else '✗'}",
-            fg="#22c55e" if mahm_ok else "#f59e0b"
-        )
+        def put(lbl, name, ok, bad_col):
+            lbl.config(text=f"● {name}", fg=GREEN if ok else bad_col)
+        put(self.lbl_ab, "AB", self.ab.available, ERR)
+        put(self.lbl_nvml, "NVML", self.monitor.nvml.available, AMBER)
+        put(self.lbl_mahm, "MAHM", self.monitor.mahm.available, AMBER)
 
     def _start_updater(self):
         # Runs entirely on the main thread. Tk is not thread-safe, and after()
         # from a worker thread raises "main thread is not in main loop" on
         # Python 3.14 when it fires before mainloop() has started — which is
-        # exactly when a thread launched from __init__ does. The old worker-based
-        # version caught that RuntimeError with `except: break` and so killed the
-        # updater on its first tick, freezing the clock and the AB/NVML/MAHM
-        # indicators permanently. A self-rescheduling after() avoids threads.
+        # exactly when a thread launched from __init__ does. A self-rescheduling
+        # after() avoids threads.
         def tick():
             try:
                 self.lbl_time.config(text=datetime.now().strftime("%H:%M:%S"))
@@ -437,10 +594,8 @@ class GameOptimizerWindow(tk.Tk):
         The new language is saved to disk and loaded on the next start.
         """
         from core.i18n import current_lang, set_lang
-        from tkinter import messagebox
 
         new = "de" if current_lang() == "en" else "en"
-
         lang_name = "Deutsch" if new == "de" else "English"
         proceed = messagebox.askyesno(
             "Sprache wechseln / Change language",
@@ -469,30 +624,35 @@ class GameOptimizerWindow(tk.Tk):
         except Exception:
             pass
 
-        import sys, os, subprocess
-        from pathlib import Path
-        base = Path(__file__).resolve().parent.parent
+        import os
+        import subprocess
         try:
             from core.app_launch import gui_python      # pythonw: no console window
-            subprocess.Popen([gui_python(), str(base / "GameOptimizerPro.py")],
-                             cwd=str(base))
+            subprocess.Popen([gui_python(), str(BASE / "GameOptimizerPro.py")], cwd=str(BASE))
         except Exception:
             pass
         os._exit(0)
 
     def destroy(self):
-        try:
-            if getattr(self, "_tick_id", None):
-                self.after_cancel(self._tick_id)
-        except Exception:
-            pass
-        self._tick_id = None
+        for attr in ("_tick_id", "_geo_job"):
+            try:
+                if getattr(self, attr, None):
+                    self.after_cancel(getattr(self, attr))
+            except Exception:
+                pass
+            setattr(self, attr, None)
+        for page in list(self._tab_frames.values()):
+            if hasattr(page, "stop"):
+                try:
+                    page.stop()
+                except Exception:
+                    pass
         super().destroy()
 
     def on_close(self):
         self.monitor.close()
         self.destroy()
 
-# Keep backward-compat alias
+
 # Backward compatibility alias
 GameOptimizerProWindow = GameOptimizerWindow

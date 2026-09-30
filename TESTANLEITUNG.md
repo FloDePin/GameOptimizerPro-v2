@@ -18,14 +18,43 @@ Profil übernommen (NVML las **288 W** zurück), gleiche Werte gingen ohne Neust
 | 7 | Test in der App | ja, Reset-Knopf vorhanden | 3 min | ✅ erledigt |
 | 7b | Neue Funktionen prüfen (Dashboard, Dienste, Deep Clean, 26H2-Tweaks) | teils | 10 min | ✅ erledigt — Befunde siehe unten |
 | 8 | Erster Auto-Tune | ja, Abbruch setzt zurück | 20–30 min | ✅ zweimal gelaufen (+179 MHz / 97 %; 2. Lauf mit Mem +1000 im Endtest durchgefallen) |
-| 8b | **Nach dem Update: Punkte unten abarbeiten** | ja | 30 min | offen |
+| 8b | **Nach dem Update (Runde 12): neue Oberfläche, FurMark/3DMark, Audio — Punkte unten** | ja | 30 min | offen |
 | 9 | Danach: im Alltag prüfen und als Standard setzen | ja | — | offen |
 
 **Wichtig für alle Schritte ab 3:** Kein Spiel und keine 3D-Anwendung offen lassen.
 
 ---
 
-## Jetzt (nach dem Update von Runde 10) — das solltest du tun
+## Jetzt (nach dem Update von Runde 12) — neue Oberfläche
+
+Die ganze Oberfläche ist neu (CustomTkinter). App einmal **schließen** (Tray-Symbol → Beenden)
+und über **`GameOptimizerPro.bat`** neu starten. Fehlt das neue Paket `customtkinter`, fragt die
+App beim Start einmal, ob sie es installieren soll → **Ja** (dauert 10–30 s).
+
+1. **Oberfläche:** Links ist jetzt eine Seitenleiste. Zieh das Fenster schmaler und breiter —
+   Texte brechen um, Karten ordnen sich in 1–4 Spalten an (Presets, BIOS-Guide, Dashboard),
+   nichts wird mehr abgeschnitten. **Strg+1 … Strg+9** springen zu den Seiten. Größe und
+   Position des Fensters bleiben nach einem Neustart erhalten.
+2. **GPU-Tuner:** Das **Tuner-Log** steht rechts und ist sofort sichtbar, auch im kleinen
+   Fenster. Das Mausrad über „Auto-Tune / Profile / Manuell“ schaltet nichts mehr um.
+3. **Stresstest → FurMark:** zeigt „✓ FurMark 2 (v2.10.2)“. Demo, Auflösung und Dauer wählen →
+   **FurMark starten**. Wenn FurMark fertig ist, steht unter „Live-GPU während des Tests“ die
+   Zusammenfassung (Spitzentemperatur, Takt unter Last, max. Leistung, Treiber-Reset ja/nein).
+   Nach einem Neustart der App ist FurMark weiterhin verknüpft.
+4. **Stresstest → 3DMark:** **3DMark starten** öffnet 3DMark über Steam. Den Test wählst du in
+   3DMark (z. B. einen Stresstest). GameOptimizerPro zeichnet mit, bis du 3DMark schließt.
+5. **Audio-Tweaks:** Optimizer → Audio → „Disable Audio Enhancements“ und „Exclusive Audio Lock“
+   anhaken → **Ausgewählte anwenden**. Im Log steht jetzt „… 3 von 3 Wiedergabegeraet(en)“;
+   nach **Status prüfen** sind beide grün, und nach einem PC-Neustart fragt der Dialog „Tweaks
+   nicht mehr aktiv“ nicht mehr danach.
+6. **Autostart** und **Dienste** sind jetzt Seiten in der Seitenleiste (keine eigenen Fenster).
+7. **Einstellungen:** Der Schalter „Tray-Standard-GPU-Profil beim Start automatisch laden“ wirkt
+   jetzt wirklich (vorher hatte der Haken keine Funktion).
+8. Sieht etwas abgeschnitten oder verrutscht aus: Screenshot an mich.
+
+---
+
+## Davor (Runde 10) — zur Erinnerung
 
 Deine Tests haben einiges aufgedeckt, alles ist behoben (Details: CHANGELOG, Runde 10).
 Der Ordner auf deinem PC ist schon aktuell — die App nur **einmal schließen** (Tray-Symbol →
@@ -192,14 +221,12 @@ wird alles zurückgesetzt.
 ## Schritt 7 — In der App testen
 
 1. **`GameOptimizerPro.bat`** starten (fragt nach Admin-Rechten → **Ja**).
-2. **Settings → Afterburner Setup Checker:** Alle Afterburner-Zeilen sollten ✓ zeigen.
-3. **GPU Tuner → Manual:** Core **+15**, Mem **0**, Power **90** → **Apply**. Afterburner
-   startet kurz neu, und in der Statuszeile steht „Applied — … (slot 2)“. In Afterburner
-   nachsehen.
-4. **Reset to Stock:** Afterburner steht danach wieder auf 0 / 100 %.
-5. **Stress Test → Internal Stress Test:** Dauer auf **60** stellen → **▶ Start Internal
-   Test**. Erwartet wird „✓ PASSED“ mit einer GPU-Last von über 90 %. Das beweist, dass cupy
-   arbeitet.
+2. **Einstellungen → Afterburner-Einrichtung:** Alle Afterburner-Zeilen sollten ✓ zeigen.
+3. **GPU-Tuner → Manuell:** Core **+15**, Mem **0**, Power **90** → **Anwenden**. Afterburner
+   startet kurz neu, und unten steht „Applied — … (slot 2)“. In Afterburner nachsehen.
+4. **Auf Standard zurücksetzen:** Afterburner steht danach wieder auf 0 / 100 %.
+5. **Stresstest → Interner Test:** Dauer auf **60** stellen → **Test starten**. Erwartet wird
+   „✓ PASSED“ mit einer GPU-Last von über 90 %. Das beweist, dass cupy arbeitet.
 
 ---
 
@@ -213,25 +240,28 @@ wird alles zurückgesetzt.
      anklicken → Erweiterte Anzeige → Bildwiederholrate **60 Hz**. Danach im Dashboard auf
      **⟳ Neu prüfen** klicken — die Zeilen werden wieder weiß statt orange.
    - Der Hauptmonitor läuft korrekt mit **165 Hz**.
-2. **Services Mgr** (Knopf unten rechts): Das Fenster listet 27 Dienste mit Status und
+2. **Dienste** (Seitenleiste): Die Seite listet 27 Dienste mit Status und
    Starttyp. Die meisten sind bei dir schon deaktiviert (aus v1). Nur ansehen reicht — wer
    etwas ändert: „Aktivieren“ stellt den ursprünglichen Starttyp wieder her (oder den
    Windows-Standard, wenn der Dienst schon vorher aus war).
    **Hinweis:** Bei dir sind **Druckwarteschlange** (Drucken, auch „Als PDF drucken“)
    und die **Xbox-Dienste** (Game Pass) aus. Falls du etwas davon brauchst: markieren →
-   **✓ Aktivieren (Original)**.
-3. **Settings → System Cleaner & Deep Clean:** erst ohne Haken **🔍 Scannen**, dann z. B.
-   ☑ Browser-Caches (Browser vorher schließen) → **🔍 Scannen**. Die Liste zeigt je Gruppe
-   Dateien und Größe. **🧹 Bereinigen** fragt vorher nach; der Papierkorb hat eine
+   **Aktivieren (Original)**.
+3. **Einstellungen → System Cleaner & Deep Clean:** erst ohne Haken **Scannen**, dann z. B.
+   ☑ Browser-Caches (Browser vorher schließen) → **Scannen**. Die Liste zeigt je Gruppe
+   Dateien und Größe. **Bereinigen** fragt vorher nach; der Papierkorb hat eine
    zusätzliche Rückfrage.
 4. **Optimizer → neue Tweaks (optional):** Unter *Privacy* stehen die 26H2-KI-Tweaks
    (Click to Do, Paint-KI, Notepad-KI, KI-Dienst), unter *Bloatware* „Microsoft-365-Copilot-App
-   & Dev Home entfernen“, unter *Speicher & RAM* die Speicher-Tweaks. Anhaken → **Apply
-   Selected** (davor läuft automatisch ein Registry-Backup) → danach **⟳ Check Status**:
-   die Punkte müssen grün werden. „Recall“ braucht einen Neustart.
+   & Dev Home entfernen“, unter *Speicher & RAM* die Speicher-Tweaks. Anhaken → **Ausgewählte
+   anwenden** (davor läuft automatisch ein Registry-Backup) → danach **Status prüfen**:
+   die Punkte müssen grün werden. „Recall“ braucht einen Neustart. Das Suchfeld oben rechts
+   findet Tweaks nach Name oder Beschreibung.
 5. **Drift-Prüfung:** erscheint nur, wenn ein früher angewendeter Tweak nicht mehr aktiv
-   ist (z. B. nach einem Windows-Update). Dann: **Ja** = erneut anwenden, **Nein** = als
-   nicht angewendet markieren, **Abbrechen** = beim nächsten Start wieder fragen.
+   ist (z. B. nach einem Windows-Update). Dann: **Haken** = erneut anwenden, **ohne Haken** =
+   als nicht angewendet markieren, **Später fragen** = beim nächsten Start wieder fragen.
+   Klappt das erneute Anwenden nicht, wird der Tweak als nicht angewendet markiert und nicht
+   bei jedem Start wieder nachgefragt.
 
 ---
 
@@ -325,10 +355,14 @@ lesen. Schreib mir einfach, was du gemacht hast, und dazu:
   seine Profildatei nur beim Start liest.
 - Der Tuner enthält auch eine V/F-Kurven-Stufe; die ist im GPU-Tab noch nicht auswählbar.
   (Die Speicher-Stufe schon: Haken „Speicher mit übertakten“.)
-- **Audio-Verbesserungen / Exklusiver Modus:** Windows' Audiodienst verwaltet diese Werte
-  selbst; direkt in die Registry geschrieben kamen sie auf dem Test-PC nicht an. Die Tweaks
-  prüfen das jetzt und melden es ehrlich. Bis zur Lösung: im Sound-Menü unter
-  Eigenschaften → Erweitert von Hand ausschalten.
+- **Audio-Verbesserungen / Exklusiver Modus:** Windows 11 26H2 sperrt diese Werte in der
+  Registry sogar für Administratoren. Die Tweaks gehen deshalb über die Windows-Audio-API
+  (wie die Sound-Systemsteuerung) und gelten für alle aktiven und abgesteckten
+  Wiedergabegeräte. Ein **später neu angeschlossenes** Gerät bekommt die Einstellung erst,
+  wenn du den Tweak erneut anwendest.
+- **3DMark:** Stresstests per Kommandozeile gibt es nur in der Professional Edition. Mit der
+  normalen Version startet GameOptimizerPro 3DMark über Steam, den Test wählst du selbst —
+  die App zeichnet währenddessen auf.
 - Der **Core-Offset** lässt sich nicht per NVML zurücklesen (der Treiber meldet
   Afterburners Offset dort nicht) — maßgeblich ist die Anzeige in Afterburner. Das
   **Power-Limit** wird dagegen per NVML geprüft.

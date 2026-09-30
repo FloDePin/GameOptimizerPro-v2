@@ -136,10 +136,10 @@ def s_clean2():
     check(len(CLEANED) == n, "answer 'No' -> nothing cleaned")
 
     print("services manager window")
-    from ui.services_manager import ServicesManagerWindow
+    from ui.services_manager import ServicesManagerPage
     global sw
-    sw = ServicesManagerWindow(root)
-    sw.attributes("-alpha", 0.0)
+    sw = ServicesManagerPage(root)            # a page in the main window now
+    st.pack_forget(); sw.pack(fill="both", expand=True)
 
 @step(800)
 def s_svc():
@@ -234,7 +234,8 @@ def s_dash():
     dlg2.vars["w11_taskbar_left"].set(False)            # the user keeps the centred taskbar
     Opt._vars["w11_taskbar_left"] = tk.BooleanVar(value=True)
     dlg2.submit()
-    check("w11_taskbar_left" not in R1._applied and not Opt._vars["w11_taskbar_left"].get() and R1.saved == 1,
+    # saved >= 1: the re-apply thread saves again (failed re-apply = not applied)
+    check("w11_taskbar_left" not in R1._applied and not Opt._vars["w11_taskbar_left"].get() and R1.saved >= 1,
           "unticked -> marked as not applied, state saved, optimizer box cleared")
 
 @step(1500)
@@ -243,6 +244,9 @@ def s_drift2():
     check(R1.applied == ["disable_telemetry", "disable_bing_search"], "then exactly the ticked ones re-applied")
     check(BOXES and BOXES[-1][0] == "showwarning" and "1 von 2" in BOXES[-1][2] and "Zugriff verweigert" in BOXES[-1][2],
           f"summary lists the failure: {BOXES[-1][2][:80] if BOXES else None!r}")
+    check("disable_bing_search" not in R1._applied and "disable_telemetry" in R1._applied and R1.saved >= 2,
+          "a failed re-apply is marked 'not applied' (no question at every start)")
+    check("keine erneute Nachfrage" in BOXES[-1][2], "the summary says so")
 
 def run(i=0):
     if i >= len(STEPS):

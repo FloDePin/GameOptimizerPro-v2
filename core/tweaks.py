@@ -26,6 +26,9 @@ class Tweak:
     timeout_s:   int = 60       # long one-time actions (Disk Cleanup/DISM) need more
 
 
+from core import audio_policy   # noqa: E402 — audio tweaks use the API
+
+
 def _power_all(sub: str, setting: str, ac: int, dc: int) -> str:
     """Baut ein PowerShell-Kommando, das eine powercfg-Einstellung in JEDES
     Energieschema schreibt (portiert aus v1: Set-PowerAllSchemes).
@@ -1216,31 +1219,27 @@ powercfg -setactive SCHEME_CURRENT
     Tweak(
         id="disable_audio_enhancements",
         name="Disable Audio Enhancements",
-        desc="Deaktiviert Windows Audio-Verbesserungen (Bass Boost, EQ etc.). "
-             "Reduziert Audio-Latenz und CPU-Last. Empfohlen fur Gaming.",
+        desc="Deaktiviert Windows Audio-Verbesserungen (Bass Boost, EQ etc.) auf allen "
+             "Wiedergabegeräten — über die Windows-Audio-Schnittstelle wie in den Sound-Einstellungen. "
+             "Reduziert Audio-Latenz und CPU-Last. Empfohlen für Gaming.",
         category="Audio", group="Latency",
-        # PKEY_AudioEndpoint_Disable_SysFx: ENDPOINT_SYSFX_DISABLED = 1 (it wrote 0 =
-        # enabled). The audio service owns this store: check that the value arrived.
-        ps_command='$n=0; $ok=0; foreach($k in @(Get-ChildItem \'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Render\' -EA SilentlyContinue)){ $p=Join-Path $k.PSPath \'Properties\'; if(-not (Test-Path $p)){ continue }; $n++; Set-ItemProperty -Path $p -Name \'{1da5d803-d492-4edd-8c23-e0c0ffee7f0e},5\' -Value 1 -Type DWord -EA SilentlyContinue; if((Get-ItemProperty -LiteralPath $p -EA SilentlyContinue).\'{1da5d803-d492-4edd-8c23-e0c0ffee7f0e},5\' -eq 1){ $ok++ } }; if($ok -gt 0){ Write-Output "Audioverbesserungen aus: $ok von $n Wiedergabegeraet(en)"; exit 0 }; Write-Output "Windows hat die Einstellung nicht uebernommen (0 von $n) - im Sound-Menue unter Eigenschaften > Erweitert > \'Audioverbesserungen\' ausschalten"; exit 1',
-        revert_cmd="$n=0; $ok=0; foreach($k in @(Get-ChildItem 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Render' -EA SilentlyContinue)){ $p=Join-Path $k.PSPath 'Properties'; if(-not (Test-Path $p)){ continue }; $n++; Set-ItemProperty -Path $p -Name '{1da5d803-d492-4edd-8c23-e0c0ffee7f0e},5' -Value 0 -Type DWord -EA SilentlyContinue; if((Get-ItemProperty -LiteralPath $p -EA SilentlyContinue).'{1da5d803-d492-4edd-8c23-e0c0ffee7f0e},5' -eq 0){ $ok++ } }; exit 0",
+        # Windows 11 locks the endpoint stores in the registry even for admins
+        # (probe: access denied). Set through the audio API like the Sound
+        # settings do: PKEY_AudioEndpoint_Disable_SysFx, 1 = disabled.
+        ps_command=audio_policy.ps_sysfx(True),
+        revert_cmd=audio_policy.ps_sysfx(False),
         risk="safe",
     ),
 
     Tweak(
         id="disable_audio_exclusive_lock",
         name="Disable Exclusive Audio Lock",
-        desc="Verhindert dass Games das Audiogeraet exklusiv sperren und Discord/Spotify stumm machen.",
+        desc="Verhindert, dass Spiele das Audiogerät exklusiv sperren und Discord/Spotify stumm machen "
+             "(„Exklusiver Modus“ aus, über die Windows-Audio-Schnittstelle).",
         category="Audio", group="Latency",
-        # The audio service owns this store: check that the values arrived.
-        ps_command='$n=0; $ok=0; foreach($k in @(Get-ChildItem \'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Render\' -EA SilentlyContinue)){ $p=Join-Path $k.PSPath \'Properties\'; if(-not (Test-Path $p)){ continue }; $n++; Set-ItemProperty -Path $p -Name \'{b3f8fa53-0004-438e-9003-51a46e139bfc},3\' -Value 0 -Type DWord -EA SilentlyContinue; Set-ItemProperty -Path $p -Name \'{b3f8fa53-0004-438e-9003-51a46e139bfc},4\' -Value 0 -Type DWord -EA SilentlyContinue; $r=Get-ItemProperty -LiteralPath $p -EA SilentlyContinue; if($r.\'{b3f8fa53-0004-438e-9003-51a46e139bfc},3\' -eq 0 -and $r.\'{b3f8fa53-0004-438e-9003-51a46e139bfc},4\' -eq 0){ $ok++ } }; if($ok -gt 0){ Write-Output "Exklusiv-Modus aus: $ok von $n Wiedergabegeraet(en)"; exit 0 }; Write-Output "Windows hat die Einstellung nicht uebernommen (0 von $n) - im Sound-Menue unter Eigenschaften > Erweitert > \'Exklusiver Modus\' ausschalten"; exit 1',
-        revert_cmd=(
-            "Get-ChildItem 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Render'"
-            " -EA SilentlyContinue | ForEach-Object {"
-            " $props = Join-Path $_.PSPath 'Properties';"
-            " if (Test-Path $props) {"
-            " Set-ItemProperty -Path $props -Name '{b3f8fa53-0004-438e-9003-51a46e139bfc},3' -Value 1 -EA SilentlyContinue;"
-            " Set-ItemProperty -Path $props -Name '{b3f8fa53-0004-438e-9003-51a46e139bfc},4' -Value 1 -EA SilentlyContinue } }"
-        ),
+        # Through the audio API as well (the registry store is locked).
+        ps_command=audio_policy.ps_exclusive(False),
+        revert_cmd=audio_policy.ps_exclusive(True),
         risk="safe",
     ),
 

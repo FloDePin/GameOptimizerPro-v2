@@ -30,7 +30,15 @@ from core.temp_monitor   import TempMonitor
 from core.update_checker import UpdateChecker
 from core                import i18n
 from core.app_launch     import gui_python, owns_console
-from ui.main_window      import GameOptimizerWindow
+try:
+    from ui.main_window  import GameOptimizerWindow
+except ImportError as _ui_err:
+    # The UI needs 'customtkinter' since v2.0 round 12 — an update via
+    # 'git pull' without install.bat must not end in a silent non-start
+    # (pythonw has no console). main() offers to install it.
+    if getattr(_ui_err, "name", "") not in ("customtkinter", "darkdetect", "packaging"):
+        raise
+    GameOptimizerWindow = None
 
 
 # ── Restart helper (used for language switch) ─────────────────────────────────
@@ -376,7 +384,8 @@ class GameOptimizerApp:
             crashed = self.sl.check_and_handle_crash(
                 on_crash_detected=self._show_crash_dialog
             )
-            if self.ab.available:
+            from core import app_settings
+            if self.ab.available and app_settings.get("load_startup_profile", True):
                 ok, msg = self.sl.load_startup_profile()
                 if ok:
                     print(f"[GameOptimizerPro] {msg}")
@@ -447,7 +456,42 @@ def main():
     if owns_console():
         relaunch_windowless([] if is_admin() else [NO_ADMIN_PROMPT])
 
+    if not ensure_ui_package():
+        sys.exit(1)
     GameOptimizerApp().run()
+
+
+def ensure_ui_package() -> bool:
+    """The UI is built with CustomTkinter. Missing (updated via 'git pull'
+    without running install.bat)? Offer to install it with pip right away."""
+    global GameOptimizerWindow
+    if GameOptimizerWindow is not None:
+        return True
+    de = i18n.current_lang() == "de"
+    msg = ("Die Oberfläche von GameOptimizerPro braucht jetzt das Python-Paket "
+           "'customtkinter'.\n\nJetzt automatisch installieren (pip, ca. 10–30 s)?" if de else
+           "GameOptimizerPro's interface now needs the Python package 'customtkinter'.\n\n"
+           "Install it automatically now (pip, about 10–30 s)?")
+    # MB_YESNO | MB_ICONQUESTION | MB_TOPMOST
+    if ctypes.windll.user32.MessageBoxW(0, msg, "GameOptimizerPro", 0x40024) != 6:
+        return False
+    import importlib
+    import subprocess
+    r = subprocess.run([sys.executable, "-m", "pip", "install", "customtkinter>=5.2"],
+                       capture_output=True, text=True, errors="replace",
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    importlib.invalidate_caches()
+    try:
+        from ui.main_window import GameOptimizerWindow as _W
+    except ImportError:
+        out = (r.stderr or r.stdout or "")[-700:]
+        ctypes.windll.user32.MessageBoxW(
+            0, ("Installation fehlgeschlagen — bitte install.bat ausführen.\n\n" if de else
+                "Installation failed — please run install.bat.\n\n") + out,
+            "GameOptimizerPro", 0x40010)          # MB_ICONERROR | MB_TOPMOST
+        return False
+    GameOptimizerWindow = _W
+    return True
 
 
 if __name__ == "__main__":

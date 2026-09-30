@@ -1,241 +1,207 @@
-"""GameOptimizerPro Dashboard Tab — Hardware overview + live GPU stats."""
+"""GameOptimizerPro Dashboard — hardware overview, optimisation score, live GPU
+and system values, network latency test."""
 
+import os
+import threading
+import time
 import tkinter as tk
-from tkinter import ttk
-import threading, time, os
-from typing import Optional
 
-from ui.widgets import *
-from core.hardware import HardwareInfo
+import customtkinter as ctk
+
 from core import network_test
+from core.hardware import HardwareInfo
+from ui.components import Card, GaugeBar, Page, ResponsiveGrid, WrapLabel, button, tile
+from ui.theme import (ACC, AMBER, BLUE, CARD_BG, CARD_BG2, CYAN, DIM, ERR, F_BB, F_MONO, F_S,
+                      F_XS, GREEN, PURPLE, RED, TEXT, TEXT2, VIOLET, icon_label, tr)
+
+VOLT = VIOLET
 
 
-class DashboardTab(tk.Frame):
+class DashboardTab(Page):
     def __init__(self, parent, hw: HardwareInfo, monitor, **kw):
-        super().__init__(parent, bg=BG1, **kw)
+        super().__init__(parent, "Dashboard",
+                         tr("Systemübersicht, Optimierungs-Score und Live-Werte",
+                            "System overview, optimisation score and live values"),
+                         color=RED, **kw)
         self.hw = hw
         self.monitor = monitor
         self._running = True
+        self._visible = True
         self._build()
         self._start_live()
 
-    def _build(self):
-        # Scrollable body — the tab is taller than a normal window, so the network
-        # test at the bottom was cut off. The inner frame follows the canvas
-        # width (cards/tiles keep stretching); the wheel works anywhere on it.
-        self._canvas = tk.Canvas(self, bg=BG1, highlightthickness=0)
-        sb = ttk.Scrollbar(self, orient="vertical", command=self._canvas.yview)
-        body = tk.Frame(self._canvas, bg=BG1)
-        win = self._canvas.create_window((0, 0), window=body, anchor="nw")
-        body.bind("<Configure>", lambda e: self._canvas.configure(
-            scrollregion=self._canvas.bbox("all")))
-        self._canvas.bind("<Configure>", lambda e: self._canvas.itemconfigure(
-            win, width=e.width))
-        self._canvas.configure(yscrollcommand=sb.set)
-        sb.pack(side="right", fill="y")
-        self._canvas.pack(side="left", fill="both", expand=True)
+    def on_show(self):
+        self._visible = True
 
-        # Title
-        hdr = tk.Frame(body, bg=BG1)
-        hdr.pack(fill="x", padx=14, pady=(12, 6))
-        tk.Label(hdr, text="System Overview", font=FT, fg=WHT, bg=BG1).pack(side="left")
+    def on_hide(self):
+        self._visible = False
+
+    # ── Layout ────────────────────────────────────────────────────────────────
+
+    def _build(self):
+        b = self.body
+        pad = dict(fill="x", padx=10, pady=(0, 14))
 
         # Hardware cards
-        cards = tk.Frame(body, bg=BG1)
-        cards.pack(fill="x", padx=14, pady=(0, 8))
-        cards.columnconfigure((0, 1, 2, 3), weight=1)
+        hw = self.hw
+        vram = (f"{round(hw.gpu_vram_mb / 1024)} GB" if hw.gpu_vram_mb >= 512 else f"{hw.gpu_vram_mb} MB")
+        grid = ResponsiveGrid(b, min_width=250, max_cols=4, gap=12)
+        grid.pack(**pad)
+        for icon, color, title, main, sub in (
+            ("chip", CYAN, "CPU", hw.cpu_name,
+             f"{hw.cpu_cores} Kerne / {hw.cpu_threads} Threads · {hw.cpu_freq_mhz} MHz"),
+            ("gpu", GREEN, "GPU", hw.gpu_name, f"{hw.gpu_vendor} · {vram} VRAM"),
+            ("bios", VIOLET, "RAM", f"{hw.ram_total_gb:.0f} GB {hw.ram_type}",
+             f"{hw.ram_slots_used} Module · {hw.ram_speed_mhz} MHz"),
+            ("monitor", AMBER, "Board / OS", f"{hw.mb_manufacturer} {hw.mb_product}".strip() or "—",
+             f"{'Windows 11' if hw.is_win11 else 'Windows 10' if hw.is_win10 else 'Windows'} · "
+             f"Build {hw.os_build} · NVMe: {str(hw.nvme_count) + 'x' if hw.has_nvme else tr('nein', 'no')}"),
+        ):
+            card = ctk.CTkFrame(grid, fg_color=CARD_BG, corner_radius=12, border_width=1,
+                                border_color="#242b36")
+            inner = tk.Frame(card, bg=CARD_BG)
+            inner.pack(fill="both", expand=True, padx=14, pady=12)
+            head = tk.Frame(inner, bg=CARD_BG)
+            head.pack(fill="x")
+            icon_label(head, icon, color, 12, bg=CARD_BG).pack(side="left", padx=(0, 6))
+            tk.Label(head, text=title, font=("Segoe UI Semibold", 8), fg=DIM, bg=CARD_BG).pack(side="left")
+            WrapLabel(inner, text=main, font=F_BB, fg=TEXT, bg=CARD_BG).pack(fill="x", pady=(6, 2))
+            WrapLabel(inner, text=sub, font=F_XS, fg=DIM, bg=CARD_BG).pack(fill="x")
+            grid.add(card)
 
-        hw_items = [
-            ("🖥  CPU",   self.hw.cpu_name,
-             f"{self.hw.cpu_cores}c/{self.hw.cpu_threads}t  {self.hw.cpu_freq_mhz}MHz  {self.hw.cpu_vendor}"),
-            ("🎮  GPU",   self.hw.gpu_name,
-             f"{self.hw.gpu_vendor}  {round(self.hw.gpu_vram_mb / 1024) if self.hw.gpu_vram_mb >= 512 else self.hw.gpu_vram_mb}{'GB' if self.hw.gpu_vram_mb >= 512 else 'MB'} VRAM"),
-            ("🔵  RAM",   f"{self.hw.ram_total_gb:.0f} GB {self.hw.ram_type}",
-             f"{self.hw.ram_slots_used} slots  {self.hw.ram_speed_mhz} MHz"),
-            ("🔧  Board", f"{self.hw.mb_manufacturer}",
-             f"{self.hw.mb_product}"),
-        ]
-        for i, (icon_label, main, sub) in enumerate(hw_items):
-            f = tk.Frame(cards, bg=BG2, padx=10, pady=10)
-            f.grid(row=0, column=i, padx=4, sticky="nsew")
-            tk.Label(f, text=icon_label, font=("Segoe UI", 8, "bold"),
-                     fg=ACC, bg=BG2).pack(anchor="w")
-            tk.Label(f, text=main[:32], font=("Segoe UI", 9, "bold"),
-                     fg=WHT, bg=BG2, wraplength=160, justify="left"
-                     ).pack(anchor="w", pady=(2, 0))
-            tk.Label(f, text=sub, font=FM, fg=DIM, bg=BG2, wraplength=160,
-                     justify="left").pack(anchor="w")
-
-        # OS + summary
-        os_f = tk.Frame(body, bg=BG2)
-        os_f.pack(fill="x", padx=14, pady=(0, 10))
-        os_label = (
-            f"OS: {self.hw.os_name}  (Build {self.hw.os_build})"
-            f"  |  NVMe: {'Yes (' + str(self.hw.nvme_count) + 'x)' if self.hw.has_nvme else 'No'}"
-            f"  |  {'Windows 11' if self.hw.is_win11 else 'Windows 10' if self.hw.is_win10 else 'Windows'}"
-        )
-        tk.Label(os_f, text=os_label, font=FM, fg=DIM, bg=BG2,
-                 anchor="w", padx=10, pady=6).pack(fill="x")
-
-        # ── Optimization score + monitor advisor (v1) ─────────────────────
-        SecHdr(body, "Optimierung & Monitor").pack(fill="x", padx=14, pady=(2, 4))
-        opt_f = tk.Frame(body, bg=BG2, padx=10, pady=8)
-        opt_f.pack(fill="x", padx=14, pady=(0, 10))
-        sc_row = tk.Frame(opt_f, bg=BG2)
-        sc_row.pack(fill="x")
-        tk.Label(sc_row, text="Optimierungs-Score:", font=FL, fg=ACC, bg=BG2,
-                 width=20, anchor="w").pack(side="left")
-        self.lbl_score = tk.Label(sc_row, text="wird geprüft …", font=FM, fg=DIM, bg=BG2,
-                                  anchor="w")
-        self.lbl_score.pack(side="left", fill="x", expand=True)
-        self.btn_score = tk.Button(sc_row, text="⟳ Neu prüfen", font=FM, bg=BG3, fg=TXT,
-                                   relief="flat", padx=8, pady=2, cursor="hand2",
-                                   command=self._refresh_score)
+        # Optimisation score + monitors (v1)
+        sc = Card(b, tr("Optimierung & Monitor", "Optimisation & monitor"), accent=RED)
+        sc.pack(**pad)
+        self.btn_score = button(sc.actions, tr("Neu prüfen", "Check again"), self._refresh_score,
+                                height=28)
         self.btn_score.pack(side="right")
-        tk.Label(opt_f, text="Anteil der sicheren, auf diesem PC anwendbaren Tweaks, die laut "
-                             "Systemprüfung gerade aktiv sind (moderate/riskante zählen nicht).",
-                 font=FM, fg=DIM, bg=BG2, anchor="w", justify="left",
-                 wraplength=760).pack(fill="x", pady=(2, 6))
-        self._mon_rows = tk.Frame(opt_f, bg=BG2)
+        row = tk.Frame(sc.body, bg=CARD_BG)
+        row.pack(fill="x")
+        self.lbl_score = tk.Label(row, text=tr("wird geprüft …", "checking …"), font=F_BB, fg=DIM,
+                                  bg=CARD_BG, anchor="w")
+        self.lbl_score.pack(side="left", fill="x", expand=True)
+        self.score_bar = ctk.CTkProgressBar(sc.body, height=8, corner_radius=4, progress_color=GREEN)
+        self.score_bar.set(0)
+        self.score_bar.pack(fill="x", pady=(8, 6))
+        WrapLabel(sc.body, text=tr("Anteil der sicheren, auf diesem PC anwendbaren Tweaks, die laut "
+                                   "Systemprüfung gerade aktiv sind (moderate/riskante zählen nicht).",
+                                   "Share of the safe tweaks that fit this PC and are active right now "
+                                   "according to the system check (moderate/risky ones don't count)."),
+                  font=F_XS, fg=DIM, bg=CARD_BG).pack(fill="x", pady=(0, 8))
+        self._mon_rows = tk.Frame(sc.body, bg=CARD_BG)
         self._mon_rows.pack(fill="x")
 
-        # Live GPU stats section
-        SecHdr(body, "Live GPU Telemetry").pack(fill="x", padx=14, pady=(6, 4))
-
-        # Voltage hero
-        volt_row = tk.Frame(body, bg=BG1)
-        volt_row.pack(fill="x", padx=14, pady=(0, 6))
-
-        vbox = tk.Frame(volt_row, bg=BG2, padx=20, pady=12)
-        vbox.pack(side="left", padx=(0, 8))
-        tk.Label(vbox, text="CORE VOLTAGE", font=("Segoe UI", 8, "bold"),
-                 fg=DIM, bg=BG2).pack()
-        self.lbl_volt = tk.Label(vbox, text="-- mV", font=("Consolas", 22, "bold"),
-                                 fg=VOLT, bg=BG2)
+        # Live GPU telemetry
+        gpu = Card(b, tr("Live-GPU-Werte", "Live GPU telemetry"), accent=CYAN)
+        gpu.pack(**pad)
+        tiles = ResponsiveGrid(gpu.body, min_width=112, max_cols=6, gap=8, bg=CARD_BG)
+        tiles.pack(fill="x")
+        vf = ctk.CTkFrame(tiles, fg_color=CARD_BG2, corner_radius=10)
+        vin = tk.Frame(vf, bg=CARD_BG2)
+        vin.pack(fill="both", expand=True, padx=10, pady=8)
+        tk.Label(vin, text=tr("Kernspannung", "Core voltage"), font=F_XS, fg=DIM, bg=CARD_BG2).pack()
+        self.lbl_volt = tk.Label(vin, text="-- mV", font=("Consolas", 18, "bold"), fg=VOLT, bg=CARD_BG2)
         self.lbl_volt.pack()
-        self.lbl_volt_src = tk.Label(vbox, text="via MAHM", font=FM, fg=DIM, bg=BG2)
+        self.lbl_volt_src = tk.Label(vin, text="via MAHM", font=("Consolas", 8), fg=DIM, bg=CARD_BG2)
         self.lbl_volt_src.pack()
-
-        # Live tiles
-        tiles_f = tk.Frame(volt_row, bg=BG1)
-        tiles_f.pack(side="left", fill="x", expand=True)
-        tiles_f.columnconfigure((0, 1, 2, 3, 5), weight=1)
-
+        tiles.add(vf)
         self._tiles = {}
-        tile_defs = [
-            ("temp",    "Temp",     "°C",  ERR),
-            ("core",    "Core",     "MHz", ACC),
-            ("mem_clk", "Memory",   "MHz", ACC),
-            ("power",   "Power",    "W",   WRN),
-            ("usage",   "GPU Load", "%",   OK),
-        ]
-        for i, (key, label, unit, color) in enumerate(tile_defs):
-            f, vl = mk_tile(tiles_f, label, "--", color, unit)
-            f.grid(row=0, column=i, padx=3, sticky="nsew")
+        for key, label, unit, color in (
+            ("temp",    tr("Temperatur", "Temp"), "°C",  ERR),
+            ("core",    "Core",                   "MHz", ACC),
+            ("mem_clk", tr("Speicher", "Memory"), "MHz", CYAN),
+            ("power",   tr("Leistung", "Power"),  "W",   AMBER),
+            ("usage",   tr("GPU-Last", "GPU load"), "%", GREEN),
+        ):
+            f, vl = tile(tiles, label, "--", color, unit)
+            tiles.add(f)
             self._tiles[key] = vl
 
-        # Gauge bars
-        bar_f = tk.Frame(body, bg=BG1)
-        bar_f.pack(fill="x", padx=14, pady=4)
-
-        self.bar_temp  = HBar(bar_f, "Temperature", "°C", ERR)
-        self.bar_fan   = HBar(bar_f, "Fan Speed",   "%",  ACC2)
-        self.bar_power = HBar(bar_f, "Power Draw",  "W",  WRN)
-        self.bar_core  = HBar(bar_f, "Core Clock",  "MHz",ACC)
-        self.bar_vram  = HBar(bar_f, "VRAM Used",   "MB", ACC2)
-        for b in (self.bar_temp, self.bar_fan, self.bar_power,
-                  self.bar_core, self.bar_vram):
-            b.pack(fill="x", padx=4, pady=2)
-
-        # Throttle
-        thr = tk.Frame(bar_f, bg=BG1)
-        thr.pack(fill="x", padx=8, pady=(4, 2))
-        tk.Label(thr, text="Throttle:", font=FL, fg=DIM, bg=BG1).pack(side="left")
-        self.lbl_throttle = tk.Label(thr, text="None", font=FM, fg=OK, bg=BG1)
+        bars = tk.Frame(gpu.body, bg=CARD_BG)
+        bars.pack(fill="x", pady=(10, 0))
+        self.bar_temp  = GaugeBar(bars, tr("Temperatur", "Temperature"), "°C", ERR)
+        self.bar_fan   = GaugeBar(bars, tr("Lüfter", "Fan speed"), "%", CYAN)
+        self.bar_power = GaugeBar(bars, tr("Leistung", "Power draw"), "W", AMBER)
+        self.bar_core  = GaugeBar(bars, "Core Clock", "MHz", ACC)
+        self.bar_vram  = GaugeBar(bars, tr("VRAM belegt", "VRAM used"), "MB", PURPLE)
+        for bar in (self.bar_temp, self.bar_fan, self.bar_power, self.bar_core, self.bar_vram):
+            bar.pack(fill="x", pady=1)
+        thr = tk.Frame(gpu.body, bg=CARD_BG)
+        thr.pack(fill="x", pady=(8, 0))
+        tk.Label(thr, text="Throttle:", font=F_S, fg=DIM, bg=CARD_BG).pack(side="left")
+        self.lbl_throttle = tk.Label(thr, text="None", font=F_MONO, fg=GREEN, bg=CARD_BG)
         self.lbl_throttle.pack(side="left", padx=8)
 
-        # ── System (CPU / RAM / Disk) ───────────────────────────────────────
-        SecHdr(body, "System").pack(fill="x", padx=14, pady=(10, 4))
-        sys_f = tk.Frame(body, bg=BG1)
-        sys_f.pack(fill="x", padx=14, pady=(0, 4))
-        sys_f.columnconfigure((0, 1, 2), weight=1)
+        # System + network side by side (stacked when narrow)
+        duo = ResponsiveGrid(b, min_width=380, max_cols=2, gap=14)
+        duo.pack(**pad)
+        sysc = Card(duo, "System", accent=VIOLET)
+        duo.add(sysc)
+        st = ResponsiveGrid(sysc.body, min_width=90, max_cols=3, gap=8, bg=CARD_BG)
+        st.pack(fill="x")
         self._sys_tiles = {}
-        for i, (key, label, unit, color) in enumerate([
-                ("cpu",  "CPU",      "%", ACC),
-                ("ram",  "RAM",      "%", ACC2),
-                ("disk", "Disk C:",  "%", WRN)]):
-            f, vl = mk_tile(sys_f, label, "--", color, unit)
-            f.grid(row=0, column=i, padx=3, sticky="nsew")
+        for key, label, color in (("cpu", "CPU", ACC), ("ram", "RAM", VIOLET), ("disk", tr("Laufwerk C:", "Disk C:"), AMBER)):
+            f, vl = tile(st, label, "--", color, "%")
+            st.add(f)
             self._sys_tiles[key] = vl
 
-        # ── Network latency test ────────────────────────────────────────────
-        SecHdr(body, "Network Latency Test").pack(fill="x", padx=14, pady=(10, 4))
-        net_f = tk.Frame(body, bg=BG1)
-        net_f.pack(fill="x", padx=14, pady=(0, 10))
-
-        top = tk.Frame(net_f, bg=BG1)
-        top.pack(fill="x")
-        self.btn_nettest = tk.Button(
-            top, text="▶  Test starten", font=("Segoe UI", 9, "bold"),
-            bg=ACC, fg="#04121a", activebackground="#33e0ff", relief="flat",
-            padx=14, pady=4, cursor="hand2", command=self._run_nettest)
-        self.btn_nettest.pack(side="left")
-        self.lbl_nettest_hint = tk.Label(
-            top, text="Ping zu Gateway, Cloudflare (1.1.1.1) und Google (8.8.8.8)",
-            font=FM, fg=DIM, bg=BG1)
-        self.lbl_nettest_hint.pack(side="left", padx=10)
-
-        self._net_rows = tk.Frame(net_f, bg=BG1)
-        self._net_rows.pack(fill="x", pady=(6, 0))
+        net = Card(duo, tr("Netzwerk-Latenz", "Network latency"), accent=BLUE)
+        duo.add(net)
+        self.btn_nettest = button(net.actions, tr("Test starten", "Run test"), self._run_nettest,
+                                  kind="primary", color=ACC, height=28)
+        self.btn_nettest.pack(side="right")
+        self.lbl_nettest_hint = WrapLabel(net.body, text=tr(
+            "Ping zu Gateway, Cloudflare (1.1.1.1) und Google (8.8.8.8)",
+            "Ping to the gateway, Cloudflare (1.1.1.1) and Google (8.8.8.8)"),
+            font=F_XS, fg=DIM, bg=CARD_BG)
+        self.lbl_nettest_hint.pack(fill="x", pady=(0, 6))
+        self._net_rows = tk.Frame(net.body, bg=CARD_BG)
+        self._net_rows.pack(fill="x")
         self._net_labels = {}
         for key in ("Gateway (Router)", "Cloudflare", "Google DNS"):
-            row = tk.Frame(self._net_rows, bg=BG2)
-            row.pack(fill="x", pady=2)
-            name = tk.Label(row, text=key, font=FL, fg=WHT, bg=BG2,
-                            width=18, anchor="w", padx=10, pady=4)
-            name.pack(side="left")
-            val = tk.Label(row, text="—", font=FM, fg=DIM, bg=BG2, anchor="w")
-            val.pack(side="left", fill="x", expand=True)
+            r = ctk.CTkFrame(self._net_rows, fg_color=CARD_BG2, corner_radius=8)
+            r.pack(fill="x", pady=2)
+            inner = tk.Frame(r, bg=CARD_BG2)
+            inner.pack(fill="x", padx=10, pady=5)
+            tk.Label(inner, text=key, font=F_BB, fg=TEXT, bg=CARD_BG2, anchor="w").pack(fill="x")
+            val = WrapLabel(inner, text="—", font=F_MONO, fg=DIM, bg=CARD_BG2)
+            val.pack(fill="x")
             self._net_labels[key] = val
 
-        self._bind_wheel(self._canvas)
         self._refresh_monitors()          # instant (~40 ms)
         # The score runs ~5 s of PowerShell checks: start it after the UI is up.
         self.after(1500, lambda: self._refresh_score(monitors=False))
 
-    def _on_wheel(self, e):
-        # Only scroll when the content is taller than the visible area.
-        if self._canvas.yview() != (0.0, 1.0):
-            self._canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
+    # ── Score / monitor ───────────────────────────────────────────────────────
 
-    def _bind_wheel(self, widget):
-        widget.bind("<MouseWheel>", self._on_wheel)
-        for child in widget.winfo_children():
-            self._bind_wheel(child)
-
-    # ── Score / monitor ────────────────────────────────────────────────
     def _refresh_score(self, monitors: bool = True):
-        self.btn_score.config(state="disabled")
-        self.lbl_score.config(text="wird geprüft …", fg=DIM)
+        self.btn_score.configure(state="disabled")
+        self.lbl_score.config(text=tr("wird geprüft …", "checking …"), fg=DIM)
         if monitors:                      # button: also re-read the refresh rates
             self._refresh_monitors()
 
         def work():
+            pct = 0.0
             try:
                 from core import optimization_score
                 r = optimization_score.compute_score(self.hw)
-                bar = "█" * round(r.score / 10) + "░" * (10 - round(r.score / 10))
-                txt = f"{r.score} %   {bar}   ({r.active}/{r.checkable} sichere Tweaks aktiv"
-                txt += f", {r.unknown} nicht prüfbar)" if r.unknown else ")"
-                col = OK if r.score >= 80 else (WRN if r.score >= 50 else ERR)
+                txt = f"{r.score} %   ·   {r.active}/{r.checkable} sichere Tweaks aktiv"
+                txt += f", {r.unknown} nicht prüfbar" if r.unknown else ""
+                col = GREEN if r.score >= 80 else (AMBER if r.score >= 50 else ERR)
+                pct = r.score / 100
             except Exception as e:
-                txt, col = f"Prüfung fehlgeschlagen: {e}", WRN
+                txt, col = f"Prüfung fehlgeschlagen: {e}", AMBER
             try:
-                self.after(0, lambda: (self.lbl_score.config(text=txt, fg=col),
-                                       self.btn_score.config(state="normal")))
+                self.after(0, lambda: self._show_score(txt, col, pct))
             except Exception:
                 pass
         threading.Thread(target=work, daemon=True).start()
+
+    def _show_score(self, txt, col, pct):
+        self.lbl_score.config(text=txt, fg=col)
+        self.score_bar.configure(progress_color=col)
+        self.score_bar.set(pct)
+        self.btn_score.configure(state="normal")
 
     def _refresh_monitors(self):
         from core import display_info
@@ -246,19 +212,22 @@ class DashboardTab(tk.Frame):
         except Exception:
             shown = []
         if not shown:
-            tk.Label(self._mon_rows, text="Monitor: Bildwiederholrate nicht ermittelbar",
-                     font=FM, fg=DIM, bg=BG2, anchor="w").pack(fill="x")
+            tk.Label(self._mon_rows, text=tr("Monitor: Bildwiederholrate nicht ermittelbar",
+                                             "Monitor: refresh rate unknown"),
+                     font=F_S, fg=DIM, bg=CARD_BG, anchor="w").pack(fill="x")
         for n, d in enumerate(shown, 1):
-            row = tk.Frame(self._mon_rows, bg=BG2)
-            row.pack(fill="x", pady=1)
-            tk.Label(row, text=f"Monitor {n}{' (primär)' if d.primary else ''}:", font=FL,
-                     fg=ACC, bg=BG2, width=20, anchor="w").pack(side="left")
-            tk.Label(row, text=d.advice(), font=FM, fg=WRN if d.below_max else TXT, bg=BG2,
-                     anchor="w", justify="left", wraplength=640).pack(side="left", fill="x")
-        self._bind_wheel(self._mon_rows)
+            row = tk.Frame(self._mon_rows, bg=CARD_BG)
+            row.pack(fill="x", pady=2)
+            icon_label(row, "monitor", AMBER if d.below_max else ACC, 11, bg=CARD_BG).pack(side="left", padx=(0, 8), anchor="n")
+            tk.Label(row, text=f"Monitor {n}{' (primär)' if d.primary else ''}", font=F_BB,
+                     fg=TEXT, bg=CARD_BG, width=17, anchor="nw").pack(side="left", anchor="n")
+            WrapLabel(row, text=d.advice(), font=F_S, fg=AMBER if d.below_max else TEXT2,
+                      bg=CARD_BG).pack(side="left", fill="x", expand=True)
+
+    # ── Network ───────────────────────────────────────────────────────────────
 
     def _run_nettest(self):
-        self.btn_nettest.config(state="disabled", text="⏳  Läuft…")
+        self.btn_nettest.configure(state="disabled", text=tr("Läuft …", "Running …"))
         for lbl in self._net_labels.values():
             lbl.config(text="…", fg=DIM)
 
@@ -272,7 +241,7 @@ class DashboardTab(tk.Frame):
         threading.Thread(target=work, daemon=True).start()
 
     def _show_nettest(self, results):
-        colmap = {"excellent": OK, "good": OK, "ok": WRN, "poor": ERR, "unknown": DIM}
+        colmap = {"excellent": GREEN, "good": GREEN, "ok": AMBER, "poor": ERR, "unknown": DIM}
         for r in results:
             lbl = self._net_labels.get(r.label)
             if not lbl:
@@ -280,14 +249,14 @@ class DashboardTab(tk.Frame):
             if r.reachable:
                 rating = network_test.rate_latency(r.avg_ms)
                 lbl.config(
-                    text=(f"{r.avg_ms:.0f} ms  Ø   "
-                          f"(min {r.min_ms:.0f} / max {r.max_ms:.0f})   "
-                          f"Jitter {r.jitter_ms:.0f} ms   "
-                          f"Verlust {r.loss_pct:.0f}%   [{r.host}]"),
+                    text=(f"{r.avg_ms:.0f} ms Ø  (min {r.min_ms:.0f} / max {r.max_ms:.0f})  ·  "
+                          f"Jitter {r.jitter_ms:.0f} ms  ·  Verlust {r.loss_pct:.0f}%  ·  {r.host}"),
                     fg=colmap.get(rating, DIM))
             else:
-                lbl.config(text=f"nicht erreichbar — {r.error}   [{r.host}]", fg=ERR)
-        self.btn_nettest.config(state="normal", text="▶  Test starten")
+                lbl.config(text=f"nicht erreichbar — {r.error}  ·  {r.host}", fg=ERR)
+        self.btn_nettest.configure(state="normal", text=tr("Test starten", "Run test"))
+
+    # ── Live values ───────────────────────────────────────────────────────────
 
     def _start_live(self):
         try:
@@ -297,8 +266,12 @@ class DashboardTab(tk.Frame):
             self._sysdrive = (os.environ.get("SystemDrive", "C:") + "\\")
         except Exception:
             self._psutil = None
+
         def loop():
             while self._running:
+                if not self._visible:            # hidden page: no sensor reads
+                    time.sleep(0.5)
+                    continue
                 try:
                     s = self.monitor.read()
                     self.after(0, self._update, s)
@@ -310,44 +283,38 @@ class DashboardTab(tk.Frame):
                         except Exception:
                             disk = 0.0
                         self.after(0, self._update_sys, cpu, ram, disk)
-                except: pass
+                except Exception:
+                    pass
                 time.sleep(1.0)
         threading.Thread(target=loop, daemon=True).start()
 
     def _update_sys(self, cpu, ram, disk):
         if "cpu" not in self._sys_tiles:
             return
-        cc = ERR if cpu >= 90 else WRN if cpu >= 70 else ACC
-        self._sys_tiles["cpu"].config(text=f"{cpu:.0f}", fg=cc)
-        rc = ERR if ram >= 90 else WRN if ram >= 80 else ACC2
-        self._sys_tiles["ram"].config(text=f"{ram:.0f}", fg=rc)
-        dc = ERR if disk >= 95 else WRN if disk >= 85 else OK
-        self._sys_tiles["disk"].config(text=f"{disk:.0f}", fg=dc)
+        self._sys_tiles["cpu"].config(text=f"{cpu:.0f}", fg=ERR if cpu >= 90 else AMBER if cpu >= 70 else ACC)
+        self._sys_tiles["ram"].config(text=f"{ram:.0f}", fg=ERR if ram >= 90 else AMBER if ram >= 80 else VIOLET)
+        self._sys_tiles["disk"].config(text=f"{disk:.0f}", fg=ERR if disk >= 95 else AMBER if disk >= 85 else GREEN)
 
     def _update(self, s):
-        # Voltage
         if s.voltage_mv > 0:
             self.lbl_volt.config(text=f"{s.voltage_mv:.0f} mV", fg=VOLT)
             self.lbl_volt_src.config(text="via MAHM", fg=DIM)
         else:
             self.lbl_volt.config(text="-- mV", fg=DIM)
-            self.lbl_volt_src.config(
-                text="Enable 'Unlock voltage monitoring' in AB", fg=WRN)
+            self.lbl_volt_src.config(text=tr("In AB 'Spannungsüberwachung' freischalten",
+                                             "Enable 'Unlock voltage monitoring' in AB"), fg=AMBER)
 
-        # Tiles
-        tc = ERR if s.temp >= 80 else WRN if s.temp >= 70 else ACC
-        self._tiles["temp"].config(text=str(s.temp), fg=tc)
-        self._tiles["core"].config(   text=f"{s.core_mhz:.0f}")
-        self._tiles["mem_clk"].config( text=f"{s.mem_mhz:.0f}")
-        self._tiles["power"].config(  text=f"{s.gpu_power_w:.0f}")
-        self._tiles["usage"].config(  text=f"{s.gpu_usage:.0f}")
+        self._tiles["temp"].config(text=str(s.temp), fg=ERR if s.temp >= 80 else AMBER if s.temp >= 70 else ACC)
+        self._tiles["core"].config(text=f"{s.core_mhz:.0f}")
+        self._tiles["mem_clk"].config(text=f"{s.mem_mhz:.0f}")
+        self._tiles["power"].config(text=f"{s.gpu_power_w:.0f}")
+        self._tiles["usage"].config(text=f"{s.gpu_usage:.0f}")
 
-        # Bars
-        self.bar_temp.set( s.temp,        s.temp_limit_c or 100)
-        self.bar_fan.set(  s.fan_pct,     100)
+        self.bar_temp.set(s.temp, s.temp_limit_c or 100)
+        self.bar_fan.set(s.fan_pct, 100)
         self.bar_power.set(s.gpu_power_w, s.power_max_w or 400)
-        self.bar_core.set( s.core_mhz,    3000)
-        # Use NVML vram_total if WMI returned wrong value
+        self.bar_core.set(s.core_mhz, 3000)
+        # Use NVML vram_total if WMI returned a wrong value
         vram_max = s.vram_total_mb if s.vram_total_mb > 100 else max(self.hw.gpu_vram_mb, 1)
         self.bar_vram.set(s.vram_used_mb, max(vram_max, 1))
 
@@ -355,9 +322,9 @@ class DashboardTab(tk.Frame):
         # the power limit under load is normal GPU Boost behaviour.
         if s.throttle and s.throttle != "None":
             self.lbl_throttle.config(text=s.throttle,
-                                     fg=WRN if getattr(s, "throttle_protective", True) else TXT)
+                                     fg=AMBER if getattr(s, "throttle_protective", True) else TEXT)
         else:
-            self.lbl_throttle.config(text="None", fg=OK)
+            self.lbl_throttle.config(text="None", fg=GREEN)
 
     def stop(self):
         self._running = False

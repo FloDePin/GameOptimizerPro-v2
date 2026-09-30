@@ -19,6 +19,13 @@
 
 ## ✨ Features
 
+### 🖥 Oberfläche
+- **Moderne dunkle Oberfläche mit CustomTkinter** — Seitenleiste mit Symbolen, abgerundete Karten, dunkle Titelleiste
+- **Passt sich der Fensterbreite an** — Texte brechen um, Kartenraster ordnen sich in 1 bis 4 Spalten an (Preset-Liste, BIOS-Guide, Dashboard); nichts wird mehr bei festen Breiten abgeschnitten
+- Das **Log des GPU-Tuners ist bei jeder Fenstergröße sichtbar**; Unterseiten wechseln über Umschaltleisten (das Mausrad blättert nicht mehr versehentlich Tabs um)
+- Merkt sich Fenstergröße und -position; **Strg+1 … Strg+9** springen zu den Seiten; Seiten entstehen beim ersten Öffnen, ausgeblendete Seiten fragen keine Sensoren ab
+- Die Optimizer-Liste hat ein **Suchfeld**; Zeilen werden unter dem Mauszeiger hervorgehoben, ein Klick auf die ganze Zeile setzt den Haken
+
 ### 🎮 GPU Auto-Tuner
 - **3 Tune-Modi:** Nur Overclock, Nur Undervolt, OC + UV (empfohlen)
 - **So sucht er:** erhöht den Core-Offset schrittweise (z. B. +15 MHz); bei einem Fehlschlag geht er auf den **letzten stabilen Wert zurück und halbiert die Schrittweite** (15 → 7 → 5 MHz) und landet so mit ±5 MHz Genauigkeit an der Stabilitätsgrenze. Das Power-Limit sinkt bis zum **niedrigsten Wert, der unter Volllast höchstens 3 % Leistung kostet**. Ein 2-Minuten-Endtest prüft genau das Profil, das gespeichert wird.
@@ -37,10 +44,12 @@
 
 ### ⚡ Stress Test
 - **Interner Stabilitätstest** — eingebauter GPU/CPU-Stress-Worker mit einstellbarer Dauer und **Auto-Abbruch bei Max-Temperatur**; inkl. Dead-Man-Switch, damit nie ein verwaister 100%-CPU-Prozess zurückbleibt. Schlägt bei **falschen Ergebnissen (Rechenfehlern)**, **Worker-Absturz oder TDR** fehl, meldet die **durchschnittliche GPU-Last** und sagt klar „kein GPU-Stress" statt „bestanden", wenn die GPU nicht ausgelastet war (kein `cupy`); ein gestoppter Test liefert kein Ergebnis
-- **FurMark-Launcher** — erkennt eine FurMark-Installation automatisch, Auflösung wählen, Ein-Klick-Start für einen härteren GPU-Burn-in
+- **FurMark 1 und FurMark 2** — gefunden neben der App, in den üblichen Installationsordnern oder dort, wohin du zeigst (bleibt nach einem Neustart gespeichert), mit Versionsanzeige; FurMark 2 bekommt seine eigene Kommandozeile (`--demo … --max-time …`) mit **Demo-Auswahl** (OpenGL / Vulkan, Knot), Auflösung inkl. deiner nativen und Dauer
+- **3DMark** — in jeder Steam-Bibliothek gefunden (oder als Standalone-Installation), Start über Steam; den Test wählst du in 3DMark (Stresstests per Kommandozeile gibt es nur in der Professional Edition)
+- **Aufzeichnung während FurMark / 3DMark läuft** — Spitzentemperatur, durchschnittlicher und minimaler Takt unter Last, maximale Leistung und **Treiber-Resets (TDR)**, mit Zusammenfassung am Ende („kein Treiber-Reset“ / „nicht stabil!“)
 
 ### 🔊 Audio-Optimierung
-- **Low-Latency-Audio-Tweaks** für Gaming — Audio-Verbesserungen deaktivieren, exklusive Audio-Sperre aufheben
+- **Low-Latency-Audio-Tweaks** für Gaming — Audio-Verbesserungen deaktivieren, exklusive Audio-Sperre aufheben. Windows 11 (26H2) sperrt diese Geräte-Einstellungen in der Registry sogar für Administratoren — beide Tweaks gehen deshalb über die **Windows-Audio-API** (IPolicyConfig, wie die Sound-Systemsteuerung) und lesen den Wert danach zurück
 - **System-Sound-Optimierung** — Nahimic-Dienst deaktivieren, Windows-Soundschema deaktivieren
 - **Audio-CPU-Priorität** — MMCSS Pro-Audio-Priorität maximieren für verzerrungsfreies Audio unter Last
 - **Audio-Ducking-Kontrolle** — verhindert, dass Discord/Musik von Spielen stummgeschaltet wird
@@ -120,12 +129,12 @@
 - Gespeicherte GPU-Profile schnell anwenden, GPU auf Stock zurücksetzen oder öffnen/beenden — alles aus dem Tray-Menü
 
 ### ⚙ Services Manager
-- Eigenes Fenster mit 29 selten benötigten Windows-Diensten (Telemetrie, Xbox, Fax, Karten, Hyper-V, der KI-Host aus 24H2/26H2 …) — Live-Status, Starttyp, Kategorie und Einstufung sicher/Vorsicht
+- Seite in der Seitenleiste mit 29 selten benötigten Windows-Diensten (Telemetrie, Xbox, Fax, Karten, Hyper-V, der KI-Host aus 24H2/26H2 …) — Live-Status, Starttyp, Kategorie und Einstufung sicher/Vorsicht
 - **Deaktivieren merkt sich den ursprünglichen Starttyp** (inkl. „Automatisch (verzögert)“), **Aktivieren stellt ihn wieder her** (oder den Windows-Standard) — nicht einfach „Manuell“
 - Extra-Rückfrage bei Diensten, die eine Funktion abschalten (Druckwarteschlange, Windows Update, BITS, die Xbox-Dienste für Game-Pass-Spiele); ohne Admin-Rechte nur Anzeige; Link zu `services.msc`
 
 ### 🚀 Startup Manager
-- Eigenes Fenster mit allen Autostart-Einträgen — **Run-Keys (HKCU, HKLM, HKLM 32-Bit) und beide Autostart-Ordner** (Benutzer + alle Nutzer, `.lnk`-Ziele aufgelöst)
+- Seite in der Seitenleiste mit allen Autostart-Einträgen — **Run-Keys (HKCU, HKLM, HKLM 32-Bit) und beide Autostart-Ordner** (Benutzer + alle Nutzer, `.lnk`-Ziele aufgelöst)
 - Zeigt den **echten An/Aus-Zustand** und kann Einträge **aktivieren / deaktivieren** (Mehrfachauswahl) — genau wie der Task-Manager: gesetzt wird nur das Windows-`StartupApproved`-Flag, nichts wird gelöscht, jede Änderung ist hier oder im Task-Manager umkehrbar
 - Rückfrage vor dem Deaktivieren, mit Extra-Warnung bei System-/nicht empfohlenen Einträgen; Filter für deaktivierte Einträge
 - Status je Eintrag: Sicher ✓ / Vorsicht ⚠ / System ⚙ / Unbekannt ?
@@ -139,6 +148,7 @@
 |---|---|
 | **Betriebssystem** | Windows 10 / Windows 11 |
 | **Python** | 3.10 oder neuer |
+| **customtkinter** | Installiert `install.bat` (`requirements.txt`); fehlt es nach einem Update, bietet die App beim Start an, es zu installieren |
 | **GPU** | NVIDIA (voller Support) oder AMD (Tweaks + BIOS-Guide) |
 | **MSI Afterburner** | Optional — erforderlich für Spannungswerte (mV) und OC-Profile (beim Anwenden eines Profils wird er kurz neu gestartet) |
 | **cupy** | Optional — `pip install "cupy-cuda12x[ctk]"` (kein CUDA-Toolkit nötig; `install.bat` fragt nach) gibt dem Stress-Worker echte **GPU**-Last samt Fehler- und Bandbreitenprüfung (NVIDIA). Ohne cupy (oder parallel laufendes FurMark) verweigert der Auto-Tuner den Start |
@@ -218,17 +228,20 @@ GameOptimizerPro **2.0** ist der finalisierte Release: der komplette Funktionsum
 - 🔁 **v1-Parität ehrlich vervollständigt** — eine Prüfung zeigte, dass die frühere „volle Parität“ nicht stimmte: 18 weitere Tweaks, **Deep Clean**, **Services Manager**, **Optimierungs-Score**, **Monitor-Berater** und die **Drift-Prüfung** sind portiert; 6 v1-Tweaks bewusst nicht (wirkungslos mit aktuellen Treibern/Windows)
 - 🪟 **Windows 11 26H2:** neue Tweaks gegen die wieder installierte Copilot-App / Dev Home, Click to Do, Paint-/Notepad-KI und den neuen KI-Hostdienst; Recall und geräteinterne KI jetzt über die offiziellen Richtlinien
 - 🧪 Nach dem ersten echten Einsatz: kein Konsolenfenster mehr, Endtest mit Rücknahme im Tuner, Energieplan/DNS als Entweder-oder, Drift-Dialog pro Tweak, mehrere falsch meldende Tweaks behoben — siehe CHANGELOG, Runde 10
-- 🧪 409 automatische Prüfungen in 17 Test-Suiten (in `tests/`), inkl. PowerShell-Syntaxprüfung jedes Befehls
+- 🖥 **Neue Oberfläche (CustomTkinter)** — Seitenleiste, Karten passen sich der Fensterbreite an, Tuner-Log immer sichtbar, Suche im Optimizer; Autostart- und Dienste-Manager sind jetzt Seiten
+- 🔥 **FurMark 1/2 + 3DMark** mit Aufzeichnung von Temperatur, Takt, Leistung und Treiber-Resets während des Tests; FurMark-Pfad bleibt gespeichert
+- 🔊 **Audio-Tweaks funktionieren unter Windows 11 26H2** — über die Windows-Audio-API statt gesperrter Registry-Schlüssel
+- 🧪 520 automatische Prüfungen in 19 Test-Suiten (in `tests/`), inkl. PowerShell-Syntaxprüfung jedes Befehls und der ganzen Oberfläche unter echter Hauptschleife
 
 Vollständige Details in [CHANGELOG.md](CHANGELOG.md).
 
 ## 🚀 Erste Schritte
 
-1. **[WIN] Optimizer** öffnen → **"⟳ Check Status"** klicken, um zu sehen welche Tweaks bereits aktiv sind
+1. **Optimizer** in der Seitenleiste öffnen → **„Status prüfen“** zeigt, welche Tweaks schon aktiv sind (● geprüft aktiv, ◑ angewendet, nicht bestätigt, ○ inaktiv)
 2. Das **🎮 Gaming-Preset** anwenden für eine schnelle All-in-One-Optimierung
-3. **Audio-Tweaks** unter **[WIN] Optimizer** finden (Kategorie: Audio) — Low-Latency-Audio-Tweaks aktivieren
-4. **[BIOS] BIOS Guide** prüfen — erkennt deine Hardware und zeigt an, was geändert werden sollte
-5. Falls Afterburner läuft, den **[GPU] GPU Tuner** ausprobieren → Start Tune (OC+UV empfohlen)
+3. Die **Audio-Tweaks** unter **Optimizer → Audio** finden — Low-Latency-Audio-Tweaks aktivieren
+4. Den **BIOS-Guide** prüfen — erkennt deine Hardware und zeigt an, was geändert werden sollte
+5. Falls Afterburner läuft, den **GPU-Tuner** ausprobieren → „Tune starten“ (OC + UV empfohlen)
 
 ---
 
@@ -275,24 +288,29 @@ GameOptimizerPro/
 │   ├── tune_history.py       ← Tune-Log-Parser
 │   ├── startup_loader.py     ← Autostart + Startprofil-Loader
 │   ├── gpu_defaults.py       ← GPU-Generationen-Standardwerte-Tabelle
+│   ├── app_settings.py       ← Kleine dauerhafte Einstellungen (logs/settings.json)
+│   ├── audio_policy.py       ← Audio-Geräteeinstellungen über die Windows-Audio-API
+│   ├── furmark.py            ← FurMark-1/2-Erkennung + Kommandozeile
+│   ├── threedmark.py         ← 3DMark-Erkennung (Steam-Bibliotheken) + Start
 │   ├── mahm_reader.py        ← MSI-Afterburner-Shared-Memory-Reader
 │   ├── ab_profile.py         ← Afterburner-Profil pro GPU + V/F-Kurven-Editor
 │   └── i18n.py               ← EN/DE-Sprachmodul
 └── ui/
-    ├── main_window.py        ← Hauptfenster, Tab-Router
-    ├── widgets.py            ← Gemeinsame Widgets, Farben, Styles
+    ├── main_window.py        ← Hauptfenster: Seitenleiste, Seiten bei Bedarf, Statusleiste
+    ├── theme.py              ← Farben, Schriften, Symbole, CustomTkinter-Vorgaben
+    ├── components.py         ← Bausteine (Karten, umbrechende Texte, Raster, Log, Tabellen …)
     ├── tab_dashboard.py      ← Systemübersicht + Live-GPU-Telemetrie
     ├── tab_optimizer.py      ← Windows-Optimizer mit Sidebar (inkl. Audio-Tweaks)
     ├── tab_gpu.py            ← GPU-Tuner-UI
-    ├── tab_stress.py         ← Stresstest + FurMark-Launcher
+    ├── tab_stress.py         ← Stresstest, FurMark 1/2 + 3DMark, Aufzeichnung externer Tests
     ├── tab_compare.py        ← Profilvergleich
     ├── tab_bios.py           ← BIOS-Guide mit Live-Erkennung
     ├── tab_games.py          ← Per-Game-Profile + Tune-Verlauf
     ├── tab_diagnose.py       ← FPS-Capture + Health-Report + Remnant-Scan
     ├── tab_settings.py       ← Autostart, Setup-Checker, Über
     ├── live_graph.py         ← Rollierendes Spannungs-/Takt-/Temperatur-Diagramm
-    ├── startup_manager.py    ← Startup-Manager-Fenster
-    ├── services_manager.py   ← Services-Manager-Fenster
+    ├── startup_manager.py    ← Autostart-Manager (Seite)
+    ├── services_manager.py   ← Dienste-Manager (Seite)
     └── drift_dialog.py       ← Dialog „Tweaks nicht mehr aktiv“ (ein Haken pro Tweak)
 tests/                        ← Windows-Testbatterie: python tests\run_all_tests.py
 tools/
@@ -304,7 +322,7 @@ tools/
 ## ⚙️ Architektur
 
 ```
-Main-Thread   → tkinter mainloop() — einziger Thread, der die UI anfasst
+Main-Thread   → CustomTkinter/tkinter mainloop() — einziger Thread, der die UI anfasst
 Thread 2      → pystray.run() — System-Tray-Icon
 Thread 3      → GPU-Stats-Loop (4s Intervall)
 Thread 4      → Startup (Crash-Check + Profil-Laden)
@@ -314,7 +332,7 @@ Thread 7      → Temperatur-Monitor (10s Intervall)
 Thread 8+     → Auto-Tune-Stages, Stress-Worker-Subprozess
 ```
 
-Thread-übergreifende Kommunikation läuft über `widget.after(0, callback)` — der einzige sichere Weg, tkinter aus Hintergrund-Threads heraus zu aktualisieren.
+Thread-übergreifende Kommunikation läuft über `widget.after(0, callback)` oder eine Warteschlange, die der Main-Thread abfragt (Log-Ansichten, `ui.components.run_async`) — Tk darf nur vom Main-Thread angefasst werden.
 
 ---
 

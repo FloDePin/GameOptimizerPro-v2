@@ -24,7 +24,12 @@ raw = open(_path, "rb").read()
 text, enc = decode_cfg(raw)
 check(encode_cfg(ProfileFile(text).text(), enc) == raw, "real file: parse -> write is byte-identical")
 pf = ProfileFile(text)
-blob = bytes.fromhex(pf.get("Startup", "VFCurve"))
+# The curve the writer would start from — [Startup] is EMPTY when Afterburner's
+# "apply overclocking at system startup" is off (seen on the test PC), so the
+# app takes it from a profile slot (pick_curve); the test used to read [Startup].
+_c0, src_sec = pick_curve(pf, "Profile2")
+check(_c0 is not None, f"a real V/F curve is found (from [{src_sec}])")
+blob = bytes.fromhex(pf.get(src_sec, "VFCurve")) if _c0 is not None else b""
 check(len(blob) == 3224 and struct.unpack_from("<II", blob, 0) == (0x20000, 127),
       f"real VFCurve: {len(blob)} bytes, version 0x20000, 127 points")
 c = VFCurve(blob)

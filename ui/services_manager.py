@@ -1,39 +1,29 @@
 """
-GameOptimizerPro v2.0 — Services Manager
-Eigenes Fenster (aus v1 portiert): zeigt die bekannten, meist verzichtbaren
-Windows-Dienste mit echtem Status/Starttyp und kann sie deaktivieren bzw. den
-ursprünglichen Starttyp wiederherstellen. Logik: core/services.py
+GameOptimizerPro v2.0 — Services Manager page (ported from v1)
+Shows the known, mostly dispensable Windows services with their real status
+and start type; disables them or restores the original start type.
+Logic: core/services.py
 """
 
 import subprocess
-import threading
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import messagebox
 
 from core import services
+from ui.components import Page, Table, WrapLabel, button, run_async
+from ui.theme import AMBER, APP_BG, DIM, ERR, F_S, F_XS, GREEN, MUTED, TEXT, TEXT2, icon_image, tr
 
-DARK  = "#0d1117"
-DARK2 = "#161b22"
-DARK3 = "#1c2128"
-BORD  = "#2d333b"
-ACC   = "#00d9ff"
-OK    = "#22c55e"
-WRN   = "#f59e0b"
-ERR   = "#ef4444"
-DIM   = "#6b7280"
-TXT   = "#d0d8e8"
-WHT   = "#f0f4ff"
-FM    = ("Consolas", 9)
-FL    = ("Segoe UI", 9)
+OK, WRN = GREEN, AMBER
 
 
-class ServicesManagerWindow(tk.Toplevel):
-    def __init__(self, parent):
-        super().__init__(parent)
-        self.title("GameOptimizerPro — Services Manager")
-        self.geometry("1080x640")
-        self.configure(bg=DARK)
-        self.minsize(820, 420)
+class ServicesManagerPage(Page):
+    def __init__(self, parent, **kw):
+        super().__init__(parent, tr("Dienste", "Services"),
+                         tr("Meist verzichtbare Windows-Dienste — Status und Starttyp live; "
+                            "„Aktivieren“ stellt den ursprünglichen Starttyp wieder her",
+                            "Mostly dispensable Windows services — live status and start type; "
+                            "'Enable' restores the original start type"),
+                         color=AMBER, scroll=False, **kw)
         self._items: dict[str, services.ServiceInfo] = {}
         self._busy = False
         self._admin = services.is_admin()
@@ -43,83 +33,57 @@ class ServicesManagerWindow(tk.Toplevel):
     # ── Build ─────────────────────────────────────────────────────────────────
 
     def _build(self):
-        hdr = tk.Frame(self, bg=DARK2, height=50)
-        hdr.pack(fill="x")
-        hdr.pack_propagate(False)
-        tk.Label(hdr, text="⚙  Services Manager", font=("Segoe UI", 13, "bold"),
-                 fg=ACC, bg=DARK2).pack(side="left", padx=16, pady=8)
-        tk.Label(hdr, text="Meist verzichtbare Windows-Dienste — Status und Starttyp live",
-                 font=FL, fg=DIM, bg=DARK2).pack(side="left")
-        self.lbl_count = tk.Label(hdr, text="", font=FM, fg=DIM, bg=DARK2)
-        self.lbl_count.pack(side="right", padx=16)
-        tk.Button(hdr, text="⟳ Aktualisieren", command=self._load, font=FM, bg=DARK3, fg=TXT,
-                  relief="flat", padx=10, pady=4, cursor="hand2").pack(side="right", padx=4)
+        button(self.actions, tr("Aktualisieren", "Refresh"), self._load, kind="ghost", height=30,
+               image=icon_image("refresh", TEXT2, 14), compound="left").pack(side="right")
+        self.lbl_count = tk.Label(self.actions, text="", font=F_S, fg=DIM, bg=APP_BG)
+        self.lbl_count.pack(side="right", padx=10)
 
-        legend = tk.Frame(self, bg=DARK)
-        legend.pack(fill="x", padx=12, pady=(6, 2))
-        for color, text in ((OK, "● sicher deaktivierbar"),
-                            (WRN, "● Vorsicht — schaltet eine Funktion ab (Nachfrage)"),
-                            (DIM, "● bereits deaktiviert")):
-            tk.Label(legend, text=text, font=FM, fg=color, bg=DARK).pack(side="left", padx=(0, 14))
+        b = self.body
+        legend = tk.Frame(b, bg=APP_BG)
+        legend.pack(fill="x", pady=(0, 8))
+        for color, text in ((OK, tr("● sicher deaktivierbar", "● safe to disable")),
+                            (WRN, tr("● Vorsicht — schaltet eine Funktion ab (Nachfrage)",
+                                     "● caution — switches a feature off (asks first)")),
+                            (MUTED, tr("● bereits deaktiviert", "● already disabled"))):
+            tk.Label(legend, text=text, font=F_XS, fg=color, bg=APP_BG).pack(side="left", padx=(0, 14))
         if not self._admin:
-            tk.Label(legend, text="Nur Anzeige — zum Ändern GameOptimizerPro als Administrator starten",
-                     font=FM, fg=WRN, bg=DARK).pack(side="right")
+            tk.Label(legend, text=tr("Nur Anzeige — zum Ändern GameOptimizerPro als Administrator starten",
+                                     "View only — run GameOptimizerPro as administrator to change"),
+                     font=F_XS, fg=WRN, bg=APP_BG).pack(side="right")
 
-        style = ttk.Style()
-        style.configure("SVC.Treeview", background=DARK2, foreground=TXT,
-                        fieldbackground=DARK2, rowheight=26, font=FM, borderwidth=0)
-        style.configure("SVC.Treeview.Heading", background=DARK3, foreground=ACC,
-                        font=("Consolas", 8, "bold"), relief="flat")
-        style.map("SVC.Treeview", background=[("selected", "#7c3aed")],
-                  foreground=[("selected", WHT)])
+        act = tk.Frame(b, bg=APP_BG)
+        act.pack(side="bottom", fill="x", pady=(10, 0))
+        state = "normal" if self._admin else "disabled"
+        button(act, "services.msc", self._open_msc, kind="ghost", height=32).pack(side="right", padx=(6, 0))
+        self.btn_enable = button(act, tr("Aktivieren (Original)", "Enable (original)"), self._enable,
+                                 height=32, state=state, image=icon_image("check", GREEN, 14),
+                                 compound="left")
+        self.btn_enable.pack(side="right", padx=(6, 0))
+        self.btn_disable = button(act, tr("Deaktivieren", "Disable"), self._disable, kind="primary",
+                                  color=AMBER, height=32, state=state)
+        self.btn_disable.pack(side="right")
+        self.lbl_status = WrapLabel(act, text="", font=F_S, fg=DIM, bg=APP_BG)
+        self.lbl_status.pack(side="left", fill="x", expand=True)
 
-        tree_f = tk.Frame(self, bg=DARK)
-        tree_f.pack(fill="both", expand=True, padx=10, pady=(4, 4))
-        sb = ttk.Scrollbar(tree_f, orient="vertical")
-        cols = ("display", "name", "status", "start", "cat", "safe")
-        self.tree = ttk.Treeview(tree_f, columns=cols, show="headings", selectmode="extended",
-                                 style="SVC.Treeview", yscrollcommand=sb.set)
-        sb.config(command=self.tree.yview)
-        for col, label, w, anchor in (
-            ("display", "Dienst",     330, "w"),
-            ("name",    "Name",       150, "w"),
-            ("status",  "Status",      90, "center"),
-            ("start",   "Starttyp",   170, "w"),
-            ("cat",     "Kategorie",  100, "center"),
-            ("safe",    "Sicher",      70, "center"),
-        ):
-            self.tree.heading(col, text=label)
-            self.tree.column(col, width=w, anchor=anchor, minwidth=50)
-        self.tree.pack(side="left", fill="both", expand=True)
-        sb.pack(side="right", fill="y")
+        self.lbl_detail = WrapLabel(b, text=tr("Dienst auswählen (Strg/Shift für mehrere).",
+                                               "Select a service (Ctrl/Shift for several)."),
+                                    font=F_S, fg=DIM, bg=APP_BG)
+        self.lbl_detail.pack(side="bottom", fill="x", pady=(8, 0))
+
+        tbl = Table(b, [
+            ("display", tr("Dienst", "Service"),      320, "w"),
+            ("name",    "Name",                       150, "w"),
+            ("status",  "Status",                      90, "center"),
+            ("start",   tr("Starttyp", "Start type"), 170, "w"),
+            ("cat",     tr("Kategorie", "Category"),  100, "center"),
+            ("safe",    tr("Sicher", "Safe"),          70, "center"),
+        ], height=14)
+        tbl.pack(fill="both", expand=True)
+        self.tree = tbl.tree
         self.tree.tag_configure("safe", foreground=OK)
         self.tree.tag_configure("caution", foreground=WRN)
-        self.tree.tag_configure("disabled", foreground=DIM)
+        self.tree.tag_configure("disabled", foreground=MUTED)
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
-
-        self.lbl_detail = tk.Label(self, text="Dienst auswählen (Strg/Shift für mehrere).",
-                                   font=FL, fg=DIM, bg=DARK, justify="left", anchor="w",
-                                   wraplength=1040)
-        self.lbl_detail.pack(fill="x", padx=14, pady=(2, 6))
-
-        act = tk.Frame(self, bg=DARK2, height=46)
-        act.pack(fill="x")
-        act.pack_propagate(False)
-        self.lbl_status = tk.Label(act, text="", font=FM, fg=DIM, bg=DARK2, anchor="w")
-        self.lbl_status.pack(side="left", padx=14, fill="x", expand=True)
-        tk.Button(act, text="Schließen", command=self.destroy, font=FM, bg=DARK3, fg=TXT,
-                  relief="flat", padx=12, pady=6, cursor="hand2").pack(side="right", padx=4, pady=4)
-        tk.Button(act, text="services.msc", command=self._open_msc, font=FM, bg=DARK3, fg=TXT,
-                  relief="flat", padx=12, pady=6, cursor="hand2").pack(side="right", padx=4, pady=4)
-        state = "normal" if self._admin else "disabled"
-        self.btn_enable = tk.Button(act, text="✓  Aktivieren (Original)", command=self._enable,
-                                    font=FM, bg=DARK3, fg=OK, relief="flat", padx=12, pady=6,
-                                    cursor="hand2", state=state)
-        self.btn_enable.pack(side="right", padx=4, pady=4)
-        self.btn_disable = tk.Button(act, text="⊘  Deaktivieren", command=self._disable,
-                                     font=FM, bg=DARK3, fg=WRN, relief="flat", padx=12, pady=6,
-                                     cursor="hand2", state=state)
-        self.btn_disable.pack(side="right", padx=4, pady=4)
 
     # ── Data ──────────────────────────────────────────────────────────────────
 
@@ -128,13 +92,10 @@ class ServicesManagerWindow(tk.Toplevel):
 
         def work():
             try:
-                items = services.list_services()
+                return services.list_services(), ""
             except Exception as e:
-                items, err = [], str(e)
-            else:
-                err = ""
-            self.after(0, lambda: self._fill(items, err))
-        threading.Thread(target=work, daemon=True).start()
+                return [], str(e)
+        run_async(self, work, lambda res: self._fill(*res))
 
     def _fill(self, items, err=""):
         if not self.winfo_exists():
@@ -164,14 +125,14 @@ class ServicesManagerWindow(tk.Toplevel):
             self.lbl_detail.config(text="Dienst auswählen (Strg/Shift für mehrere).", fg=DIM)
             return
         if len(sel) > 1:
-            self.lbl_detail.config(text=f"{len(sel)} Dienste ausgewählt.", fg=TXT)
+            self.lbl_detail.config(text=f"{len(sel)} Dienste ausgewählt.", fg=TEXT)
             return
         s = sel[0]
         start, delayed, origin = s.restore_target()
         note = (f"   ·   Aktivieren setzt: {services.start_label(start, delayed)} ({origin})"
                 if s.disabled else "")
         self.lbl_detail.config(text=f"{s.display} ({s.name}) — {s.desc}{note}",
-                               fg=TXT if s.safe else WRN)
+                               fg=TEXT if s.safe else WRN)
 
     # ── Actions ───────────────────────────────────────────────────────────────
 
@@ -179,24 +140,24 @@ class ServicesManagerWindow(tk.Toplevel):
         if self._busy:
             return
         self._busy = True
-        self.btn_disable.config(state="disabled")
-        self.btn_enable.config(state="disabled")
+        self.btn_disable.configure(state="disabled")
+        self.btn_enable.configure(state="disabled")
         self.lbl_status.config(text=f"{verb} …", fg=DIM)
 
         def work():
             try:
-                res = fn(names)
+                return fn(names)
             except Exception as e:
-                res = {n: (False, str(e)) for n in names}
-            self.after(0, lambda: self._done(res, verb))
-        threading.Thread(target=work, daemon=True).start()
+                return {n: (False, str(e)) for n in names}
+        run_async(self, work, lambda res: self._done(res, verb))
 
     def _done(self, res, verb):
         if not self.winfo_exists():
             return
         self._busy = False
-        self.btn_disable.config(state="normal")
-        self.btn_enable.config(state="normal")
+        state = "normal" if self._admin else "disabled"
+        self.btn_disable.configure(state=state)
+        self.btn_enable.configure(state=state)
         ok = [n for n, (good, _) in res.items() if good]
         bad = [f"{n}: {msg}" for n, (good, msg) in res.items() if not good]
         notes = [f"{n}: {msg}" for n, (good, msg) in res.items() if good and msg]

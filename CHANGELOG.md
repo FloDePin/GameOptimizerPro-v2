@@ -623,6 +623,92 @@ verifiers (VERIFY_MAP stays 1:1) and full English descriptions.
   tested again. The final test runs with core + memory + power limit, and its
   back-off alternates core and memory. Tests: `tests/test_memstage.py`.
 
+- **Round 12 — new interface, audio API, FurMark 2 / 3DMark** (from the user's
+  screenshots: columns that didn't follow the window width, the tuner log only
+  visible after enlarging the window, the mouse wheel over the Auto-Tune tab
+  jumping to "Profiles", a FurMark location lost after a restart, BIOS cards cut
+  off, the audio errors back after every restart):
+  - **The whole UI is rebuilt with CustomTkinter**: sidebar navigation with
+    icons (Segoe Fluent Icons), dark title bar, rounded cards, an app icon. Every
+    page follows the window width — texts wrap (the preset list and the BIOS
+    guide used fixed wrap widths), card grids reflow between 1 and 4 columns.
+    Window size and position are remembered (only restored when that spot is
+    still on a connected monitor); Ctrl+1 … Ctrl+9 open the pages. Pages are
+    built on first use (optimizer and GPU tuner in the background right after
+    start-up); a page that fails to build shows its error instead of taking the
+    window down; hidden pages stop reading sensors. Long lists stay plain tk
+    with drawn check boxes — measured: 70 rows of CustomTkinter check boxes took
+    4.5 s to build and 0.4 s per window resize.
+  - **GPU tuner:** settings on the left (scrolling), live tiles, graph,
+    progress and the **tuner log on the right — visible at every window size**.
+    Auto-Tune / Profiles / Manual switch with a segmented bar (the ttk notebook
+    flipped tabs with the mouse wheel). Manual offsets: slider + exact field.
+  - **Optimizer:** search box, the whole row toggles, rows highlight under the
+    pointer, the "✓ aktiv" badge follows the live status check, sections in a
+    segmented bar; the log stays visible.
+  - **Autostart and Services manager are pages** of the main window (they were
+    separate windows).
+  - **FurMark 1 and 2:** found next to the app (FurMark 2 preferred when both are
+    there), in install folders or where the user pointed it — **remembered
+    after a restart** (it was lost); shown with version (FurMark 2's
+    `furmark.exe` carries no version, the GUI exe's is shown). FurMark 2 gets its
+    own command line with a demo choice (OpenGL / Vulkan, Knot); resolution
+    (incl. the native one), duration and demo are remembered.
+  - **3DMark:** found in every Steam library (`libraryfolders.vdf`) or a
+    standalone install, started through Steam (`steam://rungameid/223850` — the
+    Steam version refuses a direct start). Command-line stress tests exist only in
+    the Professional Edition (`3DMarkCmd.exe` is detected); otherwise the test
+    is picked in 3DMark.
+  - **Recording during external tests:** while FurMark or 3DMark runs, the app
+    records peak temperature, average and minimum clock under load (samples
+    below 50 % GPU load are left out), maximum power and driver resets (TDR from
+    the event log) and ends with a summary — "no driver reset" or "not stable!".
+  - **Audio tweaks fixed for real:** Windows 11 26H2 locks
+    `MMDevices\Audio\Render\{id}\Properties|FxProperties` even for
+    administrators (a probe write failed despite the ACL). Both audio tweaks now
+    go through the Windows audio policy API (IPolicyConfig COM — what the Sound
+    control panel uses), set every active/unplugged render endpoint and read the
+    value back; verified live on 3 endpoints, the values also appear in the
+    registry. The status checks read the active endpoints.
+  - **Drift dialog:** a re-apply that fails is marked "not applied" — the dialog
+    asked again at every start.
+  - **Remnant scan:** one "Ultimate Performance" plan (activating it creates a
+    copy) is normal and no longer reported — only duplicates.
+  - **"Load the tray-default GPU profile at start"** was a checkbox without any
+    function; it is saved now and honoured at start-up.
+  - **Found while testing the new UI on the real PC:**
+    - *Crash:* a CustomTkinter dialog that calls `resizable()` re-colours its
+      title bar 10 ms later — a transient dialog closed before that took the
+      whole process down (access violation, reproduced in isolation). The
+      dialogs don't call it any more.
+    - *Speed:* CustomTkinter's scrollbar runs `update_idletasks()` on every
+      redraw (also while being created), and a `<Configure>` binding on the
+      window fired for every widget inside it (~2600 Python callbacks per page
+      layout, and again on every resize); a font given as a tuple is loaded per
+      label (17 ms for each emoji icon). Own slim scrollbar, a window-only
+      bindtag and shared fonts: the optimizer page builds in ~0.17 s instead of
+      ~1.4 s (measured unmapped); first visits of the pages 30–550 ms with real
+      hardware, afterwards instant.
+    - *Looks:* active tweaks were shown in the category colour — red for
+      Windows, which read like an error next to the green legend. Status dots
+      are green / amber / grey now, names stay white, Windows is blue; the
+      preset icons are drawn as colour emoji (Tk renders emoji flat); disabled
+      coloured buttons fade; grids balance their rows (3 + 3, not 5 + 1); the
+      sidebar drops the system card when the window is too low; the Autostart
+      "Status" column showed the long description instead of "✓ Safe" (old bug).
+    - *Test:* `test_real_profile.py` read the base V/F curve from `[Startup]`,
+      which Afterburner empties when "apply overclocking at system startup" is
+      off (seen on the test PC); the app itself already took it from the
+      profile slots — the test does the same now.
+  - **New dependency `customtkinter`** (`requirements.txt` / `install.bat`). An
+    update via `git pull` without `install.bat` no longer ends in a silent
+    non-start (pythonw has no console): the app asks once and installs it.
+  - Tests: `tests/test_round12.py` (logic: settings, FurMark/3DMark detection
+    and command lines, audio API scripts, remnant scan, the install guard) and
+    `tests/test_ui_round12.py` (the whole new UI with fakes under a real main
+    loop); the older UI suites follow the new structure — 520 checks in 19
+    suites, all green.
+
 ### 🔎 Reviewed, verified NOT a bug
 
 Some reported items were checked against the actual code and left unchanged

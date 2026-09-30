@@ -307,17 +307,20 @@ def s1():
 
 @step(200)
 def s2():
-    # mouse wheel: leaving the canvas onto a ROW must keep the binding
-    canv = [w for w in opt._section_frames["windows"].winfo_children() if isinstance(w, tk.Canvas)][0]
+    # mouse wheel over a ROW (not only the strip next to the tweaks) scrolls the list
+    opt._show_section("windows")
+    root.update()
+    area = opt._lists["windows"]
+    canv = area._parent_canvas
     rowlbl = opt._name_labels["disable_telemetry"]
-    canv.event_generate("<Enter>")
-    bound = bool(root.bind_all("<MouseWheel>"))
-    canv.winfo_containing = lambda x, y: rowlbl
-    canv.event_generate("<Leave>")
-    check(bound and bool(root.bind_all("<MouseWheel>")), "wheel stays bound while over a tweak row")
-    canv.winfo_containing = lambda x, y: None
-    canv.event_generate("<Leave>")
-    check(not root.bind_all("<MouseWheel>"), "... and is released when the pointer really leaves")
+    y0 = canv.yview()[0]
+    area._mouse_wheel_all(type("E", (), {"widget": rowlbl, "delta": -120})())
+    check(canv.yview()[0] > y0, f"wheel over a tweak row scrolls the list ({y0:.3f} -> {canv.yview()[0]:.3f})")
+    other = opt._lists["gaming"]
+    y1 = canv.yview()[0]
+    other._mouse_wheel_all(type("E", (), {"widget": rowlbl, "delta": -120})())
+    check(canv.yview()[0] == y1 and other._parent_canvas.yview()[0] == 0.0,
+          "... and only that list (the hidden sections stay put)")
 
 @step(200)
 def s3():

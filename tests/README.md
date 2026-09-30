@@ -25,5 +25,8 @@ What they do — and don't:
   stand-in for cupy (`fakecupy/`, with injected computation errors) — CPU only,
   the GPU is not touched.
 - The UI suites run under a real Tk mainloop with invisible windows.
+- `ui_shots.py` (not in the battery) opens the real app VISIBLY and saves a
+  screenshot of every page to `logs/shots/` — for checking the layout, e.g.
+  `python tests\ui_shots.py 1000 700` for the minimum window size.
 
 CI (GitHub Actions, Linux) only byte-compiles them.

@@ -1,34 +1,25 @@
 """
-GameOptimizerPro v2.0 — Startup Manager
-Eigenes Fenster das alle Autostart-Einträge auflistet (Run-Keys + Autostart-
-Ordner) und sie — wie der Windows Task-Manager — aktivieren/deaktivieren kann.
-Zeigt für jeden Eintrag:
-  - An/Aus-Zustand (echter Windows-Zustand, nicht geraten)
-  - Name, Publisher, Pfad, Quelle
-  - Status: Safe / Caution / Critical / Unknown
-  - Empfehlung: ob man es deaktivieren kann
+GameOptimizerPro v2.0 — Startup Manager page
+Lists every autostart entry (Run keys + Startup folders) and enables/disables
+it like Task Manager does. For each entry:
+  - on/off state (the real Windows state, not guessed)
+  - name, publisher, path, source
+  - status: Safe / Caution / Critical / Unknown
+  - recommendation: whether it can be disabled
 """
 
+import subprocess
 import tkinter as tk
-from tkinter import ttk, messagebox
-import subprocess, os, json, threading
-from pathlib import Path
+from tkinter import messagebox
+
+import customtkinter as ctk
 
 from core import startup_control
+from ui.components import Page, Table, button, run_async
+from ui.theme import (ACC, AMBER, APP_BG, CARD_BG2, DIM, ERR, F_S, F_XS, GREEN, MUTED, TEXT,
+                      TEXT2, ctk_font, icon_image, mix, tr)
 
-DARK  = "#0d1117"
-DARK2 = "#161b22"
-DARK3 = "#1c2128"
-BORD  = "#2d333b"
-ACC   = "#00d9ff"
-OK    = "#22c55e"
-WRN   = "#f59e0b"
-ERR   = "#ef4444"
-DIM   = "#6b7280"
-TXT   = "#d0d8e8"
-WHT   = "#f0f4ff"
-FM    = ("Consolas", 9)
-FL    = ("Segoe UI", 9)
+OK, WRN, TXT = GREEN, AMBER, TEXT
 
 
 # ── Known process database ────────────────────────────────────────────────────
@@ -103,177 +94,84 @@ STATUS_CONFIG = {
     "unknown":  (DIM, "? Unknown",  "Unbekannt — recherchieren vor Deaktivierung"),
 }
 
+FILTERS = [("all", "Alle", "All"), ("safe", "Safe", "Safe"), ("caution", "Caution", "Caution"),
+           ("system", "System", "System"), ("unknown", "Unbekannt", "Unknown"),
+           ("disabled", "Deaktiviert", "Disabled")]
 
-class StartupManagerWindow(tk.Toplevel):
-    def __init__(self, parent):
-        super().__init__(parent)
-        self.title("GameOptimizerPro — Startup Manager")
-        self.geometry("1050x680")
-        self.minsize(900, 500)
-        self.configure(bg=DARK)
-        self.resizable(True, True)
 
-        # Dark titlebar style attempt
-        try:
-            self.wm_attributes("-alpha", 1.0)
-        except: pass
-
+class StartupManagerPage(Page):
+    def __init__(self, parent, **kw):
+        super().__init__(parent, tr("Autostart", "Startup apps"),
+                         tr("Run-Schlüssel und Autostart-Ordner — an/aus wie im Task-Manager, es wird "
+                            "nichts gelöscht",
+                            "Run keys and Startup folders — on/off like in Task Manager, nothing is "
+                            "deleted"),
+                         color=ACC, scroll=False, **kw)
         self._entries: list[dict] = []
         self._filtered: list[dict] = []
-        self._filter_status = "all"
+        self._filter_var = tk.StringVar(value="all")
         self._sort_col = "name"
         self._sort_rev = False
-
         self._build()
         self.after(200, self._load_entries)
 
     # ── Build ─────────────────────────────────────────────────────────────────
 
     def _build(self):
-        # Header
-        hdr = tk.Frame(self, bg=DARK2, height=50)
-        hdr.pack(fill="x")
-        hdr.pack_propagate(False)
-        tk.Label(hdr, text="🚀  Startup Manager",
-                 font=("Segoe UI", 13, "bold"),
-                 fg=ACC, bg=DARK2).pack(side="left", padx=16, pady=8)
-        tk.Label(hdr,
-                 text="Run-Keys + Autostart-Ordner — an/aus wie im Task-Manager",
-                 font=FL, fg=DIM, bg=DARK2).pack(side="left")
+        button(self.actions, tr("Aktualisieren", "Refresh"), self._load_entries, kind="ghost",
+               height=30, image=icon_image("refresh", TEXT2, 14), compound="left").pack(side="right")
+        b = self.body
 
-        self.lbl_count = tk.Label(hdr, text="", font=FM, fg=DIM, bg=DARK2)
-        self.lbl_count.pack(side="right", padx=16)
+        filt = tk.Frame(b, bg=APP_BG)
+        filt.pack(fill="x", pady=(0, 8))
+        self._filter_keys = {tr(de, en): key for key, de, en in FILTERS}
+        self.seg_filter = ctk.CTkSegmentedButton(
+            filt, values=list(self._filter_keys), height=30, font=ctk_font(12),
+            selected_color=mix(CARD_BG2, ACC, 0.45), selected_hover_color=mix(CARD_BG2, ACC, 0.6),
+            command=lambda v: (self._filter_var.set(self._filter_keys[v]), self._apply_filter()))
+        self.seg_filter.set(tr("Alle", "All"))
+        self.seg_filter.pack(side="left")
+        self.ent_search = ctk.CTkEntry(filt, width=200, height=30,
+                                       placeholder_text=tr("Suchen …", "Search …"))
+        self.ent_search.pack(side="right")
+        self.ent_search.bind("<KeyRelease>", lambda e: self._apply_filter())
 
-        tk.Button(hdr, text="⟳ Aktualisieren",
-                  command=self._load_entries,
-                  font=FM, bg=DARK3, fg=TXT,
-                  relief="flat", padx=10, pady=4, cursor="hand2"
-                  ).pack(side="right", padx=4)
+        self.lbl_count = tk.Label(b, text="", font=F_XS, fg=DIM, bg=APP_BG, anchor="w")
+        self.lbl_count.pack(fill="x", pady=(0, 6))
 
-        # Filter + search bar
-        filt = tk.Frame(self, bg=DARK)
-        filt.pack(fill="x", padx=10, pady=6)
+        act = tk.Frame(b, bg=APP_BG)
+        act.pack(side="bottom", fill="x", pady=(10, 0))
+        button(act, "Details", self._show_details, kind="ghost", height=32,
+               image=icon_image("info", TEXT2, 14), compound="left").pack(side="right", padx=(6, 0))
+        button(act, "Task-Manager", self._open_task_manager, kind="ghost", height=32
+               ).pack(side="right", padx=(6, 0))
+        button(act, tr("Aktivieren", "Enable"), lambda: self._toggle(True), height=32,
+               image=icon_image("check", GREEN, 14), compound="left").pack(side="right", padx=(6, 0))
+        button(act, tr("Deaktivieren", "Disable"), lambda: self._toggle(False), kind="primary",
+               color=AMBER, height=32).pack(side="right")
+        self.lbl_selected = tk.Label(act, text=tr("Kein Eintrag ausgewählt", "Nothing selected"),
+                                     font=F_S, fg=DIM, bg=APP_BG, anchor="w")
+        self.lbl_selected.pack(side="left", fill="x", expand=True)
 
-        tk.Label(filt, text="Filter:", font=FM, fg=DIM, bg=DARK).pack(side="left")
-        self._filter_var = tk.StringVar(value="all")
-        for val, label, color in [
-            ("all",      "Alle",        TXT),
-            ("safe",     "Safe",        OK),
-            ("caution",  "Caution",     WRN),
-            ("system",   "System",      ERR),
-            ("unknown",  "Unknown",     DIM),
-            ("disabled", "Deaktiviert", "#9ca3af"),
-        ]:
-            tk.Radiobutton(
-                filt, text=label, variable=self._filter_var, value=val,
-                command=self._apply_filter,
-                bg=DARK, activebackground=DARK,
-                selectcolor=DARK3, fg=color,
-                highlightthickness=0, font=FM
-            ).pack(side="left", padx=6)
-
-        tk.Label(filt, text="|", fg=BORD, bg=DARK).pack(side="left", padx=4)
-        tk.Label(filt, text="Suche:", font=FM, fg=DIM, bg=DARK).pack(side="left")
-        self._search_var = tk.StringVar()
-        self._search_var.trace_add("write", lambda *_: self._apply_filter())
-        tk.Entry(filt, textvariable=self._search_var,
-                 font=FM, bg=DARK3, fg=TXT,
-                 insertbackground=ACC, relief="flat",
-                 highlightthickness=1,
-                 highlightbackground=BORD,
-                 highlightcolor=ACC, width=22
-                 ).pack(side="left", padx=6)
-
-        # Treeview
-        style = ttk.Style()
-        style.configure("SM.Treeview",
-            background=DARK2, foreground=TXT,
-            fieldbackground=DARK2, rowheight=28,
-            font=FM, borderwidth=0)
-        style.configure("SM.Treeview.Heading",
-            background=DARK3, foreground=ACC,
-            font=("Consolas", 8, "bold"), relief="flat")
-        style.map("SM.Treeview",
-            background=[("selected", "#7c3aed")],
-            foreground=[("selected", WHT)])
-
-        tree_f = tk.Frame(self, bg=DARK)
-        tree_f.pack(fill="both", expand=True, padx=10, pady=(0, 4))
-
-        sb = ttk.Scrollbar(tree_f, orient="vertical")
-        cols = ("state", "status", "name", "publisher", "recommendation", "path")
-        self.tree = ttk.Treeview(
-            tree_f, columns=cols, show="headings", selectmode="extended",
-            style="SM.Treeview", yscrollcommand=sb.set
-        )
-        sb.config(command=self.tree.yview)
-
-        headers = [
-            ("state",          "An/Aus",         90),
-            ("status",         "Status",        100),
-            ("name",           "Name",           170),
-            ("publisher",      "Publisher",      140),
-            ("recommendation", "Empfehlung",     260),
-            ("path",           "Pfad",           240),
-        ]
-        for col, label, w in headers:
-            self.tree.heading(col, text=label,
-                              command=lambda c=col: self._sort_by(c))
-            self.tree.column(col, width=w,
-                anchor="center" if col in ("status", "state") else "w",
-                minwidth=60)
-
-        self.tree.pack(side="left", fill="both", expand=True)
-        sb.pack(side="right", fill="y")
-
-        # Color tags
+        tbl = Table(b, [
+            ("state",          tr("An/Aus", "On/Off"),       80, "center"),
+            ("status",         "Status",                     95, "center"),
+            ("name",           "Name",                      170, "w"),
+            ("publisher",      "Publisher",                 140, "w"),
+            ("recommendation", tr("Empfehlung", "Advice"),  260, "w"),
+            ("path",           tr("Pfad", "Path"),          240, "w"),
+        ], height=14)
+        tbl.pack(fill="both", expand=True)
+        self.tree = tbl.tree
+        for col in ("state", "status", "name", "publisher", "recommendation", "path"):
+            self.tree.heading(col, command=lambda c=col: self._sort_by(c))
         self.tree.tag_configure("safe",    foreground=OK)
         self.tree.tag_configure("caution", foreground=WRN)
         self.tree.tag_configure("system",  foreground=ERR)
-        self.tree.tag_configure("critical",foreground=ERR)
+        self.tree.tag_configure("critical", foreground=ERR)
         self.tree.tag_configure("unknown", foreground=DIM)
-        self.tree.tag_configure("disabled", foreground="#6b7280")   # deaktiviert = grau
-
-        # Bottom action bar
-        act = tk.Frame(self, bg=DARK2, height=44)
-        act.pack(fill="x")
-        act.pack_propagate(False)
-
-        self.lbl_selected = tk.Label(act, text="Kein Eintrag ausgewählt",
-                                     font=FM, fg=DIM, bg=DARK2)
-        self.lbl_selected.pack(side="left", padx=14, pady=8)
-
-        tk.Button(act, text="ⓘ  Details",
-                  command=self._show_details,
-                  font=FM, bg=DARK3, fg=TXT,
-                  relief="flat", padx=12, pady=6, cursor="hand2"
-                  ).pack(side="right", padx=4, pady=4)
-
-        tk.Button(act, text="Task-Manager",
-                  command=self._open_task_manager,
-                  font=FM, bg=DARK3, fg=TXT,
-                  relief="flat", padx=12, pady=6, cursor="hand2"
-                  ).pack(side="right", padx=4, pady=4)
-
-        tk.Button(act, text="✓  Aktivieren",
-                  command=lambda: self._toggle(True),
-                  font=FM, bg=DARK3, fg=OK,
-                  relief="flat", padx=12, pady=6, cursor="hand2"
-                  ).pack(side="right", padx=4, pady=4)
-
-        tk.Button(act, text="⊘  Deaktivieren",
-                  command=lambda: self._toggle(False),
-                  font=FM, bg=DARK3, fg=WRN,
-                  relief="flat", padx=12, pady=6, cursor="hand2"
-                  ).pack(side="right", padx=4, pady=4)
-
+        self.tree.tag_configure("disabled", foreground=MUTED)   # deaktiviert = grau
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
-        self.tree.bind("<MouseWheel>", lambda e: None)
-
-        # Loading label
-        self.lbl_loading = tk.Label(tree_f,
-            text="Lade Autostart-Einträge...",
-            font=("Segoe UI", 11), fg=DIM, bg=DARK2)
 
     # ── Data loading ──────────────────────────────────────────────────────────
 
@@ -281,8 +179,8 @@ class StartupManagerWindow(tk.Toplevel):
         for row in self.tree.get_children():
             self.tree.delete(row)
         self._entries = []
-        self.lbl_count.config(text="Lade...")
-        threading.Thread(target=self._fetch_entries, daemon=True).start()
+        self.lbl_count.config(text="Lade …")
+        run_async(self, self._fetch_entries, lambda _r: self._apply_filter())
 
     def _fetch_entries(self):
         """Read autostart entries (Run keys + Autostart folders) with their REAL
@@ -312,10 +210,6 @@ class StartupManagerWindow(tk.Toplevel):
             })
 
         self._entries = entries
-        try:
-            self.after(0, self._apply_filter)
-        except (tk.TclError, RuntimeError):
-            pass    # window was closed while the entries were still loading
 
     def _lookup(self, name: str, command: str) -> tuple:
         """Match name/command against known process database."""
@@ -340,8 +234,10 @@ class StartupManagerWindow(tk.Toplevel):
     # ── Filter & display ──────────────────────────────────────────────────────
 
     def _apply_filter(self, *_):
+        if not self.winfo_exists():
+            return
         filt   = self._filter_var.get()
-        search = self._search_var.get().lower()
+        search = self.ent_search.get().strip().lower()
 
         def _match_filter(e):
             if filt == "all":
@@ -364,7 +260,7 @@ class StartupManagerWindow(tk.Toplevel):
         # iid = index into self._filtered, so a (multi-)selection maps back to
         # its entries reliably.
         for i, e in enumerate(self._filtered):
-            status, _, label = STATUS_CONFIG.get(e["status"], (DIM, "?", "?"))
+            _col, label, _desc = STATUS_CONFIG.get(e["status"], (DIM, "?", "?"))
             cmd = e["command"]
             if len(cmd) > 55:
                 cmd = "..." + cmd[-52:]
@@ -385,11 +281,11 @@ class StartupManagerWindow(tk.Toplevel):
         shown = len(self._filtered)
         n_off = sum(1 for e in self._entries if not e.get("enabled", True))
         self.lbl_count.config(
-            text=f"{shown} von {total} Einträgen | "
-                 f"{sum(1 for e in self._entries if e['status']=='safe')} Safe  "
-                 f"{sum(1 for e in self._entries if e['status']=='caution')} Caution  "
-                 f"{sum(1 for e in self._entries if e['status'] in ('system','critical'))} System  "
-                 f"| {n_off} deaktiviert"
+            text=f"{shown} von {total} Einträgen  ·  "
+                 f"{sum(1 for e in self._entries if e['status']=='safe')} Safe  ·  "
+                 f"{sum(1 for e in self._entries if e['status']=='caution')} Caution  ·  "
+                 f"{sum(1 for e in self._entries if e['status'] in ('system','critical'))} System  ·  "
+                 f"{n_off} deaktiviert"
         )
 
     # Tree column -> entry key. "path" used to sort on a key that doesn't exist
@@ -428,7 +324,7 @@ class StartupManagerWindow(tk.Toplevel):
         status_cfg = STATUS_CONFIG.get(e["status"], (DIM, "?", "?"))
         state = "an" if e.get("enabled", True) else "AUS"
         self.lbl_selected.config(
-            text=f"{e['name']}  |  {state}  |  {status_cfg[1]}  |  {e.get('publisher','?')}",
+            text=f"{e['name']}  ·  {state}  ·  {status_cfg[1]}  ·  {e.get('publisher','?')}",
             fg=status_cfg[0]
         )
 

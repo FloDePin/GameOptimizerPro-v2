@@ -167,12 +167,22 @@ def scan() -> RemnantScan:
     # collapse by name with a count to keep the report readable.
     raw = g("powerplans").get("list", "") or ""
     counts: dict[str, int] = {}
+    ultimate: list[str] = []
     for entry in [e for e in raw.split(";;") if e]:
         guid, _, name = entry.partition("|")
-        if guid.strip().lower() not in _STD_POWER_GUIDS:
-            label = name.strip() or guid.strip()
-            counts[label] = counts.get(label, 0) + 1
+        if guid.strip().lower() in _STD_POWER_GUIDS:
+            continue
+        label = name.strip() or guid.strip()
+        # "Ultimate Performance" is Windows' own hidden plan: activating it
+        # (also GameOptimizerPro's tweak) creates a copy with a new GUID. One
+        # copy is normal — only duplicates are worth reporting.
+        if "ultimat" in label.lower():
+            ultimate.append(label)
+            continue
+        counts[label] = counts.get(label, 0) + 1
     extra = [f"{name} ×{n}" if n > 1 else name for name, n in counts.items()]
+    if len(ultimate) > 1:
+        extra.append(f"{ultimate[0]} ×{len(ultimate)} (Duplikate — eine Kopie reicht)")
     items.append(RemnantItem(
         "powerplans", "Fremd-Energiepläne", bool(extra),
         ", ".join(extra),

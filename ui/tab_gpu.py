@@ -1,23 +1,56 @@
-"""GameOptimizerPro GPU Tuner Tab — NVTuner v2 embedded."""
+"""GameOptimizerPro GPU Tuner page — NVTuner v2 embedded.
 
+Auto-Tune: settings on the left (scrolls if needed), live tiles, graph,
+progress and the tuner log on the right — the log is visible at every window
+size. Sub-pages switch with a segmented bar (no accidental switching with the
+mouse wheel like the old ttk notebook)."""
+
+import os
+import sys
+import threading
 import tkinter as tk
-from tkinter import ttk, messagebox, simpledialog
-import threading, time, os, sys
 from datetime import datetime
-from typing import Optional
+from tkinter import messagebox
 
-from ui.widgets import *
-from core.nvtune_core import GpuMonitor, AfterburnerController, TuneProfile, ProfileManager
+import customtkinter as ctk
+
+from core.nvtune_core import AfterburnerController, GpuMonitor, ProfileManager, TuneProfile
 from core.nvtune_tuner import AutoTuner, TunerConfig, TunerState
+from ui.components import (Card, CheckBox, LogView, NumberField, Page, ResponsiveGrid, Table,
+                           WrapLabel, button, scroll_area, tile)
+from ui.theme import (ACC, AMBER, APP_BG, BORDER, CARD_BG, CARD_BG2, CYAN, DIM, ERR, F_BB,
+                      F_MONO, F_S, F_XS, GREEN, INPUT_BG, MUTED, TEXT, TEXT2, VIOLET, ctk_font,
+                      icon_image, mix, on_color, tr)
 
 # Fix import path for stress worker
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
+MODES = [
+    ("oc_only", "Übertakten", "Overclock",
+     "Maximaler stabiler Core-Offset, das Power-Limit bleibt bei 100 % — mehr FPS bei gleichen "
+     "Temperaturen.",
+     "Max stable core offset, power limit stays at 100 % — more FPS, same temperatures."),
+    ("uv_only", "Undervolten", "Undervolt",
+     "Kleinstes stabiles Power-Limit, der Core-Offset bleibt 0 — kühler und leiser bei "
+     "Standard-Takt.",
+     "Lowest stable power limit, core offset stays at 0 — cooler and quieter at stock speed."),
+    ("oc_uv", "OC + UV", "OC + UV",
+     "Empfohlen — beides: höherer Takt und niedrigere Temperaturen, gleiche oder bessere "
+     "Leistung.",
+     "Recommended — best of both: higher clocks, lower temperatures, same or better "
+     "performance."),
+]
 
-class GpuTunerTab(tk.Frame):
+
+class GpuTunerTab(Page):
     def __init__(self, parent, monitor: GpuMonitor, ab: AfterburnerController,
                  pm: ProfileManager, tuner: AutoTuner, **kw):
-        super().__init__(parent, bg=BG1, **kw)
+        super().__init__(parent, tr("GPU-Tuner", "GPU Tuner"),
+                         tr("Automatisches Übertakten/Undervolten über MSI Afterburner — mit "
+                            "Stabilitätstests nach jedem Schritt",
+                            "Automatic overclocking/undervolting via MSI Afterburner — with a "
+                            "stability test after every step"),
+                         color=CYAN, scroll=False, **kw)
         self.monitor = monitor
         self.ab = ab
         self.pm = pm
@@ -31,77 +64,61 @@ class GpuTunerTab(tk.Frame):
         self._build()
 
     def _build(self):
-        nb = ttk.Notebook(self)
-        nb.pack(fill="both", expand=True)
+        b = self.body
+        bar = tk.Frame(b, bg=APP_BG)
+        bar.pack(fill="x", pady=(0, 10))
+        self._views = {}
+        self._view_keys = {"Auto-Tune": "auto", tr("Profile", "Profiles"): "profiles",
+                           tr("Manuell", "Manual"): "manual"}
+        self.seg = ctk.CTkSegmentedButton(bar, values=list(self._view_keys), height=32,
+                                          font=ctk_font(12), selected_color=mix(CARD_BG2, CYAN, 0.62),
+                                          selected_hover_color=mix(CARD_BG2, CYAN, 0.75),
+                                          command=lambda v: self._show_view(self._view_keys[v]))
+        self.seg.pack(side="left")
+        self.lbl_state = tk.Label(bar, text="● Idle", font=F_BB, fg=DIM, bg=APP_BG)
+        self.lbl_state.pack(side="right")
 
-        # Sub-tabs
-        tabs = [
-            ("  Auto-Tune  ", self._build_autotune),
-            ("  Profiles  ",  self._build_profiles),
-            ("  Manual  ",    self._build_manual),
-        ]
-        for label, builder in tabs:
-            f = tk.Frame(nb, bg=BG1)
-            nb.add(f, text=label)
+        holder = tk.Frame(b, bg=APP_BG)
+        holder.pack(fill="both", expand=True)
+        for key, builder in (("auto", self._build_autotune), ("profiles", self._build_profiles),
+                             ("manual", self._build_manual)):
+            f = tk.Frame(holder, bg=APP_BG)
+            self._views[key] = f
             builder(f)
+        self._show_view("auto")
+
+    def _show_view(self, key: str):
+        for k, f in self._views.items():
+            if k != key:
+                f.pack_forget()
+        self._views[key].pack(fill="both", expand=True)
+        label = next(lbl for lbl, k in self._view_keys.items() if k == key)
+        self.seg.set(label)
 
     # ── Auto-Tune ─────────────────────────────────────────────────────────────
 
     def _build_autotune(self, p):
-        # ── Mode selector ─────────────────────────────────────────────────────
-        mode_f = tk.Frame(p, bg=BG1)
-        mode_f.pack(fill="x", padx=12, pady=(12, 4))
+        p.grid_columnconfigure(0, weight=5, uniform="at")
+        p.grid_columnconfigure(1, weight=6, uniform="at")
+        p.grid_rowconfigure(0, weight=1)
 
-        tk.Label(mode_f, text="Tune Mode", font=FH, fg=WHT, bg=BG1).pack(anchor="w")
+        left = scroll_area(p)
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        right = tk.Frame(p, bg=APP_BG)
+        right.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
 
-        btn_row = tk.Frame(mode_f, bg=BG1)
-        btn_row.pack(fill="x", pady=(6, 0))
-
+        # ── Mode ──────────────────────────────────────────────────────────────
         self.v_mode = tk.StringVar(value="oc_uv")
-
-        mode_defs = [
-            ("oc_only",
-             "⚡ Overclock Only",
-             "Max stable core offset\nPower limit stays at 100%\nMore FPS, same temps",
-             ACC),
-            ("uv_only",
-             "❄ Undervolt Only",
-             "Min stable power limit\nCore offset stays at 0\nCooler & quieter at stock speed",
-             VOLT),
-            ("oc_uv",
-             "🚀 OC + UV  (Recommended)",
-             "Best of both:\nHigher frequency, lower temps\nSame or better performance",
-             OK),
-        ]
-
-        self._mode_btns = {}
-        for i, (mode_id, label, desc, color) in enumerate(mode_defs):
-            btn_row.columnconfigure(i, weight=1)
-            f = tk.Frame(btn_row, bg=BG2, padx=10, pady=8, cursor="hand2")
-            f.grid(row=0, column=i, padx=4, sticky="nsew")
-
-            # Highlight selected
-            def _select(mid=mode_id):
-                self.v_mode.set(mid)
-                self._highlight_mode_btns()
-                self._apply_mode_to_config(mid)
-
-            f.bind("<Button-1>", lambda e, fn=_select: fn())
-            for w in f.winfo_children() if hasattr(f, 'winfo_children') else []:
-                w.bind("<Button-1>", lambda e, fn=_select: fn())
-
-            name_lbl = tk.Label(f, text=label, font=("Segoe UI", 9, "bold"),
-                                fg=color, bg=BG2, anchor="w")
-            name_lbl.pack(anchor="w")
-            name_lbl.bind("<Button-1>", lambda e, fn=_select: fn())
-
-            desc_lbl = tk.Label(f, text=desc, font=("Segoe UI", 8),
-                                fg=DIM, bg=BG2, anchor="w", justify="left")
-            desc_lbl.pack(anchor="w", pady=(2, 0))
-            desc_lbl.bind("<Button-1>", lambda e, fn=_select: fn())
-
-            self._mode_btns[mode_id] = (f, color)
-
+        mode = Card(left, tr("Modus", "Mode"), accent=CYAN)
+        mode.pack(fill="x", padx=(0, 8), pady=(0, 12))
+        self._mode_labels = {tr(de, en): mid for mid, de, en, _dd, _de in MODES}
+        self.seg_mode = ctk.CTkSegmentedButton(mode.body, values=list(self._mode_labels), height=32,
+                                               font=ctk_font(12), selected_color=mix(CARD_BG2, CYAN, 0.62),
+                                               selected_hover_color=mix(CARD_BG2, CYAN, 0.75),
+                                               command=lambda v: self._select_mode(self._mode_labels[v]))
+        self.seg_mode.pack(fill="x")
+        self.lbl_mode_desc = WrapLabel(mode.body, text="", font=F_S, fg=TEXT2, bg=CARD_BG)
+        self.lbl_mode_desc.pack(fill="x", pady=(8, 0))
         self._highlight_mode_btns()
 
         # ── IntVars MUST be created before _show_gpu_defaults() which calls .set() ──
@@ -115,132 +132,115 @@ class GpuTunerTab(tk.Frame):
         self.v_mem_stage = tk.BooleanVar(value=True)
         self.v_ab_slot   = tk.IntVar(value=2)
 
-        # ── GPU defaults info bar (uses IntVars above — must come after) ──────
-        self.lbl_gpu_defaults = tk.Label(
-            p, text="", font=FM, fg=DIM, bg=BG2,
-            anchor="w", padx=10, pady=5
-        )
-        self.lbl_gpu_defaults.pack(fill="x", padx=12, pady=(4, 0))
+        params = Card(left, tr("Parameter", "Parameters"), accent=CYAN)
+        params.pack(fill="x", padx=(0, 8), pady=(0, 12))
+        # GPU defaults info (uses the IntVars above — must come after)
+        self.lbl_gpu_defaults = WrapLabel(params.body, text="", font=F_XS, fg=DIM, bg=CARD_BG)
+        self.lbl_gpu_defaults.pack(fill="x", pady=(0, 10))
         self._show_gpu_defaults()
 
-        # ── Config spinboxes ──────────────────────────────────────────────────
-        cfg_f = tk.Frame(p, bg=BG2)
-        cfg_f.pack(fill="x", padx=12, pady=(4, 4))
-        SecHdr(cfg_f, "Fine-tune Parameters (auto-filled from GPU)").pack(
-            fill="x", padx=6, pady=(8, 6))
-
-        grid = tk.Frame(cfg_f, bg=BG2)
-        grid.pack(fill="x", padx=8, pady=(0, 10))
-        for i in range(4): grid.columnconfigure(i, weight=1)
-
-        def spn(parent, label, var, lo, hi, row, col):
-            tk.Label(parent, text=label, font=FL, fg=DIM, bg=BG2).grid(
-                row=row * 2, column=col, sticky="w", padx=6, pady=(4, 0))
-            sb = tk.Spinbox(parent, textvariable=var, from_=lo, to=hi,
-                            width=7, font=FM, bg=BG3, fg=TXT,
-                            insertbackground=ACC, buttonbackground=BG3,
-                            relief="flat", highlightthickness=1,
-                            highlightcolor=BOR2, highlightbackground=BOR)
-            sb.grid(row=row * 2 + 1, column=col, sticky="w", padx=6, pady=(0, 6))
-            return sb
-
-        spn(grid, "Core Step (MHz)", self.v_core_step,  5,  50, 0, 0)
-        spn(grid, "Core Max (MHz)",  self.v_core_max,  30, 500, 0, 1)
-        spn(grid, "Power Min (%)",   self.v_pwr_min,   50, 100, 0, 2)
-        spn(grid, "Max Temp (°C)",   self.v_max_temp,  70,  95, 0, 3)
-        spn(grid, "Step Test (s)",   self.v_step_dur,  15, 300, 1, 0)
-        spn(grid, "Final Test (s)",  self.v_final_dur, 60, 600, 1, 1)
-        spn(grid, "Mem Max (MHz)",   self.v_mem_max,  100, 3000, 1, 2)
-        spn(grid, "AB Slot (2-5)",   self.v_ab_slot,   2,   5, 1, 3)
+        grid = ResponsiveGrid(params.body, min_width=150, max_cols=2, gap=10, bg=CARD_BG)
+        grid.pack(fill="x")
+        for label, var, lo, hi, step in (
+            (tr("Core-Schritt (MHz)", "Core step (MHz)"), self.v_core_step, 5, 50, 5),
+            (tr("Core max. (MHz)", "Core max (MHz)"),     self.v_core_max, 0, 500, 15),
+            (tr("Power min. (%)", "Power min (%)"),       self.v_pwr_min, 50, 100, 5),
+            (tr("Max. Temperatur (°C)", "Max temp (°C)"), self.v_max_temp, 70, 95, 1),
+            (tr("Stufentest (s)", "Step test (s)"),       self.v_step_dur, 15, 300, 15),
+            (tr("Endtest (s)", "Final test (s)"),         self.v_final_dur, 60, 600, 30),
+            (tr("Speicher max. (MHz)", "Mem max (MHz)"),  self.v_mem_max, 100, 3000, 100),
+            (tr("AB-Slot (2–5)", "AB slot (2–5)"),        self.v_ab_slot, 2, 5, 1),
+        ):
+            cell = tk.Frame(grid, bg=CARD_BG)
+            tk.Label(cell, text=label, font=F_XS, fg=DIM, bg=CARD_BG, anchor="w").pack(fill="x")
+            NumberField(cell, var, lo, hi, step, width=64, bg=CARD_BG).pack(anchor="w", pady=(2, 0))
+            grid.add(cell)
 
         # Memory stage: searched and MEASURED, not a fixed guess (the old
         # 'Mem Offset' field applied an unsearched value to every step).
-        mem_row = tk.Frame(cfg_f, bg=BG2)
-        mem_row.pack(fill="x", padx=8, pady=(0, 10))
-        self.chk_mem_stage = tk.Checkbutton(
-            mem_row, variable=self.v_mem_stage, bg=BG2, activebackground=BG2,
-            selectcolor=BG3, fg=TXT, highlightthickness=0, bd=0)
-        self.chk_mem_stage.pack(side="left")
-        tk.Label(mem_row, text="Speicher mit übertakten", font=FL, fg=TXT, bg=BG2
-                 ).pack(side="left", padx=(2, 8))
-        tk.Label(mem_row,
-                 text="Stufe 4 misst die Speicher-Bandbreite: GDDR6X korrigiert Fehler durch "
-                      "Wiederholen und wird über dem Limit LANGSAMER statt abzustürzen — genommen "
-                      "wird das Bandbreiten-Maximum (bis 'Mem Max'). Dauert ca. 6–10 min länger.",
-                 font=FM, fg=DIM, bg=BG2, justify="left", wraplength=560, anchor="w"
-                 ).pack(side="left", fill="x", expand=True)
+        mem = tk.Frame(params.body, bg=CARD_BG)
+        mem.pack(fill="x", pady=(12, 0))
+        self.chk_mem_stage = CheckBox(mem, self.v_mem_stage, accent=CYAN, bg=CARD_BG,
+                                      text=tr("Speicher mit übertakten", "Overclock memory too"), font=F_BB)
+        self.chk_mem_stage.pack(anchor="w")
+        WrapLabel(mem, text=tr(
+            "Stufe 4 misst die Speicher-Bandbreite: GDDR6X korrigiert Fehler durch Wiederholen und "
+            "wird über dem Limit LANGSAMER statt abzustürzen — genommen wird das Bandbreiten-Maximum "
+            "(bis 'Speicher max.'). Dauert ca. 6–10 min länger.",
+            "Stage 4 measures memory bandwidth: GDDR6X corrects errors by retrying and gets SLOWER "
+            "above its limit instead of crashing — the bandwidth peak is taken (up to 'Mem max'). "
+            "Takes about 6–10 min longer."), font=F_XS, fg=DIM, bg=CARD_BG).pack(fill="x", pady=(4, 0))
 
-        # ── Controls ──────────────────────────────────────────────────────────
-        ctrl = tk.Frame(p, bg=BG1)
-        ctrl.pack(fill="x", padx=12, pady=4)
-        self.btn_start = mk_btn(ctrl, "▶  START TUNE", self._start_tune,
-                                ACC, "#000", bold=True)
+        # ── Right: controls, live values, graph, progress, log ───────────────
+        ctrl = tk.Frame(right, bg=APP_BG)
+        ctrl.pack(fill="x", pady=(0, 10))
+        self.btn_start = button(ctrl, tr("Tune starten", "Start tune"), self._start_tune,
+                                kind="primary", color=CYAN, image=icon_image("play", on_color(CYAN), 15),
+                                compound="left", height=36)
         self.btn_start.pack(side="left", padx=(0, 8))
-        self.btn_abort = mk_btn(ctrl, "■  ABORT", self._abort_tune, ERR, WHT)
-        self.btn_abort.config(state="disabled")
+        self.btn_abort = button(ctrl, tr("Abbrechen", "Abort"), self._abort_tune, kind="danger",
+                                image=icon_image("stop", "#ffffff", 14), compound="left", height=36,
+                                state="disabled")
         self.btn_abort.pack(side="left")
-        self.lbl_state = tk.Label(ctrl, text="Idle", font=FM, fg=DIM, bg=BG1)
-        self.lbl_state.pack(side="right")
 
-        # Live tiles
-        live_f = tk.Frame(p, bg=BG2)
-        live_f.pack(fill="x", padx=12, pady=(4, 0))
-        live_f.columnconfigure((0, 1, 2, 3), weight=1)
+        tiles = ResponsiveGrid(right, min_width=90, max_cols=4, gap=8)
+        tiles.pack(fill="x", pady=(0, 10))
         self._ttiles = {}
-        for i, (key, label, unit, color) in enumerate([
-            ("volt", "Voltage", "mV", VOLT),
-            ("temp", "Temp",    "°C", ERR),
-            ("clk",  "Clock",   "MHz",ACC),
-            ("pwr",  "Power",   "W",  WRN),
-        ]):
-            f, vl = mk_tile(live_f, label, "--", color, unit)
-            f.grid(row=0, column=i, padx=3, pady=4, sticky="nsew")
+        for key, label, unit, color in (
+            ("volt", tr("Spannung", "Voltage"), "mV",  VIOLET),
+            ("temp", "Temp",                    "°C",  ERR),
+            ("clk",  "Clock",                   "MHz", ACC),
+            ("pwr",  tr("Leistung", "Power"),   "W",   AMBER),
+        ):
+            f, vl = tile(tiles, label, "--", color, unit, bg=CARD_BG)
+            tiles.add(f)
             self._ttiles[key] = vl
 
-        # Live graph
         from ui.live_graph import LiveGraph
-        self.live_graph = LiveGraph(p, height=130)
-        self.live_graph.pack(fill="x", padx=12, pady=(4, 0))
+        gcard = Card(right, pady=12)
+        gcard.pack(fill="x", pady=(0, 10))
+        self.live_graph = LiveGraph(gcard.body, height=120)
+        self.live_graph.pack(fill="x")
 
-        # Progress
-        pf = tk.Frame(p, bg=BG1)
-        pf.pack(fill="x", padx=12, pady=4)
+        pf = tk.Frame(right, bg=APP_BG)
+        pf.pack(fill="x", pady=(0, 8))
         self.prog_var = tk.DoubleVar()
-        ttk.Progressbar(pf, variable=self.prog_var, maximum=100).pack(fill="x")
-        self.lbl_prog = tk.Label(pf, text="", font=FM, fg=DIM, bg=BG1)
-        self.lbl_prog.pack(anchor="w", pady=2)
+        self.prog_bar = ctk.CTkProgressBar(pf, height=8, corner_radius=4, progress_color=CYAN)
+        self.prog_bar.set(0)
+        self.prog_bar.pack(fill="x")
+        self.prog_var.trace_add("write", lambda *_: self.prog_bar.set(
+            max(0.0, min(1.0, self.prog_var.get() / 100))))
+        self.lbl_prog = tk.Label(pf, text="", font=F_XS, fg=DIM, bg=APP_BG, anchor="w")
+        self.lbl_prog.pack(fill="x", pady=(4, 0))
 
-        # Log — fixed height at bottom, always visible
-        sep = tk.Frame(p, bg="#2d333b", height=1)
-        sep.pack(side="bottom", fill="x")
-        self.log = LogBox(p)
-        self.log.pack(side="bottom", fill="x", padx=12, pady=(2, 6))
-        self.log.txt.configure(height=5)
-        self.log.configure(height=90)
-        self.log.txt.tag_config("header", foreground=ACC)
-        SecHdr(p, "Tuner Log").pack(side="bottom", fill="x", padx=12)
+        # Log — takes the rest of the column, always visible
+        lcard = ctk.CTkFrame(right, fg_color=INPUT_BG, corner_radius=10, border_width=1, border_color=BORDER)
+        lcard.pack(fill="both", expand=True)
+        tk.Label(lcard, text="Tuner-Log", font=("Segoe UI Semibold", 8), fg=MUTED,
+                 bg=INPUT_BG).pack(anchor="w", padx=12, pady=(8, 0))
+        self.log = LogView(lcard, height=6)
+        self.log.pack(fill="both", expand=True, padx=6, pady=(0, 6))
+
+    def _select_mode(self, mode_id: str):
+        self.v_mode.set(mode_id)
+        self._highlight_mode_btns()
+        self._apply_mode_to_config(mode_id)
 
     def _highlight_mode_btns(self):
-        selected = self.v_mode.get()
-        for mode_id, (frame, color) in self._mode_btns.items():
-            if mode_id == selected:
-                frame.config(bg=BG3, highlightthickness=2,
-                             highlightbackground=color, relief="solid")
-                for child in frame.winfo_children():
-                    child.config(bg=BG3)
-            else:
-                frame.config(bg=BG2, highlightthickness=0, relief="flat")
-                for child in frame.winfo_children():
-                    child.config(bg=BG2)
+        mid = self.v_mode.get()
+        for m, de, en, dd, de_en in MODES:
+            if m == mid:
+                self.seg_mode.set(tr(de, en))
+                self.lbl_mode_desc.config(text=tr(dd, de_en))
 
     def _show_gpu_defaults(self):
-        """Load GPU defaults and populate spinboxes."""
+        """Load GPU defaults and fill the parameter fields."""
         try:
             from core.gpu_defaults import get_defaults
             gpu_name = self.monitor.read().name
             d = get_defaults(gpu_name)
 
-            # Fill spinboxes with generation-appropriate defaults
+            # Fill the fields with generation-appropriate defaults
             self.v_core_step.set(d.core_step_mhz)
             self.v_core_max.set( d.core_max_mhz)
             self.v_pwr_min.set(  d.power_min_pct)
@@ -248,14 +248,15 @@ class GpuTunerTab(tk.Frame):
             self.v_mem_max.set(  d.mem_max_mhz)
 
             self.lbl_gpu_defaults.config(
-                text=f"GPU: {gpu_name[:40]}  |  Gen: {d.generation}  |  "
-                     f"Defaults: Core max +{d.core_max_mhz}MHz, Mem max +{d.mem_max_mhz}MHz, "
-                     f"Power min {d.power_min_pct}%, Temp limit {d.max_temp_c}°C",
+                text=f"{gpu_name[:40]}  ·  {d.generation}  ·  "
+                     f"{tr('Vorgaben', 'Defaults')}: Core max +{d.core_max_mhz} MHz, "
+                     f"Mem max +{d.mem_max_mhz} MHz, Power min {d.power_min_pct} %, "
+                     f"Temp-Limit {d.max_temp_c} °C",
                 fg=ACC
             )
         except Exception as e:
             self.lbl_gpu_defaults.config(
-                text=f"GPU detection: {e} — using conservative defaults", fg=WRN)
+                text=f"GPU detection: {e} — using conservative defaults", fg=AMBER)
 
     def _apply_mode_to_config(self, mode_id: str):
         """When mode changes, adjust visible defaults."""
@@ -282,93 +283,81 @@ class GpuTunerTab(tk.Frame):
                 self.v_core_max.set(d.core_max_mhz)
                 self.v_pwr_min.set(d.power_min_pct)
                 self.v_mem_stage.set(True)
-        except:
+        except Exception:
             pass
 
     # ── Profiles ──────────────────────────────────────────────────────────────
 
     def _build_profiles(self, p):
-        hdr = tk.Frame(p, bg=BG1)
-        hdr.pack(fill="x", padx=12, pady=(10, 4))
-        tk.Label(hdr, text="GPU Profiles", font=FT, fg=WHT, bg=BG1).pack(side="left")
-        mk_btn(hdr, "⟳ Refresh", self._refresh_profiles, BG3, TXT
-               ).pack(side="right")
-
-        cols = ("name", "core", "mem", "pwr", "volt", "score", "stable", "notes")
-        tree_f = tk.Frame(p, bg=BG1)
-        tree_f.pack(fill="both", expand=True, padx=12, pady=4)
-
-        sb = ttk.Scrollbar(tree_f, orient="vertical")
-        self.tree = ttk.Treeview(tree_f, columns=cols, show="headings",
-                                 height=12, style="TV.Treeview",
-                                 yscrollcommand=sb.set)
-        sb.config(command=self.tree.yview)
-
-        for col, label, w in [
-            ("name","Profile",150),("core","Core+",80),("mem","Mem+",70),
-            ("pwr","Power%",70),("volt","AvgVolt",85),("score","Score",55),
-            ("stable","Stable",60),("notes","Notes",230),
-        ]:
-            anc = "w" if col in ("name","notes") else "center"
-            self.tree.heading(col, text=label)
-            self.tree.column(col, width=w, anchor=anc)
-
-        self.tree.pack(side="left", fill="both", expand=True)
-        sb.pack(side="right", fill="y")
-
-        act = tk.Frame(p, bg=BG1)
-        act.pack(fill="x", padx=12, pady=4)
-        mk_btn(act, "▶ Apply to AB",       self._apply_profile,  ACC, "#000").pack(side="left", padx=3)
-        mk_btn(act, "📌 Set Tray Default", self._set_tray_default).pack(side="left", padx=3)
-        mk_btn(act, "🗑 Delete",           self._delete_profile,  ERR, WHT).pack(side="left", padx=3)
-
-        self.lbl_detail = tk.Label(p, text="Select a profile", font=FM,
-                                   fg=DIM, bg=BG2, anchor="w", padx=10, pady=6)
-        self.lbl_detail.pack(fill="x", padx=12, pady=(2, 8))
-
+        card = Card(p, tr("GPU-Profile", "GPU profiles"),
+                    subtitle=tr("Ergebnisse des Auto-Tunes und gespeicherte manuelle Werte. "
+                                "„Anwenden“ schreibt das Profil über Afterburner (kurzer Neustart von AB).",
+                                "Auto-Tune results and saved manual values. 'Apply' writes the profile "
+                                "via Afterburner (it restarts briefly)."),
+                    accent=CYAN)
+        card.pack(fill="both", expand=True)
+        button(card.actions, tr("Aktualisieren", "Refresh"), self._refresh_profiles, kind="ghost",
+               image=icon_image("refresh", TEXT2, 14), compound="left", height=28).pack(side="right")
+        tbl = Table(card.body, [
+            ("name", tr("Profil", "Profile"), 170, "w"), ("core", "Core+", 70, "center"),
+            ("mem", "Mem+", 70, "center"), ("pwr", "Power %", 70, "center"),
+            ("volt", tr("Ø Spannung", "Avg volt"), 80, "center"), ("score", "Score", 60, "center"),
+            ("stable", tr("Stabil", "Stable"), 60, "center"), ("notes", tr("Notizen", "Notes"), 240, "w"),
+        ], height=12, selectmode="browse")
+        tbl.pack(fill="both", expand=True)
+        self.tree = tbl.tree
+        act = tk.Frame(card.body, bg=CARD_BG)
+        act.pack(fill="x", pady=(10, 0))
+        button(act, tr("In Afterburner anwenden", "Apply to Afterburner"), self._apply_profile,
+               kind="primary", color=CYAN, height=30).pack(side="left", padx=(0, 6))
+        button(act, tr("Als Tray-Standard", "Set as tray default"), self._set_tray_default,
+               height=30).pack(side="left", padx=(0, 6))
+        button(act, tr("Löschen", "Delete"), self._delete_profile, kind="ghost", height=30,
+               image=icon_image("delete", ERR, 14), compound="left").pack(side="left")
+        self.lbl_detail = WrapLabel(card.body, text=tr("Profil auswählen", "Select a profile"),
+                                    font=F_MONO, fg=DIM, bg=CARD_BG)
+        self.lbl_detail.pack(fill="x", pady=(10, 0))
         self.tree.bind("<<TreeviewSelect>>", self._on_profile_select)
         self._refresh_profiles()
 
     # ── Manual ────────────────────────────────────────────────────────────────
 
     def _build_manual(self, p):
-        tk.Label(p, text="Manual Offset Control", font=FT, fg=WHT, bg=BG1
-                 ).pack(padx=12, pady=(12, 2), anchor="w")
-        tk.Label(p, text="Applied via Afterburner — it is restarted briefly (a few seconds). "
-                         "Set the fan in Afterburner itself.",
-                 font=FL, fg=DIM, bg=BG1).pack(padx=12, anchor="w")
-
-        cf = tk.Frame(p, bg=BG2)
-        cf.pack(fill="x", padx=12, pady=8)
-
+        card = Card(p, tr("Manuelle Offsets", "Manual offsets"),
+                    subtitle=tr("Wird über Afterburner angewendet — Afterburner startet dafür kurz neu "
+                                "(ein paar Sekunden). Den Lüfter bitte in Afterburner selbst einstellen.",
+                                "Applied via Afterburner — it is restarted briefly (a few seconds). "
+                                "Set the fan in Afterburner itself."),
+                    accent=CYAN)
+        card.pack(fill="x")
         self.v_m_core = tk.IntVar(value=0)
         self.v_m_mem  = tk.IntVar(value=0)
         self.v_m_pwr  = tk.IntVar(value=100)
-
-        for row_i, (label, var, lo, hi, unit) in enumerate([
-            ("Core Offset",  self.v_m_core,  -200, 350, "MHz"),
-            ("Mem Offset",   self.v_m_mem,   -500,1500, "MHz"),
-            ("Power Limit",  self.v_m_pwr,     50, 120, "%"),
-        ]):
-            tk.Label(cf, text=label, font=FL, fg=DIM, bg=BG2).grid(
-                row=row_i, column=0, sticky="w", padx=12, pady=6)
-            tk.Scale(cf, variable=var, from_=lo, to=hi, orient="horizontal",
-                     length=320, bg=BG2, fg=TXT, troughcolor=BG3,
-                     activebackground=ACC, highlightthickness=0, font=FM
-                     ).grid(row=row_i, column=1, padx=6)
-            tk.Label(cf, textvariable=var, font=FV, fg=ACC, bg=BG2, width=5
-                     ).grid(row=row_i, column=2)
-            tk.Label(cf, text=unit, font=FL, fg=DIM, bg=BG2).grid(
-                row=row_i, column=3, sticky="w")
-
-        bf = tk.Frame(p, bg=BG1)
-        bf.pack(fill="x", padx=12, pady=4)
-        mk_btn(bf, "Apply",           self._manual_apply,  ACC, "#000", bold=True).pack(side="left", padx=(0, 8))
-        mk_btn(bf, "Reset to Stock",  self._manual_reset).pack(side="left", padx=(0, 8))
-        mk_btn(bf, "Save as Profile...", self._manual_save, ACC2, WHT).pack(side="left")
-
-        self.lbl_manual_st = tk.Label(p, text="", font=FM, fg=DIM, bg=BG1)
-        self.lbl_manual_st.pack(padx=12, pady=4, anchor="w")
+        rows = tk.Frame(card.body, bg=CARD_BG)
+        rows.pack(fill="x")
+        rows.grid_columnconfigure(1, weight=1)
+        for i, (label, var, lo, hi, step, unit) in enumerate((
+            ("Core Offset", self.v_m_core, -200, 350, 5, "MHz"),
+            ("Mem Offset",  self.v_m_mem,  -500, 1500, 25, "MHz"),
+            ("Power Limit", self.v_m_pwr,    50, 120, 1, "%"),
+        )):
+            tk.Label(rows, text=label, font=F_BB, fg=TEXT, bg=CARD_BG, anchor="w", width=12
+                     ).grid(row=i, column=0, sticky="w", pady=8)
+            ctk.CTkSlider(rows, from_=lo, to=hi, number_of_steps=(hi - lo) // step, variable=var,
+                          height=18).grid(row=i, column=1, sticky="ew", padx=12)
+            NumberField(rows, var, lo, hi, step, width=64, bg=CARD_BG).grid(row=i, column=2, padx=(0, 6))
+            tk.Label(rows, text=unit, font=F_S, fg=DIM, bg=CARD_BG, width=4, anchor="w"
+                     ).grid(row=i, column=3, sticky="w")
+        bf = tk.Frame(card.body, bg=CARD_BG)
+        bf.pack(fill="x", pady=(12, 0))
+        button(bf, tr("Anwenden", "Apply"), self._manual_apply, kind="primary", color=CYAN,
+               height=32).pack(side="left", padx=(0, 6))
+        button(bf, tr("Auf Standard zurücksetzen", "Reset to stock"), self._manual_reset,
+               height=32).pack(side="left", padx=(0, 6))
+        button(bf, tr("Als Profil speichern …", "Save as profile …"), self._manual_save,
+               height=32, image=icon_image("save", TEXT, 14), compound="left").pack(side="left")
+        self.lbl_manual_st = tk.Label(card.body, text="", font=F_MONO, fg=DIM, bg=CARD_BG, anchor="w")
+        self.lbl_manual_st.pack(fill="x", pady=(10, 0))
 
     # ── Tuner callbacks ───────────────────────────────────────────────────────
 
@@ -378,27 +367,27 @@ class GpuTunerTab(tk.Frame):
             TunerState.BASELINE:   (ACC, "Baseline..."),
             TunerState.STAGE1:     (ACC, "Stage 1: Core OC"),
             TunerState.STAGE2:     (ACC, "Stage 2: Power UV"),
-            TunerState.FINAL_TEST: (WRN, "Final verification"),
-            TunerState.BACKOFF:    (WRN, "Backoff"),
-            TunerState.SAVING:     (OK,  "Saving..."),
-            TunerState.DONE:       (OK,  "Done!"),
+            TunerState.FINAL_TEST: (AMBER, "Final verification"),
+            TunerState.BACKOFF:    (AMBER, "Backoff"),
+            TunerState.SAVING:     (GREEN, "Saving..."),
+            TunerState.DONE:       (GREEN, "Done!"),
             TunerState.ERROR:      (ERR, "Error"),
             TunerState.ABORTED:    (ERR, "Aborted"),
         }
         col, text = colors.get(state, (DIM, state.name))
         def _do():
-            self.lbl_state.config(text=text, fg=col)
+            self.lbl_state.config(text=f"● {text}", fg=col)
             done = {TunerState.DONE, TunerState.ERROR, TunerState.ABORTED, TunerState.IDLE}
-            self.btn_start.config(state="normal" if state in done else "disabled")
-            self.btn_abort.config(state="disabled" if state in done else "normal")
+            self.btn_start.configure(state="normal" if state in done else "disabled")
+            self.btn_abort.configure(state="disabled" if state in done else "normal")
             if state == TunerState.DONE:
                 self._refresh_profiles()
         self.after(0, _do)
 
     def _on_log(self, msg, level):
-        tag = level if level in ("warning","error","success") else "info"
+        tag = level if level in ("warning", "error", "success") else "info"
         if "═══" in msg or "Stage" in msg: tag = "header"
-        self.after(0, lambda: self.log.append(msg, tag))
+        self.log.append(msg, tag)          # queue-backed: safe from the tuner thread
 
     def _on_progress(self, pct, msg):
         def _do():
@@ -412,9 +401,7 @@ class GpuTunerTab(tk.Frame):
             self._ttiles["temp"].config(text=str(s.temp))
             self._ttiles["clk"].config( text=f"{s.core_mhz:.0f}")
             self._ttiles["pwr"].config( text=f"{s.gpu_power_w:.0f}")
-            # Push to live graph
-            if hasattr(self, "live_graph"):
-                self.live_graph.push(s.core_mhz, s.voltage_mv, float(s.temp))
+            self.live_graph.push(s.core_mhz, s.voltage_mv, float(s.temp))
         self.after(0, _do)
 
     # ── Actions ───────────────────────────────────────────────────────────────
@@ -471,8 +458,7 @@ class GpuTunerTab(tk.Frame):
         )
         self.tuner.config = cfg
         self.prog_var.set(0)
-        if hasattr(self, "live_graph"):
-            self.live_graph.clear()
+        self.live_graph.clear()
         self.tuner.start()
 
     def _abort_tune(self):
@@ -480,7 +466,7 @@ class GpuTunerTab(tk.Frame):
             # abort() waits for an in-flight Afterburner write and then resets
             # (Afterburner load ~1.5 s) — run it off the UI thread so the
             # window doesn't freeze.
-            self.btn_abort.config(state="disabled")
+            self.btn_abort.configure(state="disabled")
             threading.Thread(target=self.tuner.abort, daemon=True).start()
 
     def _refresh_profiles(self):
@@ -505,7 +491,7 @@ class GpuTunerTab(tk.Frame):
                 f"Core: +{p.core_offset_mhz}MHz  Mem: +{p.mem_offset_mhz}MHz  "
                 f"Power: {p.power_limit_pct}%  AvgVolt: {p.stage1_voltage or '--'}mV  "
                 f"Score: {p.stability_score}/100  GPU: {p.gpu_name}"
-            ))
+            ), fg=TEXT2)
 
     def _run_ab(self, work, done) -> bool:
         """Run an Afterburner action off the UI thread — it closes and restarts
@@ -550,7 +536,7 @@ class GpuTunerTab(tk.Frame):
             else:
                 messagebox.showerror("Error", err)
         if self._run_ab(lambda: self.ab.write_and_apply(slot, p), done):
-            self.lbl_detail.config(text=f"Applying '{p.name}' via Afterburner …")
+            self.lbl_detail.config(text=f"Applying '{p.name}' via Afterburner …", fg=DIM)
 
     def _set_tray_default(self):
         sel = self.tree.selection()
@@ -575,7 +561,7 @@ class GpuTunerTab(tk.Frame):
             self.lbl_manual_st.config(
                 text=(f"{'Applied' if ok else f'Error: {err}'} — Core {p.core_offset_mhz:+d} "
                       f"Mem {p.mem_offset_mhz:+d} Pwr {p.power_limit_pct}% (slot {slot})"),
-                fg=OK if ok else ERR)
+                fg=GREEN if ok else ERR)
         if self._run_ab(lambda: self.ab.write_and_apply(slot, p), done):
             self.lbl_manual_st.config(text="Applying via Afterburner …", fg=DIM)
 
@@ -594,12 +580,13 @@ class GpuTunerTab(tk.Frame):
         def done(res):
             ok, err = res
             self.lbl_manual_st.config(text="Reset to stock." if ok else f"Error: {err}",
-                                      fg=OK if ok else ERR)
+                                      fg=GREEN if ok else ERR)
         if self._run_ab(work, done):
             self.lbl_manual_st.config(text="Resetting via Afterburner …", fg=DIM)
 
     def _manual_save(self):
-        name = simpledialog.askstring("Profile Name", "Profile name:")
+        name = ctk.CTkInputDialog(title=tr("Profil speichern", "Save profile"),
+                                  text=tr("Name des Profils:", "Profile name:")).get_input()
         if not name: return
         p = TuneProfile(name=name, core_offset_mhz=self.v_m_core.get(),
                         mem_offset_mhz=self.v_m_mem.get(),
