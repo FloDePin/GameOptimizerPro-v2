@@ -16,8 +16,8 @@ TWEAK_DESC_EN: dict[str, str] = {
         "Disables Windows Copilot and stops it from sending data in the background.",
     "remove_onedrive":
         "Fully uninstalls OneDrive including autostart. Local files are kept.",
-    "remove_recall":
-        "Disables Windows Recall so it no longer takes screenshots of your activity. Privacy critical.",
+    'remove_recall':
+        'Turns off Windows Recall via the official policies (no more screenshots of your activity) and REMOVES its components and saved snapshots on the next restart. Privacy critical.',
     "remove_bloatware":
         "Removes preinstalled apps: Candy Crush, TikTok, Disney+, Facebook, Spotify, News, Solitaire, Clipchamp, ToDo, Paint3D and more.",
     "disable_telemetry":
@@ -149,8 +149,8 @@ TWEAK_DESC_EN: dict[str, str] = {
         "Prevents firmware/motherboard from injecting programs into Windows at boot (WPBT). Blocks vendor-preinstalled background software at the UEFI level. Safe, reversible.",
     "disable_storage_sense":
         "Turns off Windows' automatic Storage Sense, which can delete files in the background. Not needed if you clean up yourself (e.g. via the System Cleaner).",
-    "disable_ai_text_image_gen":
-        "Disables Windows' on-device generative AI (Settings → Privacy → Text and image generation). Stops Windows and apps from using local AI models. Does not affect cloud AI services. Reversible.",
+    'disable_ai_text_image_gen':
+        "Blocks Windows' on-device generative AI (Settings → Privacy → Text and image generation) for all apps — the switch AND the policy (Force Deny) that apps and users can't turn back on. Doesn't affect cloud AI services. Reversible.",
 
     # ── Ported from GameOptimizerPro v1 ──────────────────────────────────────
     "prevent_device_companion":
@@ -177,6 +177,52 @@ TWEAK_DESC_EN: dict[str, str] = {
         "AMD only: sets the AMD shader cache to its maximum size. Prevents cache eviction and repeated shader recompilation — reduces stutter especially in OpenGL/Vulkan titles.",
     "amd_antilag":
         "AMD only: enables AMD Anti-Lag via the registry. Shortens the gap between CPU input and GPU output — similar to NVIDIA Reflex. Most effective in CPU-limited games (RX 5000+).",
+    'enable_long_paths':
+        "Allows file paths longer than 260 characters. Prevents 'path too long' errors with deep folder structures, game mods, Node projects etc.",
+    'numlock_on_startup':
+        'Turns NumLock on automatically at startup and on the sign-in screen.',
+    'disable_lock_screen':
+        'Goes straight to the sign-in field on start/wake instead of showing the lock screen first. Honest note: Microsoft only guarantees this policy on Enterprise/Education — on Home/Pro it depends on the build.',
+    'run_disk_cleanup':
+        'Runs Windows Disk Cleanup on SAFE categories only (temp files, update leftovers, error reports, memory dumps, delivery optimization, thumbnails …) and then removes old update components with DISM. Deliberately NOT: the Downloads folder, the Recycle Bin, Windows.old (the way back to the previous Windows), the shader cache (games would stutter again), old drivers. One-time action, takes a few minutes.',
+    'disable_reserved_storage':
+        'Frees the storage Windows reserves for updates (typically ~7 GB). Windows then manages update space dynamically. Only works while no update is pending.',
+    'pagefile_system_managed':
+        "Sets the pagefile to 'system managed'. Windows sizes it to demand — prevents too-small (crashes on RAM spikes) and needlessly large files. This is the Windows default.",
+    'clear_pagefile_shutdown':
+        'Overwrites the pagefile at every shutdown so no memory remnants stay on disk (privacy). Makes shutdown slower — noticeably with a large pagefile.',
+    'disable_memory_compression':
+        'Turns off RAM compression and saves CPU time while gaming. Only sensible with enough RAM (16 GB+) — otherwise Windows pages to disk earlier.',
+    'enable_ssd_trim':
+        'Makes sure Windows tells SSDs about deleted blocks (TRIM), keeping SSD performance high long-term. Usually already on — this tweak checks and enforces it.',
+    'disable_scheduled_defrag':
+        "Disables the weekly drive optimization. Honest note: on SSDs Windows doesn't defragment, it only sends another TRIM — that stops (TRIM on delete stays). Only useful if you want to control optimization yourself.",
+    'nvme_queue_depth':
+        "Sets a StorPort queue depth of 32 and a higher interrupt priority for NVMe SSDs and turns off the NVMe driver's idle power saving (lower latency, slightly more power). Honest note: the effect depends on the driver and is usually only measurable in benchmarks. Greyed out without an NVMe drive.",
+    'disable_write_cache_flush':
+        "Same as 'Turn off Windows write-cache buffer flushing' in Device Manager: faster writes, but a power loss or crash can cause data loss and file-system errors. Desktop PCs with a stable power supply only (ideally a UPS). (v1 set the wrong registry value here.)",
+    'w11_remove_chat_icon':
+        'Removes the Teams Chat icon from the taskbar (prevents an unwanted Teams install). Current builds usually no longer have the icon — then this changes nothing.',
+    'w11_hide_recommended':
+        "Hides the 'Recommended' section (recent files/apps) in the Start menu via policy. Honest note: not guaranteed on every edition/build.",
+    'disable_click_to_do':
+        "Turns off 'Click to Do', which takes a screenshot on a key press and has an AI analyze it to suggest actions. Official Windows AI policy (documented for Pro too), for computer and user.",
+    'disable_paint_ai':
+        'Turns off the AI features in Paint via the official policies: Cocreator, Image Creator, generative fill — plus generative erase and remove background.',
+    'disable_notepad_ai':
+        'Turns off the Copilot features in Notepad (rewrite, summarize, write) via the official policy.',
+    'disable_ai_fabric_service':
+        "Disables the 'Host for Windows AI components'. Since 24H2/26H2 it starts automatically and serves local AI models (AI search in Settings, Click to Do, AI actions). Saves RAM and CPU in the background; those AI features are off afterwards. Reversible.",
+    'remove_m365_copilot_devhome':
+        "Removes the 'Microsoft 365 Copilot' app (Office Hub) and the discontinued Dev Home — feature updates like 26H2 re-install both. Also removes the provisioned packages so they don't come back for new users. Office in the browser keeps working.",
+    'tcp_optimize':
+        'Turns ECN and TCP timestamps off and SACK on — slightly less overhead per packet. Honest note: the effect on ping is small; turning ECN off mainly helps behind routers that mishandle ECN packets.',
+    'disable_qos_limit':
+        "Sets the QoS policy 'limit reservable bandwidth' to 0 %. Honest note: contrary to popular belief Windows does NOT permanently reserve 20 % — the reserve only applies when a QoS application requests bandwidth. Usually no measurable effect, but harmless.",
+    'mmcss_audio_profile':
+        "Sets the MMCSS task 'Audio' to latency-sensitive with high scheduling priority — fewer crackles and dropouts under CPU load. (Complements 'MMCSS Audio Priority', which covers the 'Pro Audio' task.)",
+    'audio_service_priority':
+        "Sets SystemResponsiveness to 0 — MMCSS no longer reserves CPU time for background tasks, so audio and games get more. Against dropouts while gaming + streaming. ('Network Throttling Index' uses the same value — it's only reset once neither tweak needs it.)",
 }
 
 # English names, only where the German name differs. Most names are already English.
@@ -189,6 +235,52 @@ TWEAK_NAME_EN: dict[str, str] = {
     "disable_storage_sense": "Disable Storage Sense",
     "disable_ai_text_image_gen": "Disable Text & Image Generation (on-device AI)",
     "dx12_optimization":    "Raise GPU Timeout (TDR Delay)",
+    'enable_long_paths':
+        'Enable Long Paths (> 260 characters)',
+    'numlock_on_startup':
+        'NumLock on at Startup',
+    'disable_lock_screen':
+        'Skip the Lock Screen',
+    'run_disk_cleanup':
+        'Run Disk Cleanup (one-time)',
+    'disable_reserved_storage':
+        'Free Reserved Storage (~7 GB)',
+    'pagefile_system_managed':
+        'Let Windows Manage the Pagefile',
+    'clear_pagefile_shutdown':
+        'Clear Pagefile at Shutdown',
+    'disable_memory_compression':
+        'Disable Memory Compression',
+    'enable_ssd_trim':
+        'Ensure SSD TRIM',
+    'disable_scheduled_defrag':
+        'Disable Scheduled Drive Optimization',
+    'nvme_queue_depth':
+        'NVMe: Queue Depth & Idle Power Saving',
+    'disable_write_cache_flush':
+        'Disable Write-Cache Buffer Flushing (desktop + UPS only)',
+    'w11_remove_chat_icon':
+        'Win11: Remove Chat Icon from Taskbar',
+    'w11_hide_recommended':
+        "Win11: Hide 'Recommended' in Start",
+    'disable_click_to_do':
+        'Disable Click to Do (AI screen analysis)',
+    'disable_paint_ai':
+        'Disable Paint AI',
+    'disable_notepad_ai':
+        'Disable Notepad AI',
+    'disable_ai_fabric_service':
+        'Turn off the Windows AI Service (WSAIFabricSvc)',
+    'remove_m365_copilot_devhome':
+        'Remove Microsoft 365 Copilot App & Dev Home',
+    'tcp_optimize':
+        'Optimize TCP (ECN & Timestamps off, SACK on)',
+    'disable_qos_limit':
+        'QoS Bandwidth Reserve to 0 %',
+    'mmcss_audio_profile':
+        'Optimize MMCSS Audio Profile',
+    'audio_service_priority':
+        'Raise Audio Priority System-wide',
 }
 
 

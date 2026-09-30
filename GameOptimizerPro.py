@@ -119,7 +119,12 @@ class GameOptimizerApp:
         # Core components (thread-safe, no tkinter)
         self.hw      = detect_hw()
         self.monitor = GpuMonitor()
-        self.ab      = AfterburnerController()
+        # The card's PCI identity picks Afterburner's per-GPU profile file; the
+        # MAHM reader drops/reopens the shared memory whenever a profile apply
+        # restarts Afterburner.
+        self.ab      = AfterburnerController(self.monitor.nvml.get_pci_identity())
+        self.ab.on_ab_closing = self.monitor.mahm.suspend
+        self.ab.on_ab_started = self.monitor.mahm.resume
         self.pm      = ProfileManager(str(BASE / "profiles"))
         self.cr      = CrashRecovery(logs_dir)
         self.tuner   = AutoTuner(
@@ -173,7 +178,7 @@ class GameOptimizerApp:
 
     def _reset_gpu(self, icon=None, item=None):
         def _do():
-            self.ab.reset_to_stock()
+            self.ab.reset_to_stock(2)        # the app's slot — not the user's slot 1
             # Factory power limit — not the card's maximum (on partner cards
             # the maximum is above stock, so "reset" used to RAISE the limit).
             watts = self.monitor.power_pct_to_watts(100)

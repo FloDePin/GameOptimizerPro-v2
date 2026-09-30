@@ -30,6 +30,7 @@ _TIER_MINIMAL = [
     "disable_consumer_features",
     "enable_game_mode", "disable_game_bar", "disable_mouse_accel", "disable_fullscreen_opt",
     "disable_sticky_keys", "show_file_extensions",
+    "enable_long_paths", "enable_ssd_trim",
 ]
 
 _MEDIUM_EXTRA = [
@@ -41,6 +42,8 @@ _MEDIUM_EXTRA = [
     "remove_bloatware", "remove_xbox",
     "disable_nagle", "disable_network_throttle", "enable_rss", "disable_delivery_optimization",
     "disable_hibernation", "disable_storage_sense", "end_task_right_click",
+    "disable_click_to_do", "disable_paint_ai", "disable_notepad_ai",
+    "tcp_optimize", "mmcss_audio_profile", "w11_remove_chat_icon",
 ]
 
 _HARD_EXTRA = [
@@ -54,6 +57,9 @@ _HARD_EXTRA = [
     "set_mmcss_audio", "disable_audio_ducking", "disable_sound_scheme",
     "w11_classic_context_menu", "w11_taskbar_left", "w11_disable_widgets", "w11_disable_snap_suggest",
     "power_pcie_aspm_off", "power_disk_never_sleep", "show_hidden_files",
+    "remove_m365_copilot_devhome", "disable_ai_fabric_service", "disable_reserved_storage",
+    "disable_memory_compression", "audio_service_priority", "disable_qos_limit",
+    "w11_hide_recommended",
 ]
 
 _TIER_MEDIUM = _TIER_MINIMAL + _MEDIUM_EXTRA
@@ -134,6 +140,10 @@ BUILTIN_PRESETS: list[TweakPreset] = [
             "remove_recall",
             "disable_wpbt",
             "disable_ai_text_image_gen",
+            "disable_click_to_do",
+            "disable_paint_ai",
+            "disable_notepad_ai",
+            "disable_ai_fabric_service",
         ],
     ),
 
@@ -152,6 +162,7 @@ BUILTIN_PRESETS: list[TweakPreset] = [
             "remove_onedrive",
             "w11_disable_widgets",
             "disable_consumer_features",
+            "remove_m365_copilot_devhome",
         ],
     ),
 
@@ -168,6 +179,8 @@ BUILTIN_PRESETS: list[TweakPreset] = [
             "dns_cloudflare",
             "flush_dns",
             "disable_delivery_optimization",
+            "tcp_optimize",
+            "disable_qos_limit",
         ],
     ),
 
@@ -189,6 +202,7 @@ BUILTIN_PRESETS: list[TweakPreset] = [
             "power_pcie_aspm_off",
             "power_disk_never_sleep",
             "disable_storage_sense",
+            "disable_memory_compression",
         ],
     ),
 
@@ -205,6 +219,8 @@ BUILTIN_PRESETS: list[TweakPreset] = [
             "w11_disable_snap_suggest",
             "enable_dark_mode",
             "disable_transparency",
+            "w11_remove_chat_icon",
+            "w11_hide_recommended",
         ],
     ),
 

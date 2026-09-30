@@ -50,7 +50,7 @@ class TweakRunner:
     ) -> tuple[bool, str]:
         """Apply a tweak. Returns (success, output)."""
         cmd = tweak.ps_command.strip()
-        ok, out = self._run_ps(cmd)
+        ok, out = self._run_ps(cmd, getattr(tweak, "timeout_s", 60))
         self.logger.info(f"APPLY {tweak.id}: {'OK' if ok else 'FAIL'} | {out[:200]}")
         if ok:
             self._applied[tweak.id] = datetime.now().isoformat()
@@ -69,7 +69,7 @@ class TweakRunner:
             msg = f"No revert command for '{tweak.name}'"
             if on_result: on_result(tweak.id, False, msg)
             return False, msg
-        ok, out = self._run_ps(tweak.revert_cmd.strip())
+        ok, out = self._run_ps(tweak.revert_cmd.strip(), getattr(tweak, "timeout_s", 60))
         self.logger.info(f"REVERT {tweak.id}: {'OK' if ok else 'FAIL'} | {out[:200]}")
         if ok and tweak.id in self._applied:
             del self._applied[tweak.id]
@@ -123,7 +123,7 @@ class TweakRunner:
         return results
 
     @staticmethod
-    def _run_ps(command: str) -> tuple[bool, str]:
+    def _run_ps(command: str, timeout: int = 60) -> tuple[bool, str]:
         """Run a PowerShell command block silently (no window), return (success, output)."""
         try:
             # CREATE_NO_WINDOW + WindowStyle Hidden = completely invisible on Windows
@@ -139,7 +139,7 @@ class TweakRunner:
                 ["powershell.exe", "-NoProfile", "-NonInteractive",
                  "-WindowStyle", "Hidden",
                  "-ExecutionPolicy", "Bypass", "-Command", command],
-                capture_output=True, text=True, timeout=60,
+                capture_output=True, text=True, timeout=timeout,
                 encoding="utf-8", errors="replace",
                 creationflags=flags,
                 startupinfo=startupinfo,
@@ -147,6 +147,6 @@ class TweakRunner:
             out = ((result.stdout or "") + (result.stderr or "")).strip()
             return result.returncode == 0, out
         except subprocess.TimeoutExpired:
-            return False, "Timeout after 60s"
+            return False, f"Timeout after {timeout}s"
         except Exception as e:
             return False, str(e)

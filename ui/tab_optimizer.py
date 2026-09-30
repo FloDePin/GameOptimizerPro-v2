@@ -419,6 +419,8 @@ class OptimizerTab(tk.Frame):
             return False
         if tweak.requires_amd and not self.hw.is_amd_gpu:
             return False
+        if getattr(tweak, "requires_nvme", False) and not self.hw.has_nvme:
+            return False
         return True
 
     def _build_tweak_row(self, parent, tweak: Tweak, color: str = ACC):

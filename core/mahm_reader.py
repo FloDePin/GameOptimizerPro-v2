@@ -6,11 +6,13 @@ Gives us real voltage in mV, all clocks, temps, power - much richer than NVML al
 Source IDs from MAHMSharedMemory.h (official AB SDK):
   0  = GPU Temp         16 = Fan Speed       17 = Fan RPM
   32 = Core Clock       33 = Shader Clock    34 = Memory Clock
-  48 = GPU Usage        49 = Memory Usage    50 = Framebuffer Usage
+  48 = GPU Usage        49 = Memory Usage (MB) 50 = Framebuffer Usage
   52 = Bus Usage        64 = GPU Voltage     65 = Aux Voltage
   66 = Memory Voltage   80 = Framerate       81 = Frametime
-  96 = GPU Power       112 = Temp Limit     113 = Power Limit
- 114 = Voltage Limit   116 = Util Limit     256 = CPU Power
+  96 = GPU Power (% of limit)                97 = GPU Power (W)
+ 112 = Temp Limit      113 = Power Limit    114 = Voltage Limit
+ 116 = Util Limit      256 = CPU Power
+(Checked against a live Afterburner 4.6.6: "Power" in W arrives as 0x61.)
 The *Limit sources are limiter FLAGS (0/1 = "this limiter is active"), not
 values in °C / W.
 
@@ -38,6 +40,7 @@ returned 0 for every sensor while reporting "available".
 import ctypes
 import os
 import struct
+import threading
 import time
 from ctypes import wintypes
 from dataclasses import dataclass, field
@@ -116,7 +119,8 @@ SRC_AUX_VOLTAGE    = 65
 SRC_MEM_VOLTAGE    = 66
 SRC_FRAMERATE      = 80
 SRC_FRAMETIME      = 81
-SRC_GPU_POWER      = 96
+SRC_GPU_POWER      = 96    # 0x60: relative power, % of the power limit
+SRC_GPU_ABS_POWER  = 97    # 0x61: absolute power in W (what Afterburner shows as "Power")
 SRC_TEMP_LIMIT     = 112
 SRC_POWER_LIMIT    = 113
 SRC_VOLTAGE_LIMIT  = 114
@@ -164,15 +168,65 @@ class MAHMData:
     num_entries:    int   = 0
 
 
+def section_exists() -> bool:
+    """True while ANY process still holds a section under Afterburner's name."""
+    if os.name != "nt":
+        return False
+    try:
+        k = _k32()
+        h = k.OpenFileMappingW(_FILE_MAP_READ, False, MAHM_SHARED_MEMORY_NAME)
+        if not h:
+            return False
+        k.CloseHandle(h)
+        return True
+    except Exception:
+        return False
+
+
+def section_ready() -> bool:
+    """True when Afterburner's monitoring section exists and is live ('MAHM').
+    Opens and closes it again at once — used to wait for an Afterburner start."""
+    if os.name != "nt":
+        return False
+    try:
+        k = _k32()
+        h = k.OpenFileMappingW(_FILE_MAP_READ, False, MAHM_SHARED_MEMORY_NAME)
+        if not h:
+            return False
+        try:
+            view = k.MapViewOfFile(h, _FILE_MAP_READ, 0, 0, 0)
+            if not view:
+                return False
+            try:
+                return struct.unpack_from("<I", ctypes.string_at(view, 4))[0] == MAHM_SIGNATURE
+            finally:
+                k.UnmapViewOfFile(view)
+        finally:
+            k.CloseHandle(h)
+    except Exception:
+        return False
+
+
 class MAHMReader:
     """
     Reads MSI Afterburner Hardware Monitor shared memory.
     Falls back gracefully when AB is not running.
+
+    Thread-safe: read() runs on several threads (UI tick, tuner, temp monitor)
+    and any of them may unmap the view when Afterburner shuts down — without the
+    lock another thread could still be copying from it (access violation). That
+    matters now that applying a profile restarts Afterburner.
     """
 
     # Afterburner may be started AFTER GameOptimizerPro. read() retries opening
     # the section at most this often (OpenFileMappingW is cheap).
     RETRY_INTERVAL_S = 5.0
+    # Afterburner stamps the header (@20, unix time) on every poll (1 s default).
+    # A section whose stamp stops moving is dead: when Afterburner is killed it
+    # doesn't mark it 0xDEAD, anyone still holding a handle keeps it alive, and a
+    # NEW Afterburner then doesn't publish into it — every reader saw frozen idle
+    # values (8 % load, 210 MHz) for 14 minutes of full load. Seen live.
+    STALE_S = 8.0
 
     def __init__(self):
         self._handle = None           # section handle (from OpenFileMappingW)
@@ -181,6 +235,11 @@ class MAHMReader:
         self._available = False
         self._error = ""
         self._last_try = 0.0
+        self._lock = threading.RLock()
+        self._seen_time = None        # last header time stamp seen …
+        self._seen_at = 0.0           # … and when it last changed
+        self._stale_time = None       # stamp of a section recognised as frozen
+        self._suspended_until = 0.0   # no reconnect while Afterburner restarts
         self._try_open()
 
     def _release(self):
@@ -202,6 +261,10 @@ class MAHMReader:
         self._view_size = 0
 
     def _try_open(self):
+        with self._lock:
+            self._try_open_locked()
+
+    def _try_open_locked(self):
         self._last_try = time.monotonic()
         self._release()
         self._available = False
@@ -235,6 +298,12 @@ class MAHMReader:
                 self._error = f"MAHM signature mismatch: {sig:#010x}"
                 self._release()    # never keep a handle to a section we can't use
                 return
+            stamp = struct.unpack_from("<I", self._bytes(24), 20)[0]
+            if self._stale_time is not None and stamp == self._stale_time:
+                self._error = "Afterburner-Monitoring eingefroren (keine neuen Werte)"
+                self._release()    # still the frozen section — don't hold it
+                return
+            self._seen_time, self._seen_at = stamp, time.monotonic()
             self._error = ""
             self._available = True
         except Exception as e:
@@ -251,6 +320,22 @@ class MAHMReader:
         """Force a reconnect attempt (e.g. right after Afterburner was started)."""
         self._try_open()
 
+    def suspend(self, seconds: float = 30.0):
+        """Let go of the section BEFORE Afterburner is closed, and don't reconnect
+        for a while — otherwise this handle keeps the old section alive and the
+        restarted Afterburner doesn't publish into it."""
+        with self._lock:
+            self._release()
+            self._available = False
+            self._error = "Afterburner wird neu gestartet"
+            self._suspended_until = time.monotonic() + seconds
+
+    def resume(self):
+        """Afterburner is up again — connect to its fresh section."""
+        with self._lock:
+            self._suspended_until = 0.0
+            self._try_open_locked()
+
     @property
     def available(self):
         return self._available
@@ -260,8 +345,24 @@ class MAHMReader:
         return self._error
 
     def read(self) -> MAHMData:
+        with self._lock:
+            return self._read_locked()
+
+    def debug_entries(self) -> list:
+        """Every source as (name, units, value, gpu, src_id) — for the Afterburner
+        self-test (tools/ab_selftest.py); the app itself only uses read()."""
+        entries: list = []
+        with self._lock:
+            if not self._available:
+                self._try_open()
+            self._read_locked(entries)
+        return entries
+
+    def _read_locked(self, collect: Optional[list] = None) -> MAHMData:
         data = MAHMData()
         if not self._available or not self._view:
+            if time.monotonic() < self._suspended_until:
+                return data        # Afterburner is being restarted
             # Lazy reconnect: Afterburner may have been started after us.
             if time.monotonic() - self._last_try >= self.RETRY_INTERVAL_S:
                 self._try_open()
@@ -276,6 +377,17 @@ class MAHMReader:
             if sig != MAHM_SIGNATURE:
                 # Afterburner is shutting down (0xDEAD) or gone — let go of the
                 # section so it can be destroyed; read() will reconnect later.
+                self._available = False
+                self._release()
+                return data
+            stamp = struct.unpack_from("<I", head, 20)[0]
+            now = time.monotonic()
+            if stamp != self._seen_time:
+                self._seen_time, self._seen_at = stamp, now
+            elif now - self._seen_at > self.STALE_S:
+                # Frozen: Afterburner was killed and nobody updates this section.
+                self._error = "Afterburner-Monitoring eingefroren (keine neuen Werte)"
+                self._stale_time = stamp
                 self._available = False
                 self._release()
                 return data
@@ -306,8 +418,10 @@ class MAHMReader:
                     gpu, src_id = struct.unpack_from("<II", raw, off + _OFF_GPU)
                 else:                           # v1.x entries: no dwGpu / dwSrcId
                     gpu, src_id = 0, _NAME_TO_SRC.get(name.strip().lower())
-                    if src_id is None:
-                        continue
+                if collect is not None:
+                    collect.append((name, units, val, gpu, src_id))
+                if src_id is None:
+                    continue
                 # Only the first GPU (index 0) and global sources. Multi-GPU
                 # systems used to let GPU 2's values overwrite GPU 1's.
                 if gpu not in (0, _GLOBAL_GPU):
@@ -348,12 +462,19 @@ class MAHMReader:
         elif sid == SRC_MEM_VOLTAGE:   data.mem_voltage_mv = v_to_mv(val)
         elif sid == SRC_FRAMERATE:     data.framerate      = val
         elif sid == SRC_FRAMETIME:     data.frametime      = val
-        elif sid == SRC_GPU_POWER:     data.gpu_power_w    = val
+        elif sid == SRC_GPU_ABS_POWER:
+            data.gpu_power_w = val
+        elif sid == SRC_GPU_POWER:
+            # 0x60 is the RELATIVE power (% of the limit). Only take it when it
+            # really is in watts (v1.x entries matched by name) — never a percentage.
+            if "%" not in units and data.gpu_power_w <= 0:
+                data.gpu_power_w = val
         elif sid == SRC_TEMP_LIMIT:    data.temp_limit_active    = val >= 0.5
         elif sid == SRC_POWER_LIMIT:   data.power_limit_active   = val >= 0.5
         elif sid == SRC_VOLTAGE_LIMIT: data.voltage_limit_active = val >= 0.5
         elif sid == SRC_UTIL_LIMIT:    data.util_limit_active    = val >= 0.5
 
     def close(self):
-        self._release()
-        self._available = False
+        with self._lock:
+            self._release()
+            self._available = False

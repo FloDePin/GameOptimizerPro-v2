@@ -20,13 +20,28 @@ class DashboardTab(tk.Frame):
         self._start_live()
 
     def _build(self):
+        # Scrollable body — the tab is taller than a normal window, so the network
+        # test at the bottom was cut off. The inner frame follows the canvas
+        # width (cards/tiles keep stretching); the wheel works anywhere on it.
+        self._canvas = tk.Canvas(self, bg=BG1, highlightthickness=0)
+        sb = ttk.Scrollbar(self, orient="vertical", command=self._canvas.yview)
+        body = tk.Frame(self._canvas, bg=BG1)
+        win = self._canvas.create_window((0, 0), window=body, anchor="nw")
+        body.bind("<Configure>", lambda e: self._canvas.configure(
+            scrollregion=self._canvas.bbox("all")))
+        self._canvas.bind("<Configure>", lambda e: self._canvas.itemconfigure(
+            win, width=e.width))
+        self._canvas.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        self._canvas.pack(side="left", fill="both", expand=True)
+
         # Title
-        hdr = tk.Frame(self, bg=BG1)
+        hdr = tk.Frame(body, bg=BG1)
         hdr.pack(fill="x", padx=14, pady=(12, 6))
         tk.Label(hdr, text="System Overview", font=FT, fg=WHT, bg=BG1).pack(side="left")
 
         # Hardware cards
-        cards = tk.Frame(self, bg=BG1)
+        cards = tk.Frame(body, bg=BG1)
         cards.pack(fill="x", padx=14, pady=(0, 8))
         cards.columnconfigure((0, 1, 2, 3), weight=1)
 
@@ -34,7 +49,7 @@ class DashboardTab(tk.Frame):
             ("🖥  CPU",   self.hw.cpu_name,
              f"{self.hw.cpu_cores}c/{self.hw.cpu_threads}t  {self.hw.cpu_freq_mhz}MHz  {self.hw.cpu_vendor}"),
             ("🎮  GPU",   self.hw.gpu_name,
-             f"{self.hw.gpu_vendor}  {self.hw.gpu_vram_mb // 1024 if self.hw.gpu_vram_mb >= 512 else self.hw.gpu_vram_mb}{'GB' if self.hw.gpu_vram_mb >= 512 else 'MB'} VRAM"),
+             f"{self.hw.gpu_vendor}  {round(self.hw.gpu_vram_mb / 1024) if self.hw.gpu_vram_mb >= 512 else self.hw.gpu_vram_mb}{'GB' if self.hw.gpu_vram_mb >= 512 else 'MB'} VRAM"),
             ("🔵  RAM",   f"{self.hw.ram_total_gb:.0f} GB {self.hw.ram_type}",
              f"{self.hw.ram_slots_used} slots  {self.hw.ram_speed_mhz} MHz"),
             ("🔧  Board", f"{self.hw.mb_manufacturer}",
@@ -52,7 +67,7 @@ class DashboardTab(tk.Frame):
                      justify="left").pack(anchor="w")
 
         # OS + summary
-        os_f = tk.Frame(self, bg=BG2)
+        os_f = tk.Frame(body, bg=BG2)
         os_f.pack(fill="x", padx=14, pady=(0, 10))
         os_label = (
             f"OS: {self.hw.os_name}  (Build {self.hw.os_build})"
@@ -62,11 +77,33 @@ class DashboardTab(tk.Frame):
         tk.Label(os_f, text=os_label, font=FM, fg=DIM, bg=BG2,
                  anchor="w", padx=10, pady=6).pack(fill="x")
 
+        # ── Optimization score + monitor advisor (v1) ─────────────────────
+        SecHdr(body, "Optimierung & Monitor").pack(fill="x", padx=14, pady=(2, 4))
+        opt_f = tk.Frame(body, bg=BG2, padx=10, pady=8)
+        opt_f.pack(fill="x", padx=14, pady=(0, 10))
+        sc_row = tk.Frame(opt_f, bg=BG2)
+        sc_row.pack(fill="x")
+        tk.Label(sc_row, text="Optimierungs-Score:", font=FL, fg=ACC, bg=BG2,
+                 width=20, anchor="w").pack(side="left")
+        self.lbl_score = tk.Label(sc_row, text="wird geprüft …", font=FM, fg=DIM, bg=BG2,
+                                  anchor="w")
+        self.lbl_score.pack(side="left", fill="x", expand=True)
+        self.btn_score = tk.Button(sc_row, text="⟳ Neu prüfen", font=FM, bg=BG3, fg=TXT,
+                                   relief="flat", padx=8, pady=2, cursor="hand2",
+                                   command=self._refresh_score)
+        self.btn_score.pack(side="right")
+        tk.Label(opt_f, text="Anteil der sicheren, auf diesem PC anwendbaren Tweaks, die laut "
+                             "Systemprüfung gerade aktiv sind (moderate/riskante zählen nicht).",
+                 font=FM, fg=DIM, bg=BG2, anchor="w", justify="left",
+                 wraplength=760).pack(fill="x", pady=(2, 6))
+        self._mon_rows = tk.Frame(opt_f, bg=BG2)
+        self._mon_rows.pack(fill="x")
+
         # Live GPU stats section
-        SecHdr(self, "Live GPU Telemetry").pack(fill="x", padx=14, pady=(6, 4))
+        SecHdr(body, "Live GPU Telemetry").pack(fill="x", padx=14, pady=(6, 4))
 
         # Voltage hero
-        volt_row = tk.Frame(self, bg=BG1)
+        volt_row = tk.Frame(body, bg=BG1)
         volt_row.pack(fill="x", padx=14, pady=(0, 6))
 
         vbox = tk.Frame(volt_row, bg=BG2, padx=20, pady=12)
@@ -98,7 +135,7 @@ class DashboardTab(tk.Frame):
             self._tiles[key] = vl
 
         # Gauge bars
-        bar_f = tk.Frame(self, bg=BG1)
+        bar_f = tk.Frame(body, bg=BG1)
         bar_f.pack(fill="x", padx=14, pady=4)
 
         self.bar_temp  = HBar(bar_f, "Temperature", "°C", ERR)
@@ -118,8 +155,8 @@ class DashboardTab(tk.Frame):
         self.lbl_throttle.pack(side="left", padx=8)
 
         # ── System (CPU / RAM / Disk) ───────────────────────────────────────
-        SecHdr(self, "System").pack(fill="x", padx=14, pady=(10, 4))
-        sys_f = tk.Frame(self, bg=BG1)
+        SecHdr(body, "System").pack(fill="x", padx=14, pady=(10, 4))
+        sys_f = tk.Frame(body, bg=BG1)
         sys_f.pack(fill="x", padx=14, pady=(0, 4))
         sys_f.columnconfigure((0, 1, 2), weight=1)
         self._sys_tiles = {}
@@ -132,8 +169,8 @@ class DashboardTab(tk.Frame):
             self._sys_tiles[key] = vl
 
         # ── Network latency test ────────────────────────────────────────────
-        SecHdr(self, "Network Latency Test").pack(fill="x", padx=14, pady=(10, 4))
-        net_f = tk.Frame(self, bg=BG1)
+        SecHdr(body, "Network Latency Test").pack(fill="x", padx=14, pady=(10, 4))
+        net_f = tk.Frame(body, bg=BG1)
         net_f.pack(fill="x", padx=14, pady=(0, 10))
 
         top = tk.Frame(net_f, bg=BG1)
@@ -160,6 +197,65 @@ class DashboardTab(tk.Frame):
             val = tk.Label(row, text="—", font=FM, fg=DIM, bg=BG2, anchor="w")
             val.pack(side="left", fill="x", expand=True)
             self._net_labels[key] = val
+
+        self._bind_wheel(self._canvas)
+        self._refresh_monitors()          # instant (~40 ms)
+        # The score runs ~5 s of PowerShell checks: start it after the UI is up.
+        self.after(1500, lambda: self._refresh_score(monitors=False))
+
+    def _on_wheel(self, e):
+        # Only scroll when the content is taller than the visible area.
+        if self._canvas.yview() != (0.0, 1.0):
+            self._canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
+
+    def _bind_wheel(self, widget):
+        widget.bind("<MouseWheel>", self._on_wheel)
+        for child in widget.winfo_children():
+            self._bind_wheel(child)
+
+    # ── Score / monitor ────────────────────────────────────────────────
+    def _refresh_score(self, monitors: bool = True):
+        self.btn_score.config(state="disabled")
+        self.lbl_score.config(text="wird geprüft …", fg=DIM)
+        if monitors:                      # button: also re-read the refresh rates
+            self._refresh_monitors()
+
+        def work():
+            try:
+                from core import optimization_score
+                r = optimization_score.compute_score(self.hw)
+                bar = "█" * round(r.score / 10) + "░" * (10 - round(r.score / 10))
+                txt = f"{r.score} %   {bar}   ({r.active}/{r.checkable} sichere Tweaks aktiv"
+                txt += f", {r.unknown} nicht prüfbar)" if r.unknown else ")"
+                col = OK if r.score >= 80 else (WRN if r.score >= 50 else ERR)
+            except Exception as e:
+                txt, col = f"Prüfung fehlgeschlagen: {e}", WRN
+            try:
+                self.after(0, lambda: (self.lbl_score.config(text=txt, fg=col),
+                                       self.btn_score.config(state="normal")))
+            except Exception:
+                pass
+        threading.Thread(target=work, daemon=True).start()
+
+    def _refresh_monitors(self):
+        from core import display_info
+        for w in self._mon_rows.winfo_children():
+            w.destroy()
+        try:
+            shown = display_info.displays()
+        except Exception:
+            shown = []
+        if not shown:
+            tk.Label(self._mon_rows, text="Monitor: Bildwiederholrate nicht ermittelbar",
+                     font=FM, fg=DIM, bg=BG2, anchor="w").pack(fill="x")
+        for n, d in enumerate(shown, 1):
+            row = tk.Frame(self._mon_rows, bg=BG2)
+            row.pack(fill="x", pady=1)
+            tk.Label(row, text=f"Monitor {n}{' (primär)' if d.primary else ''}:", font=FL,
+                     fg=ACC, bg=BG2, width=20, anchor="w").pack(side="left")
+            tk.Label(row, text=d.advice(), font=FM, fg=WRN if d.below_max else TXT, bg=BG2,
+                     anchor="w", justify="left", wraplength=640).pack(side="left", fill="x")
+        self._bind_wheel(self._mon_rows)
 
     def _run_nettest(self):
         self.btn_nettest.config(state="disabled", text="⏳  Läuft…")
@@ -255,9 +351,11 @@ class DashboardTab(tk.Frame):
         vram_max = s.vram_total_mb if s.vram_total_mb > 100 else max(self.hw.gpu_vram_mb, 1)
         self.bar_vram.set(s.vram_used_mb, max(vram_max, 1))
 
-        # Throttle
+        # Throttle — only thermal/hardware slowdowns are a warning; running into
+        # the power limit under load is normal GPU Boost behaviour.
         if s.throttle and s.throttle != "None":
-            self.lbl_throttle.config(text=s.throttle, fg=WRN)
+            self.lbl_throttle.config(text=s.throttle,
+                                     fg=WRN if getattr(s, "throttle_protective", True) else TXT)
         else:
             self.lbl_throttle.config(text="None", fg=OK)
 

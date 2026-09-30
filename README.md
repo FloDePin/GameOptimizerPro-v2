@@ -21,17 +21,20 @@
 
 ### 🎮 GPU Auto-Tuner
 - **3 Tune Modes:** Overclock Only, Undervolt Only, OC + UV (Recommended)
-- Automated step-by-step stability testing with stress worker — **refuses to tune without real GPU load** (measured during the baseline; ≥ 70 %), because an OC/UV test on an idle GPU would store unstable values as "stable". GPU load comes from the stress worker via `cupy` (`pip install cupy-cuda12x`) or from FurMark running in parallel
+- **How it searches:** raises the core offset step by step (e.g. +15 MHz); on a failure it returns to the **last stable value and halves the step** (15 → 7 → 5 MHz), so it converges on the edge of stability with ±5 MHz precision. The power limit goes down to the **lowest value that costs at most 3 % performance** under full load. A 2-minute final test verifies the exact profile that is saved. *(The tuner also contains a V/F-curve undervolt stage and a memory stage — memory goes up only while its bandwidth keeps rising, since GDDR6X gets slower instead of crashing past its limit, and the result is the offset with the highest measured bandwidth — but these modes are not selectable in the GPU tab yet.)*
+- **Game-like load for the OC search:** a constant full load keeps the card at its power limit (~2500 MHz), but games crash at the *boost* point. The OC steps and the final test alternate heavy load with half-duty load that reaches the high-clock / high-voltage point games use (measured on an RTX 4080: 2790 MHz @ 1075 mV, exactly what Hunt: Showdown runs at)
+- **Instability is detected by wrong results, not only by crashes** — the stress worker repeats the same matrix product and compares every result with the first one (the gpu-burn / OCCT method); a single wrong value fails the step. Running into the power limit is treated as normal; only thermal / hardware slowdowns count as a limit
+- Automated step-by-step stability testing with stress worker — **refuses to tune without real GPU load** (measured during the baseline; ≥ 70 %), because an OC/UV test on an idle GPU would store unstable values as "stable". GPU load comes from the stress worker via `cupy` (`pip install "cupy-cuda12x[ctk]"` — `install.bat` offers it) or from FurMark running in parallel
 - **Abort really stops**: the running stress step ends immediately, the GPU goes back to stock (offsets 0, factory power limit) and nothing is applied afterwards; exiting the app or switching the language during a tune does the same
 - TDR (GPU driver timeout) detection via Windows Event Log
 - Crash Recovery — automatically restores last stable profile on next boot
 - Live Voltage/Clock/Temp graph during tuning
-- Integrates with **MSI Afterburner** (MAHM Shared Memory for real mV readings — parser follows Afterburner's documented layout; reconnects automatically when Afterburner is started later)
+- Integrates with **MSI Afterburner** (MAHM Shared Memory for real mV readings — parser follows Afterburner's documented layout; reconnects automatically when Afterburner is started later; a monitoring section that stops updating — e.g. after Afterburner was killed — is detected within 8 s and dropped instead of showing frozen values; GPU values come from NVML first)
 - GPU generation auto-detection (Pascal → Ada Lovelace, RDNA 1–3)
-- ⚠️ **Known open issue:** applying OC profiles *to Afterburner* writes a file Afterburner doesn't read (it keeps profiles per GPU in `Profiles\VEN_…cfg`). The fix requires closing/restarting Afterburner and is being worked on — see [CHANGELOG.md](CHANGELOG.md)
+- **Applies profiles through MSI Afterburner's real per-GPU profile** (`Profiles\VEN_…cfg`, picked by the card's PCI ID): core/memory offset, power limit and a real flat V/F curve for the undervolt. Afterburner only reads that file at start-up, so it is **restarted briefly** (minimized) when new values are applied; identical values are just re-sent. The original file is backed up once per session. *Status: verified live on an RTX 4080 with Afterburner 4.6.6 — a profile written by the app was applied by Afterburner (power limit read back via NVML), identical values were re-applied without a restart, reset to stock worked and the original file came back byte-exact. A complete end-to-end Auto-Tune on real hardware is the next step ([TESTANLEITUNG.md](TESTANLEITUNG.md), German).* Fan settings stay in Afterburner.
 
 ### ⚡ Stress Test
-- **Internal stability test** — built-in GPU/CPU stress worker with configurable duration and a **max-temp auto-abort**; includes a dead-man switch so it never leaves an orphaned 100%-CPU process behind. Fails on a **worker crash or a TDR**, reports the **average GPU load**, and says plainly "no GPU stress" instead of "passed" when the GPU wasn't loaded (no `cupy`); a stopped test reports no result
+- **Internal stability test** — built-in GPU/CPU stress worker with configurable duration and a **max-temp auto-abort**; includes a dead-man switch so it never leaves an orphaned 100%-CPU process behind. Fails on **wrong results (computation errors)**, a **worker crash or a TDR**, reports the **average GPU load**, and says plainly "no GPU stress" instead of "passed" when the GPU wasn't loaded (no `cupy`); a stopped test reports no result
 - **FurMark launcher** — auto-detects a FurMark install, pick the resolution, one-click launch for a heavier GPU burn-in
 
 ### 🔊 Audio Optimization
@@ -46,17 +49,23 @@
 ### 📊 Live Dashboard
 - Real-time **GPU telemetry** (voltage, temp, clocks, power, load) + gauge bars
 - **CPU / RAM / Disk usage** tiles alongside the GPU stats (via psutil)
+- **Optimization Score** — the share of *safe*, applicable tweaks that the verifier finds really active right now (moderate/advanced tweaks don't count, so the score never pushes you towards risky ones)
+- **Monitor advisor** — warns when a display runs below the highest refresh rate its driver offers at the current resolution (e.g. 50 Hz instead of 60 Hz, 60 instead of 144/165 Hz)
 - **Network Latency Test** — one-click ping to your gateway + Cloudflare (1.1.1.1) & Google (8.8.8.8) with average/min/max latency, jitter and packet loss
 
 ### 🧹 System Cleaner & Safety
-- Safely clears temp/dump folders (user `%TEMP%`, `Windows\Temp`, `CrashDumps`)
-- **Never** touches documents, browser profiles or the recycle bin; skips files in use
-- Scan first to see how much can be freed, then clean with one click
+- Always: temp/dump folders (user `%TEMP%`, `Windows\Temp`, `CrashDumps`)
+- **Deep Clean (opt-in, each target separately):** browser *caches* (Chrome, Edge, Firefox), Windows Update download cache, thumbnails, prefetch, system logs & error reports, and the Recycle Bin (extra confirmation)
+- **Never** touches documents or browser profiles (passwords, history, bookmarks, cookies); skips files in use and only counts what was really deleted
+- Scan first to see how much can be freed per group, then clean with one click
 - **Create Restore Point** — one-click Windows System Restore Point as a safety net before applying tweaks
 - **Registry Backup** — exports every registry branch the tweaks can touch as `.reg` files (double-click to restore). Runs **automatically before every Apply Selected, preset, Revert All and "fix deviations"**, plus on demand; keeps the 10 newest backups and prunes older ones so it can't fill your disk
 
 ### 🛠 Windows Optimizer
-- **83 Tweaks** across Windows, Gaming, Network, Audio categories (incl. AMD GPU tweaks)
+- **106 Tweaks** across Windows, Gaming, Network, Audio categories (incl. AMD GPU tweaks)
+- **Windows 11 24H2/26H2 AI & bloat:** Recall (policy + component removal), Click to Do, Paint AI (Cocreator, Image Creator, generative fill/erase), Notepad AI, on-device text/image generation, the AI host service (`WSAIFabricSvc`), and removal of the Microsoft 365 Copilot app / Dev Home that feature updates re-install — using Microsoft's documented policies where they exist
+- **Storage & RAM:** long paths, reserved storage, pagefile, memory compression, SSD TRIM, scheduled defrag, NVMe queue depth (only offered with an NVMe drive), write-cache buffer flushing (advanced), plus a one-time **safe Disk Cleanup** (no Downloads, no Recycle Bin, no Windows.old)
+- **Drift check at start:** tweaks you applied that a Windows update has reset are listed — re-apply (after a registry backup), mark as not applied, or ask again later
 - Live status verification — reads actual Registry/Service state (not just JSON)
 - 3-state indicators: ● Green (verified active) / ◑ Amber (applied, unverified) / ○ Grey (inactive)
 - **Graduated one-click presets — 🟢 Minimal → 🟡 Medium → 🔴 Hard (Debloat)** — cumulative intensity tiers that apply a curated, escalating set of tweaks
@@ -107,6 +116,11 @@
 - Minimizes to the tray instead of closing; the tray tooltip shows **live GPU temp / clock / voltage / power**
 - Quick-apply any saved GPU profile, reset the GPU to stock, or open/exit — all from the tray menu
 
+### ⚙ Services Manager
+- Own window with 29 rarely needed Windows services (telemetry, Xbox, fax, maps, Hyper-V, the 24H2/26H2 AI host, …) — live status, start type, category and a safe/caution rating
+- **Disable remembers the original start type** (incl. "Automatic (delayed)"), **Enable restores it** (or the Windows default) — not just "Manual"
+- Extra confirmation for services that switch off a function (print spooler, Windows Update, BITS, the Xbox services Game Pass games need); view-only without admin rights; links to `services.msc`
+
 ### 🚀 Startup Manager
 - Separate window listing all autostart entries — the **Run keys (HKCU, HKLM, HKLM 32-bit) and both Startup folders** (per-user and all-users `.lnk` shortcuts, targets resolved)
 - Shows the **real on/off state** and can **enable / disable** entries (multi-select) — exactly like Task Manager: only Windows' `StartupApproved` flag is set, nothing is deleted, so every change is reversible here or in Task Manager
@@ -123,8 +137,8 @@
 | **OS** | Windows 10 / Windows 11 |
 | **Python** | 3.10 or newer |
 | **GPU** | NVIDIA (full support) or AMD (tweaks + BIOS guide) |
-| **MSI Afterburner** | Optional — required for voltage readings (mV) and OC profiles |
-| **cupy** | Optional — `pip install cupy-cuda12x` gives the stress worker real **GPU** load (NVIDIA). Without it (or FurMark in parallel) the Auto-Tuner refuses to run |
+| **MSI Afterburner** | Optional — required for voltage readings (mV) and OC profiles (applying a profile restarts it briefly) |
+| **cupy** | Optional — `pip install "cupy-cuda12x[ctk]"` (no CUDA Toolkit needed; `install.bat` asks) gives the stress worker real **GPU** load plus error and bandwidth checks (NVIDIA). Without it (or FurMark in parallel) the Auto-Tuner refuses to run |
 | **Admin rights** | Required for Registry tweaks and GPU power control |
 
 ---
@@ -144,7 +158,7 @@ git clone https://github.com/FloDePin/GameOptimizerPro-v2.git
 Extract to a permanent folder, e.g. `C:\Tools\GameOptimizerPro\`
 
 ### 3. Install Dependencies
-Double-click `install.bat` — it installs everything automatically:
+Double-click `install.bat` — it installs everything automatically and then offers `cupy` (GPU load for the Auto-Tuner, answer **J**):
 ```
 pystray, Pillow, nvidia-ml-py, numpy, wmi, psutil
 ```
@@ -153,10 +167,11 @@ pystray, Pillow, nvidia-ml-py, numpy, wmi, psutil
 For voltage readings and GPU overclocking:
 1. Download and install [MSI Afterburner](https://www.msi.com/Landing/afterburner/graphics-cards)
 2. Open Afterburner → Settings → **General** → check **"Unlock voltage control"**
-3. Settings → **General** → check **"Unlock voltage monitoring"**
-4. Settings → **Monitoring** → enable **GPU Core Voltage**
-5. Click the 🔒 lock icon on Profile Slot 2 to unlock it
+3. Settings → **General** → check **"Unlock voltage monitoring"** (and, recommended, **"Start minimized"**)
+4. Settings → **Monitoring** → enable the **GPU voltage** and **Power** graphs
+5. Without changing anything, click **Save** and then **slot 1** — this creates the card's profile file (`Profiles\VEN_…cfg`) with its V/F curve, and slot 1 keeps your stock settings. GameOptimizerPro writes into **slot 2** (changeable in the GPU tab)
 6. Leave Afterburner running in the system tray
+7. Check it: `python tools\ab_selftest.py info` (read-only) — see [TESTANLEITUNG.md](TESTANLEITUNG.md)
 
 ### 5. Launch
 Double-click **`GameOptimizerPro.bat`**
@@ -173,7 +188,7 @@ GameOptimizerPro **2.0** is the finalized release: the complete feature set belo
 **Highlights**
 - 🩺 **Diagnose tab (measure, don't guess):** FPS/frametime capture with **1% & 0.1% lows**, stutters and a measured **CPU-vs-GPU bottleneck** (PresentMon live or CSV); a 30-day **Health Report** from Windows' own logs; and a **Remnant Scan** for other tweak tools' leftovers. All read-only. *(Also fixed a latent bug that hid the Games/Settings tab buttons.)*
 - 🎮 **GPU Auto-Tuner** (OC / UV / OC+UV) with automated stability testing, live graph, TDR detection and crash recovery — plus MSI Afterburner (MAHM) integration
-- 🛠 **83 verified tweaks** with live status (green/amber/grey), graduated Minimal→Medium→Hard presets and curated Gaming/Privacy/Debloat/Network/Performance/Win11 presets
+- 🛠 **83 verified tweaks** (106 today — see below) with live status (green/amber/grey), graduated Minimal→Medium→Hard presets and curated Gaming/Privacy/Debloat/Network/Performance/Win11 presets
 - 🎮 **Per-Game Profiles + CPU Pinning (CPU Sets)** — steer games to the X3D cache chiplet (AMD) or P-cores (Intel), with anti-cheat & CCD-parking warnings and an honest "no benefit" note on single-chiplet CPUs
 - 🖥 **BIOS Guide**, 📊 **Live Dashboard** (GPU + CPU/RAM/Disk + latency test), 🧹 **System Cleaner & Restore Point**, 📋 **Tune History**, 🚀 **Startup Manager**, 🌐 **DE/EN**
 
@@ -193,6 +208,12 @@ GameOptimizerPro **2.0** is the finalized release: the complete feature set belo
 - **Auto-Tune safety** — "Abort" could be overridden by the still-running step (an OC was re-applied after the reset to stock); exiting mid-tune left an untested OC; "reset to stock" set the card's *maximum* power limit; without GPU load (no `cupy`) the tuner "verified" OCs on an idle GPU — all fixed
 - **Autostart survives** — Windows' task defaults killed the tray app after 3 days and blocked it on battery; the Stress Test no longer reports a stopped run as "PASSED"; Tune History shows the real mode; the primary GPU is detected on iGPU + dGPU systems
 - Reviewed-and-verified-not-a-bug items were left unchanged rather than papered over
+
+**Since the release (still 2.0)**
+- 🎮 **Afterburner profiles verified live** on real hardware; a real bug found that way — frozen monitoring after an Afterburner restart — is fixed; OC steps now run a **game-like mixed load**; the memory stage keeps the bandwidth peak
+- 🔁 **v1 parity completed honestly** — an audit showed the earlier "full parity" claim was wrong: 18 more tweaks, **Deep Clean**, **Services Manager**, **Optimization Score**, **monitor advisor** and the **drift check** are ported; 6 v1 tweaks are deliberately left out (no effect on current drivers/Windows)
+- 🪟 **Windows 11 26H2:** new tweaks against the re-installed Copilot app / Dev Home, Click to Do, Paint/Notepad AI and the new AI host service; Recall and on-device AI now use the official policies
+- 🧪 313 automated checks in 15 test suites, incl. a PowerShell parse check of every command
 
 See [CHANGELOG.md](CHANGELOG.md) for the full detail.
 
@@ -221,12 +242,15 @@ GameOptimizerPro/
 │       └── ci.yml            ← GitHub Actions CI (syntax & registry checks)
 ├── core/
 │   ├── nvtune_core.py        ← GPU monitor (NVML + MAHM), Afterburner controller
-│   ├── nvtune_tuner.py       ← Auto-tuner (Stage 1 OC, Stage 2 UV, TDR detection)
+│   ├── nvtune_tuner.py       ← Auto-tuner (OC, power limit, V/F curve, memory; TDR + error detection)
 │   ├── vf_curve.py           ← Voltage-frequency curve optimization
 │   ├── hardware.py           ← WMI hardware detection
-│   ├── tweaks.py             ← 83 tweaks database (Windows, Gaming, Network, Audio)
+│   ├── tweaks.py             ← 106 tweaks database (Windows, Gaming, Network, Audio)
 │   ├── network_test.py       ← Gateway/DNS ping latency test
-│   ├── system_cleaner.py     ← Safe temp/junk file cleaner
+│   ├── system_cleaner.py     ← Safe temp/junk cleaner + opt-in Deep Clean
+│   ├── services.py           ← Services Manager logic (remembers original start types)
+│   ├── optimization_score.py ← Optimization Score + drift check
+│   ├── display_info.py       ← Monitor refresh-rate advisor
 │   ├── registry_backup.py    ← Exports affected registry branches as .reg
 │   ├── startup_control.py    ← Autostart list + enable/disable (StartupApproved flags)
 │   ├── restore_point.py      ← System Restore Point creator
@@ -250,6 +274,7 @@ GameOptimizerPro/
 │   ├── startup_loader.py     ← Autostart + startup profile loader
 │   ├── gpu_defaults.py       ← GPU generation defaults table
 │   ├── mahm_reader.py        ← MSI Afterburner shared memory reader
+│   ├── ab_profile.py         ← Afterburner per-GPU profile + V/F curve editor
 │   └── i18n.py               ← EN/DE language module
 └── ui/
     ├── main_window.py        ← Main window, tab router
@@ -264,7 +289,10 @@ GameOptimizerPro/
     ├── tab_diagnose.py       ← FPS capture + health report + remnant scan
     ├── tab_settings.py       ← Autostart, setup checker, about
     ├── live_graph.py         ← Rolling voltage/clock/temp graph
-    └── startup_manager.py    ← Startup manager window
+    ├── startup_manager.py    ← Startup manager window
+    └── services_manager.py   ← Services manager window
+tools/
+    └── ab_selftest.py        ← Afterburner self-test (info / dryrun / live / restore)
 ```
 
 ---
@@ -296,6 +324,7 @@ Cross-thread communication uses `widget.after(0, callback)` — the only safe wa
 - **Audio tweaks are reversible** — all changes can be undone with "Revert"
 - **Profile injection protection** — names & notes sanitized to prevent registry injection
 - **Hosts file safe revert** — telemetry entries removed precisely, no data loss
+- **Services keep their history** — the original start type is remembered before a service is disabled
 
 ---
 

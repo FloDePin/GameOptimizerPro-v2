@@ -4,6 +4,7 @@ Layout inspired by v1.0: dark bg, colored tab buttons, hardware info bar,
 compact header, status bar at bottom.
 """
 
+import threading
 import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime
@@ -19,6 +20,7 @@ from ui.tab_bios       import BiosGuideTab
 from ui.tab_games      import GamesTab
 from ui.tab_diagnose   import DiagnoseTab
 from ui.startup_manager import StartupManagerWindow
+from ui.services_manager import ServicesManagerWindow
 from ui.tab_settings   import SettingsTab
 from core.hardware     import HardwareInfo
 from core.nvtune_core  import GpuMonitor, AfterburnerController, ProfileManager
@@ -76,6 +78,8 @@ class GameOptimizerWindow(tk.Tk):
         self._build_status_bar()
         self._show_tab("dashboard")
         self._start_updater()
+        # v1: did a Windows update undo tweaks applied earlier? (after start-up)
+        self.after(4000, self._start_drift_check)
 
     # ── Window ────────────────────────────────────────────────────────────────
 
@@ -233,6 +237,12 @@ class GameOptimizerWindow(tk.Tk):
 
     # ── Status bar ────────────────────────────────────────────────────────────
 
+    def set_status(self, text: str):
+        try:
+            self.lbl_status.config(text=text)
+        except Exception:
+            pass
+
     def _build_status_bar(self):
         tk.Frame(self, bg="#2d333b", height=1).pack(fill="x")
         status = tk.Frame(self, bg="#161b22", height=28)
@@ -262,18 +272,101 @@ class GameOptimizerWindow(tk.Tk):
                 command=cmd
             ).pack(side="right", padx=2, pady=2)
 
+    # ── Drift check (v1: baseline) ────────────────────────────────────────────
+
+    def _start_drift_check(self):
+        """Tweaks the app applied that are not (fully) active any more — e.g.
+        reset by a Windows feature update, or a newer tweak version sets more
+        than the one applied back then. Needs admin to re-apply, so it only
+        runs elevated; failed checks never count as drift."""
+        try:
+            import ctypes
+            if not ctypes.windll.shell32.IsUserAnAdmin():
+                return
+        except Exception:
+            return
+        applied = list(self.runner._applied.keys())
+        if not applied:
+            return
+
+        def work():
+            try:
+                from core import optimization_score
+                drifted = optimization_score.find_drift(applied, self.hw)
+            except Exception:
+                drifted = []
+            if drifted:
+                try:
+                    self.after(0, lambda: self._ask_drift(drifted))
+                except Exception:
+                    pass
+        threading.Thread(target=work, daemon=True).start()
+
+    def _ask_drift(self, drifted: list):
+        from core.tweaks import get_by_id
+        from core.tweak_i18n import tweak_name
+        from core.i18n import current_lang
+        tweaks = [t for t in (get_by_id(i) for i in drifted) if t]
+        if not tweaks:
+            return
+        names = "\n".join(f"  • {tweak_name(t, current_lang())}" for t in tweaks[:20])
+        if len(tweaks) > 20:
+            names += f"\n  … und {len(tweaks) - 20} weitere"
+        ans = messagebox.askyesnocancel(
+            "GameOptimizerPro — Tweaks nicht mehr aktiv",
+            f"{len(tweaks)} Tweak(s), die du angewendet hast, sind nicht (mehr) vollständig "
+            f"aktiv — z. B. von einem Windows-Update zurückgesetzt, oder die Tweak-Version ist "
+            f"neuer und setzt inzwischen mehr:\n\n{names}\n\n"
+            "Ja = jetzt erneut anwenden (vorher Registry-Backup)\n"
+            "Nein = als 'nicht angewendet' markieren (keine erneute Nachfrage)\n"
+            "Abbrechen = beim nächsten Start wieder fragen",
+            icon="warning", parent=self)
+        if ans is None:
+            return
+        if ans is False:
+            for t in tweaks:
+                self.runner._applied.pop(t.id, None)
+            self.runner._save_state()
+            opt = self._tab_frames.get("optimizer")
+            for t in tweaks:
+                var = getattr(opt, "_vars", {}).get(t.id)
+                if var is not None:
+                    var.set(False)
+            self.set_status(f"{len(tweaks)} Tweak(s) als nicht angewendet markiert.")
+            return
+        self.set_status(f"Wende {len(tweaks)} Tweak(s) erneut an …")
+
+        def work():
+            self.runner.backup_registry("PreDriftReapply")
+            failed = []
+            for t in tweaks:
+                ok, out = self.runner.apply(t)
+                if not ok:
+                    failed.append(f"{tweak_name(t, current_lang())}: {out[:120]}")
+            n_ok = len(tweaks) - len(failed)
+
+            def done():
+                self.set_status(f"{n_ok}/{len(tweaks)} Tweak(s) erneut angewendet.")
+                msg = f"{n_ok} von {len(tweaks)} Tweak(s) erneut angewendet."
+                if any(t.requires_reboot for t in tweaks):
+                    msg += "\nEinige wirken erst nach einem Neustart."
+                if failed:
+                    msg += "\n\nFehlgeschlagen:\n" + "\n".join(failed)
+                (messagebox.showwarning if failed else messagebox.showinfo)(
+                    "GameOptimizerPro", msg, parent=self)
+            try:
+                self.after(0, done)
+            except Exception:
+                pass
+        threading.Thread(target=work, daemon=True).start()
+
     def _open_startup_mgr(self):
         """Open our custom Startup Manager window."""
         StartupManagerWindow(self)
 
     def _open_services(self):
-        import subprocess as sp
-        try:
-            sp.Popen(["services.msc"],
-                     shell=True,
-                     creationflags=sp.CREATE_NO_WINDOW if hasattr(sp, 'CREATE_NO_WINDOW') else 0)
-        except Exception as e:
-            messagebox.showerror("Fehler", f"services.msc konnte nicht geöffnet werden:\n{e}")
+        """Open our own Services Manager (v1 parity) — it links to services.msc."""
+        ServicesManagerWindow(self)
 
     def _open_log(self):
         import subprocess as sp

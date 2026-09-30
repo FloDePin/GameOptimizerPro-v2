@@ -6,6 +6,52 @@ CPU, GPU, RAM, Mainboard, OS — via wmi (Windows) with fallbacks.
 import os, platform, subprocess
 from dataclasses import dataclass, field
 from typing import Optional
+try:
+    import winreg
+except ImportError:
+    winreg = None
+
+_DISPLAY_CLASS = r"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}"
+
+
+def _vram_mb_from_registry(gpu_name: str) -> int:
+    """Real VRAM from the display driver's own registry key. Win32_VideoController
+    .AdapterRAM is a 32-bit field: every card above 4 GB reads as 4095 MB (an RTX
+    4080 showed "3GB"). The driver stores the true size as a 64-bit value in
+    HardwareInformation.qwMemorySize. 0 if not found."""
+    if not winreg or not gpu_name:
+        return 0
+    try:
+        root = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, _DISPLAY_CLASS)
+    except OSError:
+        return 0
+    best, i = 0, 0
+    with root:
+        while True:
+            try:
+                sub = winreg.EnumKey(root, i)
+            except OSError:
+                break
+            i += 1
+            try:
+                with winreg.OpenKey(root, sub) as k:
+                    desc = str(winreg.QueryValueEx(k, "DriverDesc")[0]).strip().lower()
+                    if desc != gpu_name.strip().lower():
+                        continue
+                    for name in ("HardwareInformation.qwMemorySize",
+                                 "HardwareInformation.MemorySize"):
+                        try:
+                            v, _t = winreg.QueryValueEx(k, name)
+                        except OSError:
+                            continue
+                        if isinstance(v, (bytes, bytearray)):
+                            v = int.from_bytes(bytes(v)[:8], "little")
+                        if int(v) > 0:
+                            best = max(best, int(v) // (1024 * 1024))
+                            break
+            except OSError:
+                continue
+    return best
 
 
 @dataclass
@@ -108,6 +154,10 @@ def detect() -> HardwareInfo:
                 if raw < 0:  # signed integer overflow for > 4GB GPUs
                     raw = raw + 2**32
                 info.gpu_vram_mb = raw // (1024 * 1024)
+                # AdapterRAM tops out at 4 GB — take the driver's 64-bit value.
+                reg_mb = _vram_mb_from_registry(info.gpu_name)
+                if reg_mb > info.gpu_vram_mb:
+                    info.gpu_vram_mb = reg_mb
                 n = info.gpu_name.lower()
                 if "nvidia" in n:
                     info.gpu_vendor = "NVIDIA"
@@ -128,10 +178,15 @@ def detect() -> HardwareInfo:
                 info.ram_slots_used = len(sticks)
                 speeds = [int(s.Speed or 0) for s in sticks if s.Speed]
                 if speeds: info.ram_speed_mhz = max(speeds)
-                mem_types = {20: "DDR", 21: "DDR2", 22: "DDR2 FB",
-                             24: "DDR3", 26: "DDR4", 34: "DDR5"}
-                mt = sticks[0].MemoryType or 0
-                info.ram_type = mem_types.get(int(mt), f"Type {mt}")
+                mem_types = {20: "DDR", 21: "DDR2", 22: "DDR2 FB", 24: "DDR3",
+                             26: "DDR4", 29: "LPDDR3", 30: "LPDDR4", 34: "DDR5",
+                             35: "LPDDR5"}
+                # MemoryType is 0 ("unknown") for every DDR4/DDR5 module — the
+                # real type is in SMBIOSMemoryType (34 = DDR5). The UI showed "Type 0".
+                smt = int(getattr(sticks[0], "SMBIOSMemoryType", 0) or 0)
+                mt = int(sticks[0].MemoryType or 0)
+                info.ram_type = (mem_types.get(smt) or mem_types.get(mt) or
+                                 ("DDR5" if info.ram_speed_mhz >= 4800 else ""))
         except: pass
 
         # Mainboard
@@ -151,14 +206,23 @@ def detect() -> HardwareInfo:
             info.is_win10 = 10240 <= info.os_build < 22000
         except: pass
 
-        # NVMe
+        # NVMe — the model name rarely says so ("Samsung SSD 980 PRO 1TB",
+        # InterfaceType "SCSI"), so ask the storage stack for the bus type
+        # (MSFT_PhysicalDisk.BusType 17 = NVMe). Name match only as a fallback.
         try:
-            disks = c.Win32_DiskDrive()
-            nvme = [d for d in disks if d.Model and
-                    ("nvme" in d.Model.lower() or "nvme" in (d.InterfaceType or "").lower())]
+            st = wmi.WMI(namespace="root/Microsoft/Windows/Storage")
+            nvme = [d for d in st.MSFT_PhysicalDisk() if int(d.BusType or 0) == 17]
             info.has_nvme  = len(nvme) > 0
             info.nvme_count = len(nvme)
-        except: pass
+        except Exception:
+            try:
+                disks = c.Win32_DiskDrive()
+                nvme = [d for d in disks if d.Model and
+                        ("nvme" in d.Model.lower() or "nvme" in (d.InterfaceType or "").lower())]
+                info.has_nvme  = len(nvme) > 0
+                info.nvme_count = len(nvme)
+            except Exception:
+                pass
 
     except ImportError:
         # wmi not available — fallback via platform + subprocess
@@ -199,7 +263,7 @@ def detect() -> HardwareInfo:
 
     # Build summary
     os_short = "Win11" if info.is_win11 else ("Win10" if info.is_win10 else info.os_name[:20])
-    vram_str = f" ({info.gpu_vram_mb // 1024}GB)" if info.gpu_vram_mb >= 512 else ""
+    vram_str = f" ({round(info.gpu_vram_mb / 1024)}GB)" if info.gpu_vram_mb >= 512 else ""
     info.summary = (
         f"CPU: {info.cpu_name}  |  "
         f"GPU: {info.gpu_name}{vram_str}  |  "

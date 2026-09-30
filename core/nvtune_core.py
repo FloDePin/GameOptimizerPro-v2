@@ -4,13 +4,13 @@ Combined NVML + MAHM telemetry, Afterburner profile controller,
 setup validator (checks AB unlock settings + profile locks).
 """
 
-import subprocess, os, time, json, struct
+import subprocess, os, time, json, struct, threading
 try:
     import winreg
 except ImportError:
     winreg = None
 from dataclasses import dataclass, asdict, field
-from typing import Optional
+from typing import Callable, Optional
 from pathlib import Path
 from datetime import datetime
 
@@ -46,10 +46,29 @@ class GpuStats:
     vram_total_mb:  int   = 0
     # Limits/throttle
     temp_limit_c:   float = 0.0
-    throttle:       str   = "None"
+    throttle:       str   = "None"   # human-readable active reasons
+    throttle_bits:  int   = 0        # raw NVML clock-event reasons
+    throttle_protective: bool = False  # thermal / hardware slowdown active
+    power_capped:   bool  = False    # running into the power limit (normal under load)
     # Source flags
     nvml_ok:        bool  = False
     mahm_ok:        bool  = False
+
+
+# NVML clock-event ("throttle") reasons — values from nvml.h. Running into the
+# power limit (SW power cap) is NORMAL under full load and not a fault; only the
+# thermal / hardware slowdowns mean the card is protecting itself.
+THR_POWER_CAP      = 0x0004   # nvmlClocksEventReasonSwPowerCap
+THR_HW_SLOWDOWN    = 0x0008   # nvmlClocksEventReasonHwSlowdown
+THR_SW_THERMAL     = 0x0020   # nvmlClocksEventReasonSwThermalSlowdown
+THR_HW_THERMAL     = 0x0040   # nvmlClocksEventReasonHwThermalSlowdown
+THR_HW_POWER_BRAKE = 0x0080   # nvmlClocksEventReasonHwPowerBrakeSlowdown
+THR_PROTECTIVE     = THR_HW_SLOWDOWN | THR_SW_THERMAL | THR_HW_THERMAL | THR_HW_POWER_BRAKE
+_THR_LABELS = {
+    0x0002: "App-Clocks", THR_POWER_CAP: "Power-Limit", THR_HW_SLOWDOWN: "HW-Slowdown",
+    0x0010: "SyncBoost", THR_SW_THERMAL: "Thermal", THR_HW_THERMAL: "HW-Thermal",
+    THR_HW_POWER_BRAKE: "HW-PowerBrake",
+}
 
 
 # ── Tune Profile ──────────────────────────────────────────────────────────────
@@ -220,16 +239,14 @@ class NvmlMonitor:
             stats.power_max_w = mx / 1000.0
         except: pass
         try:
-            reasons = nv.nvmlDeviceGetCurrentClocksThrottleReasons(h)
-            TR = {
-                0x0000000000000002: "Power",
-                0x0000000000000004: "Thermal",
-                0x0000000000000008: "Reliability",
-                0x0000000000000010: "LimitSetting",
-                0x0000000000000020: "HW-Thermal",
-                0x0000000000000040: "HW-Power",
-            }
-            active = [v for k, v in TR.items() if reasons & k]
+            # The old table was shifted by one bit: 0x04 (the normal power limit)
+            # was labelled "Thermal", 0x02 (application clocks) "Power", … — and
+            # the tuner treated ANY of them as a failed step.
+            reasons = int(nv.nvmlDeviceGetCurrentClocksThrottleReasons(h))
+            stats.throttle_bits = reasons
+            stats.power_capped = bool(reasons & THR_POWER_CAP)
+            stats.throttle_protective = bool(reasons & THR_PROTECTIVE)
+            active = [v for k, v in _THR_LABELS.items() if reasons & k]
             stats.throttle = ", ".join(active) if active else "None"
         except: pass
         try:
@@ -258,6 +275,19 @@ class NvmlMonitor:
         except Exception:
             return 0.0
 
+    def get_pci_identity(self) -> Optional[tuple[int, int, int]]:
+        """(PCI device id, subsystem id, bus) of the tuned card — the same
+        identity Afterburner uses to name its per-GPU profile file."""
+        if not self._ok:
+            return None
+        try:
+            pci = self._nv.nvmlDeviceGetPciInfo(self._handle)
+            return ((int(pci.pciDeviceId) >> 16) & 0xFFFF,
+                    int(pci.pciSubSystemId) & 0xFFFFFFFF,
+                    int(pci.bus))
+        except Exception:
+            return None
+
     def get_power_constraints(self) -> tuple[float, float, float]:
         if not self._ok:
             return (0, 0, 0)
@@ -276,239 +306,443 @@ class NvmlMonitor:
 
 # ── Afterburner Controller ────────────────────────────────────────────────────
 
+def _no_window() -> int:
+    return subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+
+
 class AfterburnerController:
+    """Writes tuning values into MSI Afterburner's REAL per-GPU profile file and
+    makes Afterburner apply them.
+
+    Afterburner reads Profiles\\VEN_….cfg only when it starts and keeps the five
+    slots in memory; "MSIAfterburner.exe -ProfileN" applies the in-memory copy.
+    So applying NEW values means: close Afterburner, write the slot, start it
+    again with -ProfileN. When the slot already holds exactly these values,
+    -ProfileN is simply sent to the running instance (no restart).
+
+    (Up to v2.0 round 7 this class wrote a made-up MSIAfterburner<slot>.cfg with
+    invented keys that Afterburner never reads — applying profiles had no effect.
+    See core/ab_profile.py for the verified file format.)"""
+
+    EXE_NAME = "MSIAfterburner.exe"
     DEFAULT_PATHS = [
         r"C:\Program Files (x86)\MSI Afterburner\MSIAfterburner.exe",
         r"C:\Program Files\MSI Afterburner\MSIAfterburner.exe",
     ]
-    PROFILE_DIR_CANDIDATES = [
-        os.path.expandvars(r"%APPDATA%\MSI Afterburner\Profiles"),
-        os.path.expandvars(r"%LOCALAPPDATA%\MSI Afterburner\Profiles"),
-    ]
+    CLOSE_TIMEOUT_S = 2.0     # graceful close before it is terminated (a tray-minimised
+                              # Afterburner ignored WM_CLOSE in the live test)
+    READY_TIMEOUT_S = 20.0    # start-up until the monitoring section exists
+    MIN_READY_S     = 3.0     # never return earlier than this after the launch
+    MIN_AGE_S       = 8.0     # never close an Afterburner that is still starting up
+    MAX_BACKUPS     = 30
 
-    def __init__(self):
+    # Bounds for values from (possibly hand-edited) profile JSONs. Core stops at
+    # ±999: +1000 MHz would be CoreClkBoost=1000000, Afterburner's custom-curve marker.
+    CORE_RANGE  = (-999, 999)
+    MEM_RANGE   = (-3000, 6000)
+    POWER_RANGE = (30, 150)
+
+    def __init__(self, gpu_pci: Optional[tuple[int, int, int]] = None):
         self.exe: Optional[str] = None
-        self.profile_dir: Optional[str] = None
+        self.profile_dir: Optional[str] = None      # <Afterburner>\Profiles
+        self._pci = gpu_pci                         # (device id, subsystem id, bus)
+        self._io_lock = threading.RLock()           # one close/write/start at a time
+        self._backed_up: set[str] = set()
+        self.last_backup: str = ""
+        self.last_notes: list[str] = []
+        # The app hooks its MAHM reader in here: drop the shared memory BEFORE
+        # Afterburner is closed (a held handle keeps the old section alive and the
+        # restarted Afterburner doesn't publish into it), reconnect once it's up.
+        self.on_ab_closing: Optional[Callable[[], None]] = None
+        self.on_ab_started: Optional[Callable[[], None]] = None
         self._detect()
+
+    # ── discovery ─────────────────────────────────────────────────────────────
 
     def _detect(self):
         try:
             key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
                 r"SOFTWARE\WOW6432Node\MSI\Afterburner", 0, winreg.KEY_READ)
             path, _ = winreg.QueryValueEx(key, "InstallPath")
-            exe = os.path.join(path, "MSIAfterburner.exe")
+            exe = os.path.join(path, self.EXE_NAME)
             if os.path.exists(exe):
                 self.exe = exe
-        except: pass
-
+        except Exception:
+            pass
         if not self.exe:
             for p in self.DEFAULT_PATHS:
                 if os.path.exists(p):
                     self.exe = p
                     break
-
-        for c in self.PROFILE_DIR_CANDIDATES:
-            if os.path.isdir(c):
-                self.profile_dir = c
-                break
-
-        if self.exe and not self.profile_dir:
-            nearby = os.path.join(os.path.dirname(self.exe), "Profiles")
-            if os.path.isdir(nearby):
-                self.profile_dir = nearby
+        # Afterburner keeps its settings and GPU profiles in <install>\Profiles.
+        # (The %APPDATA% paths used before don't exist for Afterburner.)
+        if self.exe:
+            d = os.path.join(os.path.dirname(self.exe), "Profiles")
+            if os.path.isdir(d):
+                self.profile_dir = d
 
     @property
     def available(self):
         return self.exe is not None
 
-    def check_profile_locked(self, slot: int) -> bool:
-        """Return True if profile slot is locked (we can't write to it)."""
+    def set_gpu_identity(self, pci: Optional[tuple[int, int, int]]):
+        self._pci = pci
+
+    def settings_path(self) -> Optional[str]:
+        """Afterburner's global settings. The MSIAfterburner.cfg next to the exe
+        is only the installer's template — the live one is in Profiles."""
         if not self.profile_dir:
-            return False
-        path = os.path.join(self.profile_dir, f"MSIAfterburner{slot}.cfg")
-        if not os.path.exists(path):
-            return False
+            return None
+        p = os.path.join(self.profile_dir, "MSIAfterburner.cfg")
+        return p if os.path.exists(p) else None
+
+    def find_gpu_profile(self) -> tuple[Optional[str], str]:
+        """-> (path of the tuned card's VEN_….cfg or None, explanation)."""
+        from core.ab_profile import pick_gpu_file
+        if not self.available:
+            return None, "MSI Afterburner nicht gefunden"
+        if not self.profile_dir:
+            self._detect()
+            if not self.profile_dir:
+                return None, "Afterburner-Profilordner fehlt — Afterburner einmal starten."
         try:
-            with open(path, "r", encoding="utf-8", errors="ignore") as f:
-                for line in f:
-                    if line.strip().startswith("Locked=1"):
-                        return True
-        except:
-            pass
-        return False
+            names = os.listdir(self.profile_dir)
+        except OSError as e:
+            return None, f"Profilordner nicht lesbar: {e}"
+        dev = sub = bus = None
+        if self._pci:
+            dev, sub, bus = self._pci
+        name, why = pick_gpu_file(names, dev, sub, bus)
+        if not name:
+            return None, why
+        return os.path.join(self.profile_dir, name), why
 
     def check_ab_setup(self) -> dict:
-        """
-        Check Afterburner general.cfg for required unlock settings.
-        Returns dict with keys: voltage_control, voltage_monitoring, any missing.
-        """
-        result = {"voltage_control": False, "voltage_monitoring": False, "cfg_found": False}
-        if not self.exe:
+        """Read Profiles\\MSIAfterburner.cfg [Settings]."""
+        from core.ab_profile import ProfileFile, decode_cfg
+        result = {"cfg_found": False, "voltage_control": False,
+                  "voltage_monitoring": False, "profiles_locked": False,
+                  "start_minimized": False, "voltage_graph": None}
+        path = self.settings_path()
+        if not path:
             return result
-
-        # AB general config is next to the exe
-        ab_dir = os.path.dirname(self.exe)
-        cfg_path = os.path.join(ab_dir, "MSIAfterburner.cfg")
-        if not os.path.exists(cfg_path):
-            # Try appdata
-            cfg_path = os.path.expandvars(r"%APPDATA%\MSI Afterburner\MSIAfterburner.cfg")
-
-        if not os.path.exists(cfg_path):
-            return result
-
-        result["cfg_found"] = True
         try:
-            with open(cfg_path, "r", encoding="utf-8", errors="ignore") as f:
-                content = f.read()
-            if "EnableVoltageControlInterface=1" in content:
-                result["voltage_control"] = True
-            if "EnableVoltageMonitoring=1" in content:
-                result["voltage_monitoring"] = True
-        except:
-            pass
+            with open(path, "rb") as f:
+                text, _enc = decode_cfg(f.read())
+        except OSError:
+            return result
+        st = ProfileFile(text).items("Settings")
+        result["cfg_found"] = True
 
+        def on(key):
+            try:
+                return int(st.get(key.lower(), "0") or "0") != 0
+            except ValueError:
+                return False
+        result["voltage_control"]    = on("UnlockVoltageControl")
+        result["voltage_monitoring"] = on("UnlockVoltageMonitoring")
+        result["profiles_locked"]    = on("LockProfiles")
+        result["start_minimized"]    = on("StartMinimized")
+        # Older versions list the graphs as "Sources=+GPU temperature,-Core clock,…"
+        # (+ = enabled). Afterburner 4.6.6 doesn't write that list until the
+        # monitoring page is changed -> None = unknown; the live monitoring data
+        # (is a "GPU voltage" source exported?) is the reliable check.
+        if "sources" in st:
+            sources = [s.strip().lower() for s in st.get("sources", "").split(",")]
+            result["voltage_graph"] = any(s.startswith("+") and "voltage" in s
+                                          for s in sources)
         return result
 
-    def load_profile_slot(self, slot: int) -> bool:
-        if not self.available or not (1 <= slot <= 5):
-            return False
+    # ── process control ───────────────────────────────────────────────────────
+
+    def _procs(self):
         try:
-            subprocess.Popen(
-                [self.exe, f"/Profile{slot}"],
-                creationflags=subprocess.CREATE_NO_WINDOW
-            )
-            time.sleep(1.5)
-            return True
-        except:
+            import psutil
+        except ImportError:
+            return None
+        out = []
+        for p in psutil.process_iter(["name", "create_time"]):
+            try:
+                if (p.info.get("name") or "").lower() == self.EXE_NAME.lower():
+                    out.append(p)
+            except Exception:
+                continue
+        return out
+
+    def is_running(self) -> bool:
+        procs = self._procs()
+        if procs is not None:
+            return bool(procs)
+        try:
+            r = subprocess.run(["tasklist", "/FI", f"IMAGENAME eq {self.EXE_NAME}", "/NH"],
+                               capture_output=True, text=True, timeout=10,
+                               creationflags=_no_window())
+            return self.EXE_NAME.lower() in (r.stdout or "").lower()
+        except Exception:
             return False
 
-    def write_and_apply(self, slot: int, profile: TuneProfile) -> tuple[bool, str]:
-        """Write profile .cfg and load it. Returns (success, error_msg)."""
-        if not self.available:
-            return False, "Afterburner not found"
-        if self.check_profile_locked(slot):
-            return False, f"Profile slot {slot} is locked (🔒) — unlock it in Afterburner first"
-        if not self.profile_dir:
-            return False, "Profile directory not found"
+    def _wait_gone(self, timeout: float) -> bool:
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            if not self.is_running():
+                return True
+            time.sleep(0.25)
+        return not self.is_running()
 
-        path = os.path.join(self.profile_dir, f"MSIAfterburner{slot}.cfg")
-
-        # Read the existing profile. We keep the RAW lines (not just a key->value
-        # dict) because an Afterburner .cfg is an INI file: it has [Section]
-        # headers, comments and blank lines. The old version parsed only
-        # "key=value" lines and rewrote a flat list, which silently DELETED every
-        # section header — corrupting the very file it meant to preserve. Now the
-        # original structure is kept verbatim and only our own keys are replaced
-        # in place (unknown keys/sections are never touched).
-        orig_lines: list[str] = []
-        existing = {}
-        if os.path.exists(path):
+    @staticmethod
+    def _call(cb):
+        if cb:
             try:
-                with open(path, "r", encoding="utf-8", errors="ignore") as f:
-                    orig_lines = f.read().splitlines()
-                for l in orig_lines:
-                    ls = l.strip()
-                    if "=" in ls and not ls.startswith(";") and not ls.startswith("["):
-                        k, _, v = ls.partition("=")
-                        existing[k.strip()] = v.strip()
-            except: pass
+                cb()
+            except Exception:
+                pass
 
-        # Keys THIS call sets (merged into the original structure further down).
-        updates: dict[str, str] = {}
+    def _wait_section_gone(self, timeout: float = 10.0) -> bool:
+        """After the kill: wait until nobody holds the old monitoring section any
+        more (other readers drop a frozen one within MAHMReader.STALE_S), so the
+        new Afterburner creates a fresh one."""
+        from core.mahm_reader import section_exists
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            if not section_exists():
+                return True
+            time.sleep(0.25)
+        return False
 
-        # Sanity guard-rails against absurd offsets — protects against a
-        # hand-edited/corrupt profile JSON (e.g. core=9999) that Afterburner
-        # would apply verbatim and crash the GPU. Bounds are far beyond any
-        # real overclock, so legitimate (even aggressive) profiles are never
-        # touched; only garbage is clamped.
-        def _clamp(v, lo, hi):
+    def close(self) -> tuple[bool, str]:
+        """Close Afterburner: WM_CLOSE first (it then marks its shared memory
+        0xDEAD and exits cleanly), terminate only if it doesn't react."""
+        procs = self._procs() or []
+        ages = [time.time() - (p.info.get("create_time") or 0) for p in procs]
+        young = [a for a in ages if 0 <= a < self.MIN_AGE_S]
+        if young:                       # e.g. just launched by its own autostart
+            time.sleep(self.MIN_AGE_S - min(young))
+        if not self.is_running():
+            return True, ""
+        self._call(self.on_ab_closing)
+        try:
+            subprocess.run(["taskkill", "/IM", self.EXE_NAME], capture_output=True,
+                           timeout=15, creationflags=_no_window())
+        except Exception:
+            pass
+        if not self._wait_gone(self.CLOSE_TIMEOUT_S):
+            try:
+                subprocess.run(["taskkill", "/F", "/IM", self.EXE_NAME], capture_output=True,
+                               timeout=15, creationflags=_no_window())
+            except Exception:
+                pass
+            if not self._wait_gone(5.0):
+                return False, ("Afterburner ließ sich nicht beenden (läuft er mit Admin-"
+                               "Rechten und GameOptimizerPro ohne?)")
+        time.sleep(0.5)                 # let it release its files
+        self._wait_section_gone()
+        return True, ""
+
+    def _wait_ready(self) -> tuple[bool, str]:
+        """Wait until the new Afterburner has applied the profile. Measured on a
+        live 4.6.6: the power limit changed ~1.1 s after the process appeared.
+        The monitoring section alone is no proof — other readers (e.g. this app)
+        keep the OLD section alive across the restart — so a fixed minimum time
+        since the launch is enforced as well."""
+        from core.mahm_reader import section_ready
+        start = time.monotonic()
+        end = start + self.READY_TIMEOUT_S
+        while time.monotonic() < end:
+            if self.is_running() and section_ready():
+                rest = self.MIN_READY_S - (time.monotonic() - start)
+                time.sleep(max(1.0, rest))   # it applies the profile during start-up
+                self._call(self.on_ab_started)
+                return True, ""
+            time.sleep(0.3)
+        if self.is_running():
+            self._call(self.on_ab_started)
+            return True, ("Afterburner läuft, aber sein Monitoring (MAHM) meldet sich "
+                          "nicht — Profil vermutlich trotzdem angewendet.")
+        return False, "Afterburner wurde gestartet, läuft aber nicht."
+
+    def _launch(self, args: list[str]):
+        si = None
+        if os.name == "nt":
+            si = subprocess.STARTUPINFO()
+            si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            si.wShowWindow = 7          # SW_SHOWMINNOACTIVE: don't steal the focus
+        return subprocess.Popen([self.exe] + args, cwd=os.path.dirname(self.exe),
+                                close_fds=True, startupinfo=si)
+
+    def start(self, slot: Optional[int] = None) -> tuple[bool, str]:
+        """Start Afterburner (optionally applying profile slot `slot`)."""
+        if not self.available:
+            return False, "MSI Afterburner nicht gefunden"
+        try:
+            self._launch([f"-Profile{slot}"] if slot else [])
+        except OSError as e:
+            if getattr(e, "winerror", None) == 740:
+                return False, ("Afterburner braucht Administratorrechte — "
+                               "GameOptimizerPro als Administrator starten.")
+            return False, f"Afterburner-Start fehlgeschlagen: {e}"
+        return self._wait_ready()
+
+    def load_profile_slot(self, slot: int) -> tuple[bool, str]:
+        """Apply slot `slot` as Afterburner currently has it in memory."""
+        if not self.available or not (1 <= slot <= 5):
+            return False, "Afterburner nicht verfügbar / Slot ungültig"
+        if not self.is_running():
+            return self.start(slot)
+        try:
+            p = self._launch([f"-Profile{slot}"])   # hands over to the running instance
+            try:
+                p.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                pass
+        except OSError as e:
+            if getattr(e, "winerror", None) == 740:
+                return False, ("Afterburner braucht Administratorrechte — "
+                               "GameOptimizerPro als Administrator starten.")
+            return False, f"Afterburner-Aufruf fehlgeschlagen: {e}"
+        time.sleep(1.0)
+        return True, ""
+
+    # ── writing ───────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def backup_dir() -> str:
+        la = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+        return os.path.join(la, "GameOptimizerPro", "AfterburnerBackups")
+
+    def _backup(self, path: str):
+        """Copy the profile file before the FIRST change in this session."""
+        if path in self._backed_up:
+            return
+        import shutil
+        d = self.backup_dir()
+        os.makedirs(d, exist_ok=True)
+        dst = os.path.join(d, f"{datetime.now():%Y%m%d_%H%M%S}_{os.path.basename(path)}")
+        shutil.copy2(path, dst)
+        self._backed_up.add(path)
+        self.last_backup = dst
+        try:
+            olds = sorted(Path(d).glob("*.cfg"), key=lambda p: p.stat().st_mtime)
+            for p in olds[:-self.MAX_BACKUPS]:
+                p.unlink()
+        except OSError:
+            pass
+
+    @staticmethod
+    def _read(path: str) -> tuple[str, str]:
+        from core.ab_profile import decode_cfg
+        with open(path, "rb") as f:
+            return decode_cfg(f.read())
+
+    @staticmethod
+    def _write_bytes(path: str, data: bytes):
+        """Atomic replace; never leaves the temp file behind."""
+        tmp = path + ".gop.tmp"
+        try:
+            with open(tmp, "wb") as f:
+                f.write(data)
+            os.replace(tmp, path)
+        finally:
+            if os.path.exists(tmp):
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+
+    @classmethod
+    def _write(cls, path: str, text: str, enc: str):
+        from core.ab_profile import encode_cfg
+        cls._write_bytes(path, encode_cfg(text, enc))
+
+    def _settings_for(self, profile: TuneProfile):
+        from core.ab_profile import SlotSettings
+
+        def _clamp(v, lo, hi, default=0):
             try:
                 return max(lo, min(hi, int(v)))
             except (TypeError, ValueError):
-                return 0
-        core_off = _clamp(profile.core_offset_mhz, -1500, 1500)
-        mem_off  = _clamp(profile.mem_offset_mhz,  -6000, 6000)
+                return default
+        return SlotSettings(
+            core_mhz=_clamp(profile.core_offset_mhz, *self.CORE_RANGE),
+            mem_mhz=_clamp(profile.mem_offset_mhz, *self.MEM_RANGE),
+            power_pct=_clamp(profile.power_limit_pct, *self.POWER_RANGE, default=100),
+            lock_mv=_clamp(profile.lock_voltage_mv, 0, 1300),
+            lock_mhz=_clamp(profile.lock_freq_mhz, 0, 4000),
+        )
 
-        # Apply our values
-        updates["CoreClockOffset"]   = str(core_off)
-        updates["MemoryClockOffset"] = str(mem_off)
-
-        if profile.fan_mode == "manual" and profile.fan_speed_pct > 0:
-            updates["FanSpeed"] = str(profile.fan_speed_pct)
-            updates["FanMode"]  = "1"
-        else:
-            updates["FanMode"] = "0"
-
-        # V/F curve (if set) — writes precise flatline undervolt curve
-        if profile.lock_voltage_mv > 0 and profile.lock_freq_mhz > 0:
+    def write_and_apply(self, slot: int, profile: TuneProfile) -> tuple[bool, str]:
+        """Write `profile` into Afterburner slot `slot` and apply it.
+        Returns (success, error message). Blocks for a few seconds when
+        Afterburner has to be restarted — call it off the UI thread."""
+        from core.ab_profile import apply_slot, slot_equivalent, ProfileError
+        if not self.available:
+            return False, "MSI Afterburner nicht gefunden"
+        if not 1 <= int(slot) <= 5:
+            return False, f"Profil-Slot {slot} ungültig (1–5)"
+        spec = self._settings_for(profile)
+        with self._io_lock:
+            path, why = self.find_gpu_profile()
+            if not path:
+                return False, why
             try:
-                from core.vf_curve import get_builder_for_gpu
-                # Try to get GPU name from existing profile or use Ada as default
-                gpu_hint = existing.get("GPUName", "RTX 40")
-                builder  = get_builder_for_gpu(gpu_hint)
-                curve    = builder.build_flatline_curve(
-                    target_freq_mhz=profile.lock_freq_mhz,
-                    lock_voltage_mv=profile.lock_voltage_mv,
-                    base_core_offset=core_off,
-                )
-                if curve.curve_offsets:
-                    updates["VFCurveEnabled"]      = "1"
-                    updates["CoreClockOffset"]     = str(core_off)
-                    updates["VoltagePoints"]       = curve.to_afterburner_string()
-                    updates["VFLockVoltage"]       = str(profile.lock_voltage_mv)
-                    updates["VFLockFrequency"]     = str(profile.lock_freq_mhz)
-            except Exception as vf_err:
-                # Non-fatal: fall back to simple offset without curve
-                updates["CoreClockOffset"] = str(core_off)
+                old, enc = self._read(path)
+                new, notes = apply_slot(old, slot, spec)
+            except ProfileError as e:
+                return False, f"Afterburner-Profil: {e}"
+            except OSError as e:
+                return False, f"Afterburner-Profil nicht lesbar: {e}"
+            self.last_notes = notes
+            if profile.fan_mode == "manual" and profile.fan_speed_pct > 0:
+                self.last_notes.append("Lüfter nicht gesetzt — bitte in Afterburner einstellen")
 
-        def _sanitize(v) -> str:
-            # Strip CR/LF so a crafted name/notes (e.g. from an imported
-            # .nextune) can't inject extra key=value lines into the .cfg
-            return str(v).replace("\r", " ").replace("\n", " ")
+            if new == old or slot_equivalent(old, new, slot):
+                return self.load_profile_slot(slot)   # slot already holds these values
 
-        try:
-            os.makedirs(self.profile_dir, exist_ok=True)
-            safe_pname = _sanitize(profile.name)
-            safe_notes = _sanitize(profile.notes)
+            if self.is_running():
+                ok, err = self.close()
+                if not ok:
+                    return False, err
+                try:                    # it may have saved something on exit
+                    old, enc = self._read(path)
+                    new, notes = apply_slot(old, slot, spec)
+                    self.last_notes = notes
+                except (ProfileError, OSError) as e:
+                    self.start()
+                    return False, f"Afterburner-Profil: {e}"
+            try:
+                self._backup(path)
+                self._write(path, new, enc)
+            except PermissionError:
+                self.start()
+                return False, ("Keine Schreibrechte im Afterburner-Ordner — "
+                               "GameOptimizerPro als Administrator starten.")
+            except OSError as e:
+                self.start()
+                return False, f"Schreiben fehlgeschlagen: {e}"
+            return self.start(slot)
 
-            out_lines: list[str] = []
-            written: set[str] = set()
+    def reset_to_stock(self, slot: int = 2) -> tuple[bool, str]:
+        """Stock clocks, stock power limit, flat stock curve — written into OUR
+        slot and applied. (It used to just load the user's slot 1.)"""
+        return self.write_and_apply(slot, TuneProfile(name="__stock__"))
 
-            if orig_lines:
-                # Merge into the existing file: replace our keys where they already
-                # stand, and copy EVERYTHING else (sections, comments, blank lines,
-                # unknown keys) through untouched.
-                for l in orig_lines:
-                    ls = l.strip()
-                    if "=" in ls and not ls.startswith(";") and not ls.startswith("["):
-                        key = ls.partition("=")[0].strip()
-                        if key in updates and key not in written:
-                            out_lines.append(f"{key}={_sanitize(updates[key])}")
-                            written.add(key)
-                            continue
-                    out_lines.append(l)
-            else:
-                # Brand-new profile file — write our own header.
-                out_lines.append(f"; GameOptimizerPro v2.0 profile: {safe_pname}")
-                out_lines.append(f"; {safe_notes}")
-
-            # Any of our keys that weren't already in the file get appended.
-            for k, v in updates.items():
-                if k not in written:
-                    out_lines.append(f"{k}={_sanitize(v)}")
-
-            with open(path, "w", encoding="utf-8") as f:
-                f.write("\n".join(out_lines) + "\n")
-        except Exception as e:
-            return False, f"Write failed: {e}"
-
-        success = self.load_profile_slot(slot)
-        if not success:
-            return False, "Profile written but Afterburner load failed"
-        return True, ""
-
-    def reset_to_stock(self, slot: int = 1) -> bool:
-        return self.load_profile_slot(slot)
+    def restore_file(self, backup_path: str) -> tuple[bool, str]:
+        """Put a backed-up profile file back (Afterburner closed meanwhile) and
+        start Afterburner normally."""
+        with self._io_lock:
+            path, why = self.find_gpu_profile()
+            if not path:
+                return False, why
+            if self.is_running():
+                ok, err = self.close()
+                if not ok:
+                    return False, err
+            try:
+                with open(backup_path, "rb") as f:
+                    self._write_bytes(path, f.read())
+            except OSError as e:
+                self.start()
+                return False, f"Wiederherstellen fehlgeschlagen: {e}"
+            return self.start()
 
 
 # ── Combined monitor (NVML + MAHM) ───────────────────────────────────────────
@@ -533,28 +767,33 @@ class GpuMonitor:
             # sources are limiter FLAGS (0/1) and are no longer written into the
             # watt / °C fields at all — the temp gauge used the flag as its scale
             # maximum (1 °C) whenever the thermal limiter was active.
+            # MAHM supplies what NVML can't (voltage, fan RPM). Clocks, load,
+            # power and temperature come from NVML whenever it has them: MAHM is
+            # a 1 s poll by another program and can freeze — after an Afterburner
+            # restart the tuner saw "8 % load, 210 MHz" during full load, which
+            # would have aborted a tune with "no GPU load".
+            nv = stats.nvml_ok
             if mahm_data.gpu_voltage_mv > 0:
                 stats.voltage_mv     = mahm_data.gpu_voltage_mv
             if mahm_data.mem_voltage_mv > 0:
                 stats.mem_voltage_mv = mahm_data.mem_voltage_mv
-            if mahm_data.fan_speed_pct > 0:
-                stats.fan_pct        = mahm_data.fan_speed_pct
             if mahm_data.fan_rpm > 0:
                 stats.fan_rpm        = mahm_data.fan_rpm
-            if mahm_data.gpu_power_w > 0:
-                stats.gpu_power_w    = mahm_data.gpu_power_w  # prefer MAHM power
-            if mahm_data.gpu_temp > 0 and not stats.nvml_ok:
+            if mahm_data.fan_speed_pct > 0 and not nv:
+                stats.fan_pct        = mahm_data.fan_speed_pct
+            if mahm_data.gpu_power_w > 0 and not (nv and stats.power_w > 0):
+                stats.gpu_power_w    = mahm_data.gpu_power_w
+            if mahm_data.gpu_temp > 0 and not nv:
                 stats.temp           = int(round(mahm_data.gpu_temp))
-            # Prefer MAHM clocks (more accurate, direct driver read)
-            if mahm_data.core_clock > 0:
+            if mahm_data.core_clock > 0 and not (nv and stats.core_mhz > 0):
                 stats.core_mhz   = mahm_data.core_clock
             if mahm_data.shader_clock > 0:
                 stats.shader_mhz = mahm_data.shader_clock
-            if mahm_data.mem_clock > 0:
+            if mahm_data.mem_clock > 0 and not (nv and stats.mem_mhz > 0):
                 stats.mem_mhz    = mahm_data.mem_clock
-            if mahm_data.gpu_usage > 0:
+            if mahm_data.gpu_usage > 0 and not nv:
                 stats.gpu_usage  = mahm_data.gpu_usage
-            if mahm_data.vram_usage > 0:
+            if mahm_data.vram_usage > 0 and not nv:
                 stats.mem_usage  = mahm_data.vram_usage
 
         # Use NVML power if MAHM didn't provide it

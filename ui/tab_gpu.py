@@ -311,7 +311,8 @@ class GpuTunerTab(tk.Frame):
     def _build_manual(self, p):
         tk.Label(p, text="Manual Offset Control", font=FT, fg=WHT, bg=BG1
                  ).pack(padx=12, pady=(12, 2), anchor="w")
-        tk.Label(p, text="Changes apply immediately via Afterburner.",
+        tk.Label(p, text="Applied via Afterburner — it is restarted briefly (a few seconds). "
+                         "Set the fan in Afterburner itself.",
                  font=FL, fg=DIM, bg=BG1).pack(padx=12, anchor="w")
 
         cf = tk.Frame(p, bg=BG2)
@@ -320,13 +321,11 @@ class GpuTunerTab(tk.Frame):
         self.v_m_core = tk.IntVar(value=0)
         self.v_m_mem  = tk.IntVar(value=0)
         self.v_m_pwr  = tk.IntVar(value=100)
-        self.v_m_fan  = tk.IntVar(value=0)
 
         for row_i, (label, var, lo, hi, unit) in enumerate([
             ("Core Offset",  self.v_m_core,  -200, 350, "MHz"),
             ("Mem Offset",   self.v_m_mem,   -500,1500, "MHz"),
             ("Power Limit",  self.v_m_pwr,     50, 120, "%"),
-            ("Fan Speed",    self.v_m_fan,      0, 100, "% (0=auto)"),
         ]):
             tk.Label(cf, text=label, font=FL, fg=DIM, bg=BG2).grid(
                 row=row_i, column=0, sticky="w", padx=12, pady=6)
@@ -400,10 +399,6 @@ class GpuTunerTab(tk.Frame):
     def _start_tune(self):
         from core.nvtune_tuner import TuneMode
         slot = self.v_ab_slot.get()
-        if self.ab.check_profile_locked(slot):
-            messagebox.showerror("Slot Locked",
-                f"AB profile slot {slot} is locked (🔒). Unlock it in Afterburner first.")
-            return
 
         mode_map = {
             "oc_only":  TuneMode.OC_ONLY,
@@ -481,14 +476,50 @@ class GpuTunerTab(tk.Frame):
                 f"Score: {p.stability_score}/100  GPU: {p.gpu_name}"
             ))
 
+    def _run_ab(self, work, done) -> bool:
+        """Run an Afterburner action off the UI thread — it closes and restarts
+        Afterburner, which takes a few seconds. done(result) runs on the UI thread."""
+        if getattr(self, "_ab_busy", False):
+            messagebox.showinfo("Afterburner", "An Afterburner action is still running.")
+            return False
+        if self.tuner.is_running:
+            messagebox.showwarning("Afterburner", "Auto-Tune is running — abort it first.")
+            return False
+        self._ab_busy = True
+
+        def _worker():
+            try:
+                res = work()
+            except Exception as e:
+                res = (False, str(e))
+
+            def _finish():
+                self._ab_busy = False
+                done(res)
+            try:
+                self.after(0, _finish)
+            except Exception:
+                self._ab_busy = False     # window already gone
+        threading.Thread(target=_worker, daemon=True).start()
+        return True
+
     def _apply_profile(self):
         sel = self.tree.selection()
         if not sel: return messagebox.showwarning("", "Select a profile first.")
         p = self.pm.load(sel[0])
         if not p: return
-        ok, err = self.ab.write_and_apply(self.v_ab_slot.get(), p)
-        if ok: messagebox.showinfo("Applied", f"'{p.name}' applied.")
-        else:  messagebox.showerror("Error", err)
+        slot = self.v_ab_slot.get()
+
+        def done(res):
+            ok, err = res
+            if ok:
+                notes = "\n".join(self.ab.last_notes)
+                messagebox.showinfo("Applied", f"'{p.name}' applied (Afterburner slot {slot})."
+                                    + (f"\n\n{notes}" if notes else ""))
+            else:
+                messagebox.showerror("Error", err)
+        if self._run_ab(lambda: self.ab.write_and_apply(slot, p), done):
+            self.lbl_detail.config(text=f"Applying '{p.name}' via Afterburner …")
 
     def _set_tray_default(self):
         sel = self.tree.selection()
@@ -503,32 +534,45 @@ class GpuTunerTab(tk.Frame):
             self.pm.delete(sel[0]); self._refresh_profiles()
 
     def _manual_apply(self):
-        fan_v = self.v_m_fan.get()
         p = TuneProfile(name="Manual", core_offset_mhz=self.v_m_core.get(),
                         mem_offset_mhz=self.v_m_mem.get(),
-                        power_limit_pct=self.v_m_pwr.get(),
-                        fan_mode="manual" if fan_v > 0 else "auto",
-                        fan_speed_pct=fan_v)
-        ok, err = self.ab.write_and_apply(self.v_ab_slot.get(), p)
-        self.lbl_manual_st.config(
-            text=f"{'Applied.' if ok else f'Error: {err}'} Core+{p.core_offset_mhz} Mem+{p.mem_offset_mhz} Pwr {p.power_limit_pct}%",
-            fg=OK if ok else ERR)
+                        power_limit_pct=self.v_m_pwr.get())
+        slot = self.v_ab_slot.get()
+
+        def done(res):
+            ok, err = res
+            self.lbl_manual_st.config(
+                text=(f"{'Applied' if ok else f'Error: {err}'} — Core {p.core_offset_mhz:+d} "
+                      f"Mem {p.mem_offset_mhz:+d} Pwr {p.power_limit_pct}% (slot {slot})"),
+                fg=OK if ok else ERR)
+        if self._run_ab(lambda: self.ab.write_and_apply(slot, p), done):
+            self.lbl_manual_st.config(text="Applying via Afterburner …", fg=DIM)
 
     def _manual_reset(self):
         self.v_m_core.set(0); self.v_m_mem.set(0)
-        self.v_m_pwr.set(100); self.v_m_fan.set(0)
-        self.ab.reset_to_stock()
-        self.lbl_manual_st.config(text="Reset to stock.", fg=OK)
+        self.v_m_pwr.set(100)
+        slot = self.v_ab_slot.get()
+
+        def work():
+            res = self.ab.reset_to_stock(slot)
+            watts = self.monitor.power_pct_to_watts(100)   # factory limit, not the maximum
+            if watts > 0:
+                self.monitor.set_power_limit(watts)
+            return res
+
+        def done(res):
+            ok, err = res
+            self.lbl_manual_st.config(text="Reset to stock." if ok else f"Error: {err}",
+                                      fg=OK if ok else ERR)
+        if self._run_ab(work, done):
+            self.lbl_manual_st.config(text="Resetting via Afterburner …", fg=DIM)
 
     def _manual_save(self):
         name = simpledialog.askstring("Profile Name", "Profile name:")
         if not name: return
-        fan_v = self.v_m_fan.get()
         p = TuneProfile(name=name, core_offset_mhz=self.v_m_core.get(),
                         mem_offset_mhz=self.v_m_mem.get(),
-                        power_limit_pct=self.v_m_pwr.get(),
-                        fan_mode="manual" if fan_v > 0 else "auto",
-                        fan_speed_pct=fan_v, notes="Manual",
+                        power_limit_pct=self.v_m_pwr.get(), notes="Manual",
                         created_at=datetime.now().isoformat())
         self.pm.save(p); self._refresh_profiles()
         messagebox.showinfo("Saved", f"'{name}' saved.")

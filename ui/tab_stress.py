@@ -246,7 +246,8 @@ class StressTab(tk.Frame):
                 # A crashed worker is THE instability signal — it used to be
                 # ignored, and the run was reported "PASSED" with no load at all.
                 if proc is not None and proc.poll() is not None:
-                    reason = "worker"
+                    # exit 3 = the worker saw a WRONG result (gpu-burn style check)
+                    reason = "errors" if proc.returncode == 3 else "worker"
                     break
                 if cr is not None and time.time() - last_tdr >= 10:
                     last_tdr = time.time()
@@ -275,6 +276,8 @@ class StressTab(tk.Frame):
         self.int_prog.set(0)
         if reason == "temp":
             result, color, tag = f"✗ FAILED (Temp-Limit {max_t}°C erreicht)", ERR, "error"
+        elif reason == "errors":
+            result, color, tag = "✗ FAILED (Rechenfehler unter Last — GPU instabil)", ERR, "error"
         elif reason == "worker":
             result, color, tag = "✗ FAILED (Stress-Worker abgestürzt)", ERR, "error"
         elif reason == "tdr":
@@ -291,7 +294,7 @@ class StressTab(tk.Frame):
         self.log.append(f"Internal stress: {result} | Peak temp: {peak_temp}°C | "
                         f"Ø GPU-Last: {avg_usage:.0f}%", tag)
         if reason == "" and avg_usage < self.MIN_GPU_LOAD_PCT:
-            self.log.append("Für echte GPU-Last: 'pip install cupy-cuda12x' (NVIDIA) "
+            self.log.append("Für echte GPU-Last: 'pip install \"cupy-cuda12x[ctk]\"' (NVIDIA) "
                             "oder FurMark unten starten.", "warning")
 
     def _stop_internal(self):

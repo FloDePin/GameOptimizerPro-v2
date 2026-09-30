@@ -29,6 +29,9 @@ BACKUP_KEYS: list[str] = [
     r"HKCU\SOFTWARE\NVIDIA Corporation\Global\NVTweak",
     r"HKCU\SOFTWARE\Policies\Microsoft\Windows\Explorer",
     r"HKCU\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}",
+    # Per-folder Explorer views (Bags/BagMRU) — "Disable File Explorer Automatic
+    # Folder Discovery" DELETES these trees (v1 added this after the port).
+    r"HKCU\Software\Classes\Local Settings\Software\Microsoft\Windows\Shell",
     r"HKCU\Software\Microsoft\GameBar",
     r"HKCU\Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo",
     r"HKCU\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications",
@@ -38,6 +41,7 @@ BACKUP_KEYS: list[str] = [
     r"HKCU\Software\Microsoft\Windows\CurrentVersion\GameDVR",
     r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
     r"HKCU\Software\Policies\Microsoft\Windows\WindowsCopilot",
+    r"HKCU\SOFTWARE\Policies\Microsoft\Windows\WindowsAI",
     r"HKCU\System\GameConfigStore",
     r"HKLM\SOFTWARE\ATI Technologies\CBT",
     r"HKLM\SOFTWARE\Microsoft\Dfrg\BootOptimizeFunction",
@@ -52,13 +56,39 @@ BACKUP_KEYS: list[str] = [
     r"HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Run",
     r"HKLM\SOFTWARE\Policies\Microsoft\Dsh",
     r"HKLM\SOFTWARE\Policies\Microsoft\Windows",
+    r"HKLM\SOFTWARE\Policies\WindowsNotepad",
+    r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint",
+    r"HKLM\SOFTWARE\GameOptimizerPro",
     r"HKLM\SYSTEM\CurrentControlSet\Control",
     r"HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters",
     r"HKLM\SYSTEM\CurrentControlSet\Services\nvlddmkm\Global\NVTweak",
     r"HKLM\SYSTEM\CurrentControlSet\Services\stornvme\Parameters\Device",
     r"HKLM\SYSTEM\CurrentControlSet\Services\usbaudio",
     r"HKLM\SYSTEM\CurrentControlSet\Services\usbaudio2",
+    r"HKLM\SYSTEM\CurrentControlSet\Services\WSAIFabricSvc",
+    r"HKU\.DEFAULT\Control Panel\Keyboard",
 ]
+
+
+def _device_keys() -> list[str]:
+    """Per-device keys can't be listed statically (the path holds the PnP
+    instance ID): MSI mode writes under the GPU, NVMe queue depth and the
+    write-cache setting under each disk. Their 'Device Parameters' (v1 too)."""
+    ids: list[str] = []
+    try:
+        import wmi
+        c = wmi.WMI()
+        ids += [g.PNPDeviceID for g in c.Win32_VideoController()
+                if g.PNPDeviceID and "microsoft" not in (g.Name or "").lower()]
+        ids += [d.PNPDeviceID for d in c.Win32_DiskDrive() if d.PNPDeviceID]
+    except Exception:
+        pass
+    seen, out = set(), []
+    for i in ids:
+        if i.lower() not in seen:
+            seen.add(i.lower())
+            out.append(rf"HKLM\SYSTEM\CurrentControlSet\Enum\{i}\Device Parameters")
+    return out
 
 # Zeichen, die in einem Dateinamen nicht vorkommen duerfen. Bewusst ueber
 # re.escape() aus einer Zeichenkette gebaut statt als handgeschriebene
@@ -107,7 +137,7 @@ def create(label: str = "Backup") -> BackupResult:
         return res
 
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    for key in BACKUP_KEYS:
+    for key in BACKUP_KEYS + _device_keys():
         fname = _UNSAFE_FILE_CHARS.sub("_", key) + ".reg"
         out = os.path.join(dest_dir, fname)
         try:

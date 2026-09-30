@@ -19,9 +19,11 @@ class Tweak:
     revert_cmd:  str = ""   # PowerShell to revert (optional)
     requires_nvidia: bool = False
     requires_amd:    bool = False
+    requires_nvme:   bool = False
     requires_reboot: bool = False
     risk:        str = "safe"   # "safe" | "moderate" | "advanced"
     tags:        list = field(default_factory=list)
+    timeout_s:   int = 60       # long one-time actions (Disk Cleanup/DISM) need more
 
 
 def _power_all(sub: str, setting: str, ac: int, dc: int) -> str:
@@ -108,6 +110,109 @@ _NV_LATENCY_REVERT = (
 )
 
 
+
+# ── Helpers for the v1-parity / 26H2 tweaks ──────────────────────────────────
+
+def _remove_apps_ps(patterns: list[str]) -> str:
+    """Remove Store apps for ALL users AND their provisioned package — a feature
+    update (e.g. 26H2) re-installs apps that are only removed per user."""
+    pats = ",".join(f"'{p}'" for p in patterns)
+    return (
+        f"$pats=@({pats}); foreach($p in $pats){{ "
+        "Get-AppxPackage -AllUsers $p -EA SilentlyContinue | Remove-AppxPackage -AllUsers -EA SilentlyContinue; "
+        "Get-AppxProvisionedPackage -Online -EA SilentlyContinue | Where-Object { $_.DisplayName -like $p } | "
+        "Remove-AppxProvisionedPackage -Online -EA SilentlyContinue | Out-Null }; exit 0"
+    )
+
+
+# NVMe drives as Win32_DiskDrive rows, matched to the storage stack's BusType by
+# disk number — the model name rarely says "NVMe" (e.g. "Samsung SSD 980 PRO").
+_NVME_DISKS_PS = (
+    r"$idx=@(Get-PhysicalDisk -EA SilentlyContinue | Where-Object { $_.BusType -eq 'NVMe' } | "
+    r"ForEach-Object { [string]$_.DeviceId }); "
+    r"$nv=@(Get-CimInstance Win32_DiskDrive -EA SilentlyContinue | Where-Object { $idx -contains [string]$_.Index }); "
+)
+_NVME_QD_APPLY = _NVME_DISKS_PS + (
+    r"if($nv.Count -eq 0){ Write-Output 'Kein NVMe-Laufwerk gefunden'; exit 1 }; "
+    r"foreach($d in $nv){ $b='HKLM\SYSTEM\CurrentControlSet\Enum\'+$d.PNPDeviceID+'\Device Parameters'; "
+    r"reg add ($b+'\StorPort') /v QueueDepth /t REG_DWORD /d 32 /f | Out-Null; "
+    r"reg add ($b+'\Interrupt Management\Affinity Policy') /v DevicePriority /t REG_DWORD /d 2 /f | Out-Null }; "
+    r"reg add 'HKLM\SYSTEM\CurrentControlSet\Services\stornvme\Parameters\Device' /v IdlePowerEnabled /t REG_DWORD /d 0 /f"
+)
+_NVME_QD_REVERT = _NVME_DISKS_PS + (
+    r"foreach($d in $nv){ $b='HKLM\SYSTEM\CurrentControlSet\Enum\'+$d.PNPDeviceID+'\Device Parameters'; "
+    r"reg delete ($b+'\StorPort') /v QueueDepth /f 2>$null | Out-Null; "
+    r"reg delete ($b+'\Interrupt Management\Affinity Policy') /v DevicePriority /f 2>$null | Out-Null }; "
+    r"reg delete 'HKLM\SYSTEM\CurrentControlSet\Services\stornvme\Parameters\Device' /v IdlePowerEnabled /f 2>$null | Out-Null; "
+    r"exit 0"
+)
+
+# Internal fixed disks only (never removable/external media).
+_FIXED_DISKS_PS = (
+    r"$dd=@(Get-CimInstance Win32_DiskDrive -EA SilentlyContinue | "
+    r"Where-Object { $_.PNPDeviceID -and $_.MediaType -match 'Fixed hard disk' }); "
+)
+# "Turn off Windows write-cache buffer flushing" = CacheIsPowerProtected=1.
+# (v1 wrote UserWriteCacheSetting=1, which only ENABLES write caching.)
+_WCACHE_APPLY = _FIXED_DISKS_PS + (
+    r"if($dd.Count -eq 0){ Write-Output 'Keine internen Laufwerke gefunden'; exit 1 }; "
+    r"foreach($d in $dd){ reg add ('HKLM\SYSTEM\CurrentControlSet\Enum\'+$d.PNPDeviceID+'\Device Parameters\Disk') "
+    r"/v CacheIsPowerProtected /t REG_DWORD /d 1 /f | Out-Null }; exit 0"
+)
+_WCACHE_REVERT = _FIXED_DISKS_PS + (
+    r"foreach($d in $dd){ reg delete ('HKLM\SYSTEM\CurrentControlSet\Enum\'+$d.PNPDeviceID+'\Device Parameters\Disk') "
+    r"/v CacheIsPowerProtected /f 2>$null | Out-Null }; exit 0"
+)
+
+# Paint AI policies (Windows Components > Paint): the three documented in the
+# WindowsAI Policy CSP plus Generative Erase / Remove Background.
+_PAINT_AI_KEY = r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint"
+_PAINT_AI_VALUES = ("DisableCocreator", "DisableGenerativeFill", "DisableImageCreator",
+                    "DisableGenerativeErase", "DisableRemoveBackground")
+_PAINT_AI_APPLY = "\n".join(
+    f'reg add "{_PAINT_AI_KEY}" /v {v} /t REG_DWORD /d 1 /f'
+    + (" | Out-Null" if i < len(_PAINT_AI_VALUES) - 1 else "")
+    for i, v in enumerate(_PAINT_AI_VALUES))
+_PAINT_AI_REVERT = "\n".join(
+    f'reg delete "{_PAINT_AI_KEY}" /v {v} /f 2>$null' for v in _PAINT_AI_VALUES) + "\nexit 0"
+
+# SystemResponsiveness is shared by 'Network Throttling Index' and 'Audio-Priorität'.
+# Each revert only restores the Windows default (20) if the OTHER tweak isn't
+# still relying on 0 (v1's ownership-marker approach).
+_SR_AUDIO_REVERT = (
+    r"reg delete 'HKLM\SOFTWARE\GameOptimizerPro' /v SR_AudioPriority /f 2>$null | Out-Null; "
+    r"$n=(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile' "
+    r"-Name NetworkThrottlingIndex -EA SilentlyContinue).NetworkThrottlingIndex; "
+    r"if(-not ($n -eq -1 -or $n -eq 4294967295)){ "
+    r"reg add 'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile' "
+    r"/v SystemResponsiveness /t REG_DWORD /d 20 /f | Out-Null }; exit 0"
+)
+
+# Disk Cleanup with an explicit ALLOW-list via /sagerun (silent). v1 used
+# /VERYLOWDISK = every category, which depending on the build includes the
+# Downloads folder and "Previous Installations" (Windows.old — the way back
+# after a feature update). Also left out: Recycle Bin (Deep Clean asks for it),
+# D3D Shader Cache (games would re-stutter), driver packages, install media.
+_CLEANMGR_SAFE = (
+    "Active Setup Temp Folders", "Delivery Optimization Files",
+    "Diagnostic Data Viewer database files", "Downloaded Program Files",
+    "Feedback Hub Archive log files", "Internet Cache Files", "Old ChkDsk Files",
+    "RetailDemo Offline Content", "Setup Log Files", "System error memory dump files",
+    "System error minidump files", "Temporary Files", "Temporary Setup Files",
+    "Thumbnail Cache", "Update Cleanup", "Windows Defender",
+    "Windows Error Reporting Files", "Windows Upgrade Log Files",
+)
+_DISK_CLEANUP_PS = (
+    r"$vc='HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\VolumeCaches'; "
+    "$safe=@(" + ",".join(f"'{n}'" for n in _CLEANMGR_SAFE) + "); "
+    r"Get-ChildItem $vc -EA SilentlyContinue | ForEach-Object { "
+    r"if($safe -contains $_.PSChildName){ Set-ItemProperty -Path $_.PSPath -Name StateFlags0077 -Value 2 -Type DWord -EA SilentlyContinue } "
+    r"else { Remove-ItemProperty -Path $_.PSPath -Name StateFlags0077 -EA SilentlyContinue } }; "
+    r"if(Test-Path (Join-Path $env:SystemRoot 'System32\cleanmgr.exe')){ Start-Process -FilePath cleanmgr.exe -ArgumentList '/sagerun:77' -Wait }; "
+    r"Start-Process -FilePath Dism.exe -ArgumentList '/Online /Cleanup-Image /StartComponentCleanup' -Wait -WindowStyle Hidden; "
+    r"exit 0"
+)
+
 ALL_TWEAKS: list[Tweak] = [
 
     # ══════════════════════════════════════════════════════════════
@@ -181,28 +286,45 @@ Get-AppxPackage -AllUsers "*Copilot*"|Remove-AppxPackage -ErrorAction SilentlyCo
     Tweak(
         id="remove_recall",
         name="Remove Windows Recall",
-        desc="Deaktiviert Windows Recall — macht keine Screenshots deiner Aktivitäten mehr. Datenschutzkritisch.",
+        desc="Schaltet Windows Recall per offizieller Richtlinie ab (keine Screenshots deiner Aktivitäten mehr) "
+             "und ENTFERNT beim nächsten Neustart die Recall-Komponenten samt gespeicherter Snapshots. "
+             "Datenschutzkritisch.",
         category="Windows", group="Bloatware",
-        ps_command='''
-reg add "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsAI" /v DisableAIDataAnalysis /t REG_DWORD /d 1 /f
+        # AllowRecallEnablement=0 is the documented policy that also REMOVES the
+        # Recall bits (and saved snapshots) on the next restart; DisableAIDataAnalysis
+        # is machine AND user scope (WindowsAI Policy CSP).
+        ps_command=r'''
+reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsAI" /v DisableAIDataAnalysis /t REG_DWORD /d 1 /f | Out-Null
+reg add "HKCU\SOFTWARE\Policies\Microsoft\Windows\WindowsAI" /v DisableAIDataAnalysis /t REG_DWORD /d 1 /f | Out-Null
+reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsAI" /v AllowRecallEnablement /t REG_DWORD /d 0 /f
 Disable-WindowsOptionalFeature -Online -FeatureName "Recall" -NoRestart -ErrorAction SilentlyContinue | Out-Null
 ''',
-        revert_cmd='reg delete "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsAI" /v DisableAIDataAnalysis /f 2>$null',
+        revert_cmd=r'''
+reg delete "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsAI" /v DisableAIDataAnalysis /f 2>$null
+reg delete "HKCU\SOFTWARE\Policies\Microsoft\Windows\WindowsAI" /v DisableAIDataAnalysis /f 2>$null
+reg delete "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsAI" /v AllowRecallEnablement /f 2>$null
+exit 0
+''',
+        requires_reboot=True,
     ),
     Tweak(
         id="remove_bloatware",
         name="Remove Bloatware (Candy Crush etc.)",
-        desc="Entfernt vorinstallierte Apps: Candy Crush, TikTok, Disney+, Facebook, Spotify, News, Solitaire, Clipchamp, ToDo, Paint3D u.v.m.",
+        desc="Entfernt vorinstallierte Apps: Candy Crush, TikTok, Disney+, Facebook, Spotify, News, Solitaire, "
+             "Clipchamp, ToDo, Paint3D, Mixed Reality u.v.m. — auch die bereitgestellten Pakete, damit "
+             "Funktionsupdates sie nicht wieder installieren.",
         category="Windows", group="Bloatware",
-        ps_command='''
-$bloat=@("*king.com*","*Facebook*","*Spotify*","*Disney*","*TikTok*","*Instagram*",
-"*Netflix*","*Twitter*","*BubbleWitch*","*CandyCrush*","*Microsoft.News*",
-"*Microsoft.BingWeather*","*Microsoft.BingNews*","*Microsoft.MicrosoftSolitaireCollection*",
-"*Microsoft.ZuneMusic*","*Microsoft.ZuneVideo*","*Microsoft.WindowsFeedbackHub*",
-"*Microsoft.Todos*","*Microsoft.Paint3D*","*Clipchamp*","*Microsoft.GetHelp*",
-"*Microsoft.Getstarted*","*Microsoft.PowerAutomateDesktop*")
-foreach($a in $bloat){Get-AppxPackage -AllUsers $a|Remove-AppxPackage -ErrorAction SilentlyContinue}
-''',
+        # Also removes the provisioned packages: feature updates re-install
+        # apps that were only removed per user (seen with 26H2).
+        ps_command=_remove_apps_ps([
+            "*king.com*", "*Facebook*", "*Spotify*", "*Disney*", "*TikTok*", "*Instagram*",
+            "*Netflix*", "*Twitter*", "*BubbleWitch*", "*MarchofEmpires*", "*CandyCrush*",
+            "*Microsoft.News*", "*Microsoft.BingWeather*", "*Microsoft.BingNews*",
+            "*Microsoft.MicrosoftSolitaireCollection*", "*Microsoft.ZuneMusic*",
+            "*Microsoft.ZuneVideo*", "*Microsoft.WindowsFeedbackHub*", "*Microsoft.Todos*",
+            "*Microsoft.Paint3D*", "*Microsoft.MixedReality*", "*Clipchamp*",
+            "*Microsoft.GetHelp*", "*Microsoft.Getstarted*", "*Microsoft.PowerAutomateDesktop*",
+        ]),
     ),
     Tweak(
         id="disable_consumer_features",
@@ -359,12 +481,21 @@ foreach($t in $tasks){schtasks /Change /TN $t /Disable 2>$null}
     Tweak(
         id="disable_ai_text_image_gen",
         name="Text- & Bildgenerierung (On-Device-KI) deaktivieren",
-        desc="Schaltet die geräteinterne generative KI von Windows ab (Einstellungen → Datenschutz → "
-             "Text- und Bildgenerierung). Verhindert, dass Windows und Apps lokale KI-Modelle nutzen. "
-             "Betrifft nicht Cloud-KI-Dienste. Reversibel.",
+        desc="Sperrt die geräteinterne generative KI von Windows (Einstellungen → Datenschutz → "
+             "Text- und Bildgenerierung) für alle Apps — den Schalter UND die Richtlinie (Force Deny), "
+             "die Apps und Nutzer nicht wieder aufheben können. Betrifft nicht Cloud-KI-Dienste. Reversibel.",
         category="Windows", group="Privacy",
-        ps_command='reg add "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\systemAIModels" /v Value /t REG_SZ /d Deny /f',
-        revert_cmd='reg add "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\systemAIModels" /v Value /t REG_SZ /d Allow /f',
+        # Consent switch (what Settings shows) + v1's policy (Force Deny), which
+        # apps and users can't switch back on.
+        ps_command=r'''
+reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\systemAIModels" /v Value /t REG_SZ /d Deny /f | Out-Null
+reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy" /v LetAppsAccessSystemAIModels /t REG_DWORD /d 2 /f
+''',
+        revert_cmd=r'''
+reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\systemAIModels" /v Value /t REG_SZ /d Allow /f | Out-Null
+reg delete "HKLM\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy" /v LetAppsAccessSystemAIModels /f 2>$null
+exit 0
+''',
         risk="safe",
     ),
 
@@ -823,9 +954,12 @@ foreach($a in $adapters){Enable-NetAdapterLso -Name $a.Name -ErrorAction Silentl
 reg add "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile" /v NetworkThrottlingIndex /t REG_DWORD /d 0xffffffff /f
 reg add "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile" /v SystemResponsiveness /t REG_DWORD /d 0 /f
 ''',
-        revert_cmd='''
-reg add "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile" /v NetworkThrottlingIndex /t REG_DWORD /d 10 /f
-reg add "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile" /v SystemResponsiveness /t REG_DWORD /d 20 /f
+        revert_cmd=r'''
+reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" /v NetworkThrottlingIndex /t REG_DWORD /d 10 /f | Out-Null
+if (-not (Get-ItemProperty 'HKLM:\SOFTWARE\GameOptimizerPro' -Name SR_AudioPriority -EA SilentlyContinue)) {
+  reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" /v SystemResponsiveness /t REG_DWORD /d 20 /f | Out-Null
+}
+exit 0
 ''',
     ),
     Tweak(
@@ -1309,6 +1443,321 @@ powercfg -setactive SCHEME_CURRENT
         revert_cmd=_AMD_ANTILAG_REVERT,
         requires_amd=True, requires_reboot=True,
         tags=["gpu", "amd", "latency"],
+    ),
+
+    # ══════════════════════════════════════════════════════════════
+    # v1-PARITÄT (portiert aus GameOptimizerPro v1, ehrlich geprüft)
+    # + WINDOWS 11 26H2: KI-Funktionen & Bloat, die das Funktionsupdate bringt
+    # ══════════════════════════════════════════════════════════════
+
+    # ── Windows · Komfort ─────────────────────────────────────────────
+    Tweak(
+        id="enable_long_paths",
+        name="Lange Pfade aktivieren (> 260 Zeichen)",
+        desc="Erlaubt Dateipfade länger als 260 Zeichen. Verhindert 'Pfad zu lang'-Fehler bei tiefen "
+             "Ordnerstrukturen, Game-Mods, Node-Projekten usw.",
+        category="Windows", group="Komfort",
+        ps_command=r'reg add "HKLM\SYSTEM\CurrentControlSet\Control\FileSystem" /v LongPathsEnabled /t REG_DWORD /d 1 /f',
+        revert_cmd=r'reg add "HKLM\SYSTEM\CurrentControlSet\Control\FileSystem" /v LongPathsEnabled /t REG_DWORD /d 0 /f',
+        risk="safe",
+    ),
+    Tweak(
+        id="numlock_on_startup",
+        name="NumLock beim Start einschalten",
+        desc="Schaltet NumLock beim Systemstart und am Anmeldebildschirm automatisch ein.",
+        category="Windows", group="Komfort",
+        ps_command=r'''
+reg add "HKCU\Control Panel\Keyboard" /v InitialKeyboardIndicators /t REG_SZ /d 2147483650 /f | Out-Null
+reg add "HKU\.DEFAULT\Control Panel\Keyboard" /v InitialKeyboardIndicators /t REG_SZ /d 2147483650 /f
+''',
+        revert_cmd=r'''
+reg add "HKCU\Control Panel\Keyboard" /v InitialKeyboardIndicators /t REG_SZ /d 2147483648 /f | Out-Null
+reg add "HKU\.DEFAULT\Control Panel\Keyboard" /v InitialKeyboardIndicators /t REG_SZ /d 2147483648 /f
+''',
+        risk="safe",
+    ),
+    Tweak(
+        id="disable_lock_screen",
+        name="Sperrbildschirm überspringen",
+        desc="Beim Start/Aufwachen direkt zum Anmeldefeld statt erst zum Sperrbildschirm. Ehrlich: "
+             "Microsoft garantiert diese Richtlinie nur für Enterprise/Education — auf Home/Pro wirkt "
+             "sie je nach Build.",
+        category="Windows", group="Komfort",
+        ps_command=r'reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\Personalization" /v NoLockScreen /t REG_DWORD /d 1 /f',
+        revert_cmd=r'reg delete "HKLM\SOFTWARE\Policies\Microsoft\Windows\Personalization" /v NoLockScreen /f 2>$null; exit 0',
+        risk="moderate",
+    ),
+    Tweak(
+        id="run_disk_cleanup",
+        name="Datenträgerbereinigung ausführen (einmalig)",
+        desc="Räumt mit der Windows-Datenträgerbereinigung nur SICHERE Kategorien auf (Temp, Update-Reste, "
+             "Fehlerberichte, Speicherabbilder, Übermittlungsoptimierung, Miniaturansichten …) und danach "
+             "alte Update-Komponenten per DISM. Bewusst NICHT: Downloads-Ordner, Papierkorb, Windows.old "
+             "(Rückkehr zum vorherigen Windows), Shader-Cache (sonst Nachruckler in Spielen), alte Treiber. "
+             "Einmalige Aktion, dauert einige Minuten.",
+        category="Windows", group="CTT Essentials",
+        ps_command=_DISK_CLEANUP_PS,
+        revert_cmd='',
+        risk="moderate", timeout_s=1800,
+    ),
+
+    # ── Windows · Speicher & RAM ──────────────────────────────────────
+    Tweak(
+        id="disable_reserved_storage",
+        name="Reservierten Speicher freigeben (~7 GB)",
+        desc="Gibt den Speicher frei, den Windows für Updates reserviert (typisch ~7 GB). Windows "
+             "verwaltet den Update-Platz danach dynamisch. Klappt nur, wenn gerade kein Update ansteht.",
+        category="Windows", group="Speicher & RAM",
+        ps_command='Set-WindowsReservedStorageState -State Disabled -ErrorAction Stop',
+        revert_cmd='Set-WindowsReservedStorageState -State Enabled -ErrorAction Stop',
+        risk="safe",
+    ),
+    Tweak(
+        id="pagefile_system_managed",
+        name="Auslagerungsdatei von Windows verwalten lassen",
+        desc="Stellt die Auslagerungsdatei auf 'automatisch verwalten'. Windows passt die Größe an den "
+             "Bedarf an — verhindert zu kleine (Abstürze bei RAM-Spitzen) und unnötig große Dateien. "
+             "Entspricht dem Windows-Standard.",
+        category="Windows", group="Speicher & RAM",
+        ps_command=r'$cs = Get-CimInstance Win32_ComputerSystem; Set-CimInstance -InputObject $cs -Property @{AutomaticManagedPagefile=$true} -ErrorAction Stop',
+        revert_cmd='',
+        requires_reboot=True, risk="safe",
+    ),
+    Tweak(
+        id="clear_pagefile_shutdown",
+        name="Auslagerungsdatei beim Herunterfahren leeren",
+        desc="Überschreibt die Auslagerungsdatei bei jedem Herunterfahren — keine Speicherreste bleiben "
+             "auf der Platte (Datenschutz). Macht das Herunterfahren langsamer, bei großer Datei spürbar.",
+        category="Windows", group="Speicher & RAM",
+        ps_command=r'reg add "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" /v ClearPageFileAtShutdown /t REG_DWORD /d 1 /f',
+        revert_cmd=r'reg add "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" /v ClearPageFileAtShutdown /t REG_DWORD /d 0 /f',
+        requires_reboot=True, risk="moderate",
+    ),
+    Tweak(
+        id="disable_memory_compression",
+        name="Speicherkomprimierung deaktivieren",
+        desc="Schaltet die RAM-Komprimierung ab und spart damit CPU-Zeit beim Spielen. Nur mit genug RAM "
+             "sinnvoll (16 GB+) — sonst lagert Windows früher auf die Platte aus.",
+        category="Windows", group="Speicher & RAM",
+        ps_command='Disable-MMAgent -MemoryCompression -ErrorAction Stop',
+        revert_cmd='Enable-MMAgent -MemoryCompression -ErrorAction Stop',
+        requires_reboot=True, risk="moderate",
+    ),
+    Tweak(
+        id="enable_ssd_trim",
+        name="SSD-TRIM sicherstellen",
+        desc="Stellt sicher, dass Windows SSDs über gelöschte Blöcke informiert (TRIM) — hält die "
+             "SSD-Leistung langfristig hoch. Normalerweise schon aktiv; der Tweak prüft und erzwingt es.",
+        category="Windows", group="Speicher & RAM",
+        ps_command='fsutil behavior set DisableDeleteNotify 0',
+        revert_cmd='',
+        risk="safe",
+    ),
+    Tweak(
+        id="disable_scheduled_defrag",
+        name="Geplante Laufwerksoptimierung deaktivieren",
+        desc="Deaktiviert die wöchentliche Laufwerksoptimierung. Ehrlich: Auf SSDs defragmentiert Windows "
+             "nicht, sondern schickt nur ein erneutes TRIM — das entfällt dann (das TRIM beim Löschen "
+             "bleibt). Nur sinnvoll, wenn du die Optimierung selbst steuern willst.",
+        category="Windows", group="Speicher & RAM",
+        ps_command=r'''
+schtasks /Change /TN "\Microsoft\Windows\Defrag\ScheduledDefrag" /Disable | Out-Null
+reg add "HKLM\SOFTWARE\Microsoft\Dfrg\BootOptimizeFunction" /v Enable /t REG_SZ /d N /f
+''',
+        revert_cmd=r'''
+schtasks /Change /TN "\Microsoft\Windows\Defrag\ScheduledDefrag" /Enable | Out-Null
+reg delete "HKLM\SOFTWARE\Microsoft\Dfrg\BootOptimizeFunction" /v Enable /f 2>$null
+exit 0
+''',
+        risk="moderate",
+    ),
+    Tweak(
+        id="nvme_queue_depth",
+        name="NVMe: Queue-Tiefe & Idle-Stromsparen",
+        desc="Setzt für NVMe-SSDs eine StorPort-Queue-Tiefe von 32 und eine höhere Interrupt-Priorität und "
+             "schaltet das Idle-Stromsparen des NVMe-Treibers ab (geringere Latenz, etwas mehr Strom). "
+             "Ehrlich: Die Wirkung hängt vom Treiber ab und ist meist nur in Benchmarks messbar. "
+             "Ohne NVMe-Laufwerk ausgegraut.",
+        category="Windows", group="Speicher & RAM",
+        ps_command=_NVME_QD_APPLY,
+        revert_cmd=_NVME_QD_REVERT,
+        requires_nvme=True, requires_reboot=True, risk="moderate",
+    ),
+    Tweak(
+        id="disable_write_cache_flush",
+        name="Schreibcache-Leerung deaktivieren (nur Desktop + USV)",
+        desc="Wie das Häkchen 'Leeren des Windows-Schreibcachepuffers deaktivieren' im Gerätemanager: "
+             "schnelleres Schreiben, aber bei Stromausfall oder Absturz drohen Datenverlust und "
+             "Dateisystemfehler. Nur für Desktop-PCs mit stabiler Stromversorgung (am besten USV). "
+             "(v1 hatte hier den falschen Registry-Wert gesetzt.)",
+        category="Windows", group="Speicher & RAM",
+        ps_command=_WCACHE_APPLY,
+        revert_cmd=_WCACHE_REVERT,
+        requires_reboot=True, risk="advanced",
+    ),
+
+    # ── Windows 11 ────────────────────────────────────────────────────
+    Tweak(
+        id="w11_remove_chat_icon",
+        name="Win11: Chat-Symbol aus der Taskleiste",
+        desc="Entfernt das Teams-Chat-Symbol aus der Taskleiste (verhindert ungewollte Teams-Installation). "
+             "Aktuelle Builds haben das Symbol meist nicht mehr — dann ändert der Tweak nichts.",
+        category="Windows", group="Windows 11",
+        ps_command=r'reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v TaskbarMn /t REG_DWORD /d 0 /f',
+        revert_cmd=r'reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v TaskbarMn /t REG_DWORD /d 1 /f',
+        risk="safe",
+    ),
+    Tweak(
+        id="w11_hide_recommended",
+        name="Win11: 'Empfohlen' im Startmenü ausblenden",
+        desc="Blendet den Bereich 'Empfohlen' (zuletzt geöffnete Dateien/Apps) im Startmenü per "
+             "Richtlinie aus. Ehrlich: nicht auf allen Editionen/Builds garantiert.",
+        category="Windows", group="Windows 11",
+        ps_command=r'reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\Explorer" /v HideRecommendedSection /t REG_DWORD /d 1 /f',
+        revert_cmd=r'reg delete "HKLM\SOFTWARE\Policies\Microsoft\Windows\Explorer" /v HideRecommendedSection /f 2>$null; exit 0',
+        risk="safe",
+    ),
+
+    # ── Windows · Privacy: KI-Funktionen (Windows 11 24H2–26H2) ───────
+    Tweak(
+        id="disable_click_to_do",
+        name="Click to Do deaktivieren (KI-Bildschirmanalyse)",
+        desc="Schaltet 'Click to Do' ab — die Funktion macht auf Tastendruck einen Screenshot und lässt "
+             "ihn von einer KI analysieren, um Aktionen vorzuschlagen. Offizielle Windows-KI-Richtlinie "
+             "(auch für Pro dokumentiert), für Computer und Benutzer.",
+        category="Windows", group="Privacy",
+        ps_command=r'''
+reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsAI" /v DisableClickToDo /t REG_DWORD /d 1 /f | Out-Null
+reg add "HKCU\SOFTWARE\Policies\Microsoft\Windows\WindowsAI" /v DisableClickToDo /t REG_DWORD /d 1 /f
+''',
+        revert_cmd=r'''
+reg delete "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsAI" /v DisableClickToDo /f 2>$null
+reg delete "HKCU\SOFTWARE\Policies\Microsoft\Windows\WindowsAI" /v DisableClickToDo /f 2>$null
+exit 0
+''',
+        risk="safe",
+    ),
+    Tweak(
+        id="disable_paint_ai",
+        name="Paint-KI deaktivieren",
+        desc="Schaltet die KI-Funktionen in Paint per offizieller Richtlinie ab: Cocreator, Image Creator, "
+             "generatives Füllen — dazu generatives Löschen und Hintergrund entfernen.",
+        category="Windows", group="Privacy",
+        ps_command=_PAINT_AI_APPLY,
+        revert_cmd=_PAINT_AI_REVERT,
+        risk="safe",
+    ),
+    Tweak(
+        id="disable_notepad_ai",
+        name="Notepad-KI deaktivieren",
+        desc="Schaltet die Copilot-Funktionen in Notepad (Umschreiben, Zusammenfassen, Schreiben) per "
+             "offizieller Richtlinie ab.",
+        category="Windows", group="Privacy",
+        ps_command=r'reg add "HKLM\SOFTWARE\Policies\WindowsNotepad" /v DisableAIFeatures /t REG_DWORD /d 1 /f',
+        revert_cmd=r'reg delete "HKLM\SOFTWARE\Policies\WindowsNotepad" /v DisableAIFeatures /f 2>$null; exit 0',
+        risk="safe",
+    ),
+    Tweak(
+        id="disable_ai_fabric_service",
+        name="Windows-KI-Dienst abschalten (WSAIFabricSvc)",
+        desc="Deaktiviert den 'Host für Windows KI-Komponenten'. Er startet seit 24H2/26H2 automatisch "
+             "und stellt lokale KI-Modelle bereit (KI-Suche in den Einstellungen, Click to Do, "
+             "KI-Aktionen). Spart RAM und CPU im Hintergrund; diese KI-Funktionen sind danach aus. "
+             "Rückgängig machbar.",
+        category="Windows", group="Privacy",
+        ps_command=r'''
+Stop-Service -Name WSAIFabricSvc -Force -ErrorAction SilentlyContinue
+Set-Service -Name WSAIFabricSvc -StartupType Disabled -ErrorAction Stop
+''',
+        revert_cmd=r'''
+Set-Service -Name WSAIFabricSvc -StartupType Automatic -ErrorAction Stop
+Start-Service -Name WSAIFabricSvc -ErrorAction SilentlyContinue
+''',
+        risk="moderate",
+    ),
+    Tweak(
+        id="remove_m365_copilot_devhome",
+        name="Microsoft-365-Copilot-App & Dev Home entfernen",
+        desc="Entfernt die 'Microsoft 365 Copilot'-App (Office Hub) und das von Microsoft eingestellte "
+             "Dev Home — Funktionsupdates wie 26H2 installieren beide neu. Entfernt auch die "
+             "bereitgestellten Pakete, damit sie für neue Benutzer nicht wiederkommen. Office im "
+             "Browser bleibt nutzbar.",
+        category="Windows", group="Bloatware",
+        ps_command=_remove_apps_ps(["*Microsoft.MicrosoftOfficeHub*", "*Microsoft.Windows.DevHome*"]),
+        risk="safe",
+    ),
+
+    # ── Network · TCP ─────────────────────────────────────────────────
+    Tweak(
+        id="tcp_optimize",
+        name="TCP optimieren (ECN & Timestamps aus, SACK an)",
+        desc="Schaltet ECN und TCP-Timestamps ab und SACK ein — etwas weniger Overhead pro Paket. Ehrlich: "
+             "Der Effekt auf den Ping ist klein; ECN-Abschalten hilft vor allem hinter Routern, die "
+             "ECN-Pakete falsch behandeln.",
+        category="Network", group="TCP",
+        ps_command=r'''
+netsh int tcp set global ecncapability=disabled | Out-Null
+netsh int tcp set global timestamps=disabled | Out-Null
+reg add "HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" /v SackOpts /t REG_DWORD /d 1 /f | Out-Null
+reg add "HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" /v TcpMaxDupAcks /t REG_DWORD /d 2 /f
+''',
+        revert_cmd=r'''
+netsh int tcp set global ecncapability=default | Out-Null
+netsh int tcp set global timestamps=default | Out-Null
+reg delete "HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" /v SackOpts /f 2>$null
+reg delete "HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" /v TcpMaxDupAcks /f 2>$null
+exit 0
+''',
+        risk="safe",
+    ),
+    Tweak(
+        id="disable_qos_limit",
+        name="QoS-Bandbreitenreserve auf 0 %",
+        desc="Setzt die QoS-Richtlinie 'Reservierbare Bandbreite' auf 0 %. Ehrlich: Windows reserviert "
+             "entgegen verbreiteter Annahme NICHT dauerhaft 20 % — die Reserve greift nur, wenn eine "
+             "QoS-Anwendung Bandbreite anfordert. Meist ohne messbaren Effekt, schadet aber nicht.",
+        category="Network", group="TCP",
+        ps_command=r'reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\Psched" /v NonBestEffortLimit /t REG_DWORD /d 0 /f',
+        revert_cmd=r'reg delete "HKLM\SOFTWARE\Policies\Microsoft\Windows\Psched" /v NonBestEffortLimit /f 2>$null; exit 0',
+        risk="safe",
+    ),
+
+    # ── Audio ─────────────────────────────────────────────────────────
+    Tweak(
+        id="mmcss_audio_profile",
+        name="MMCSS-Audioprofil optimieren",
+        desc="Setzt den MMCSS-Task 'Audio' auf latenzempfindlich mit hoher Scheduling-Priorität — weniger "
+             "Knacken und Aussetzer unter CPU-Last. (Ergänzt 'MMCSS Audio Priority', das den Task "
+             "'Pro Audio' betrifft.)",
+        category="Audio", group="Performance",
+        ps_command=r'''
+$p='HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Audio'
+reg add $p /v "Latency Sensitive" /t REG_SZ /d True /f | Out-Null
+reg add $p /v "Scheduling Category" /t REG_SZ /d High /f | Out-Null
+reg add $p /v "SFIO Priority" /t REG_SZ /d High /f
+''',
+        revert_cmd=r'''
+$p='HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Audio'
+reg delete $p /v "Latency Sensitive" /f 2>$null | Out-Null
+reg add $p /v "Scheduling Category" /t REG_SZ /d Medium /f | Out-Null
+reg add $p /v "SFIO Priority" /t REG_SZ /d Normal /f
+''',
+        risk="safe",
+    ),
+    Tweak(
+        id="audio_service_priority",
+        name="Audio-Priorität systemweit erhöhen",
+        desc="Setzt SystemResponsiveness auf 0 — MMCSS hält dann keine CPU-Zeit mehr für "
+             "Hintergrundaufgaben frei, Audio und Spiele bekommen mehr. Gegen Aussetzer bei Spielen + "
+             "Streamen. (Den Wert nutzt auch 'Network Throttling Index' — zurückgesetzt wird er erst, "
+             "wenn keiner der beiden Tweaks ihn mehr braucht.)",
+        category="Audio", group="Performance",
+        ps_command=r'''
+reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" /v SystemResponsiveness /t REG_DWORD /d 0 /f | Out-Null
+reg add "HKLM\SOFTWARE\GameOptimizerPro" /v SR_AudioPriority /t REG_DWORD /d 1 /f
+''',
+        revert_cmd=_SR_AUDIO_REVERT,
+        risk="safe",
     ),
 ]
 

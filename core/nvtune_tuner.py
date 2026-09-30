@@ -17,6 +17,10 @@ from core.nvtune_core import GpuMonitor, AfterburnerController, TuneProfile, Pro
 from core.vf_curve    import VFCurveBuilder, get_builder_for_gpu
 
 
+class TunerApplyError(RuntimeError):
+    """A tuning step could not be applied — the tune must stop, not test it."""
+
+
 class TuneMode(Enum):
     OC_ONLY   = "oc_only"    # Stage 1 only: core offset
     UV_ONLY   = "uv_only"    # Stage 2 only: power limit reduction
@@ -49,14 +53,29 @@ class StressResult:
     min_voltage_mv: float = 0.0
     max_voltage_mv: float = 0.0
     avg_voltage_mv: float = 0.0
-    throttle_hit:   bool  = False
+    throttle_hit:   bool  = False  # THERMAL / hardware slowdown (not the power limit)
     crash_detected: bool  = False
     tdr_detected:   bool  = False
+    compute_error:  bool  = False  # the worker saw a wrong result (gpu-burn check)
     abort_reason:   str   = ""
     avg_core_mhz:   float = 0.0
     core_clocks:    list  = field(default_factory=list)
     avg_gpu_usage:  float = 0.0    # measured GPU load during the run (%)
     aborted:        bool  = False  # stopped by the user, NOT a completed test
+    avg_rate_tflops: float = 0.0   # work done per second ("gemm" mode, needs cupy)
+    avg_bw_gbs:     float = 0.0    # memory bandwidth ("mem" mode, needs cupy)
+    avg_mem_mhz:    float = 0.0
+    max_core_mhz:   float = 0.0    # highest clock seen (boost phases: top of the curve)
+    power_capped_pct: float = 0.0  # share of samples at the power limit (normal)
+
+    def perf(self, ref: "StressResult") -> float:
+        """Performance relative to `ref` (1.0 = same). Work rate when both runs
+        measured it, else the average core clock."""
+        if self.avg_rate_tflops > 0 and ref.avg_rate_tflops > 0:
+            return self.avg_rate_tflops / ref.avg_rate_tflops
+        if self.avg_core_mhz > 0 and ref.avg_core_mhz > 0:
+            return self.avg_core_mhz / ref.avg_core_mhz
+        return 1.0
 
 
 @dataclass
@@ -83,15 +102,27 @@ class TunerConfig:
     mem_oc_enabled:  bool = True       # Run memory OC in FULL mode
     mem_oc_step_mhz: int  = 50         # Memory step size
     mem_oc_max_mhz:  int  = 1000       # Max memory offset
+    # Stage 2: lowest power limit that costs at most this much performance
+    # under full load (RTX 40: ~70-80 % PL costs only a few % in games).
+    power_max_loss_pct: float = 3.0
+    # Stage 4: GDDR6X retries failed transfers (EDC) instead of crashing — an
+    # overclock past the limit LOSES bandwidth. Stop when it drops by more than this.
+    # (45 s windows of the bandwidth load varied by 0.8 % on an RTX 4080.)
+    mem_bw_drop_pct: float = 2.0
 
 
 class StressTester:
+    RAMP_S = 3            # ignore the worker's start-up for averages
+    EXIT_COMPUTE_ERROR = 3  # _stress_worker.py: wrong result / CUDA error under load
+
     def __init__(self, monitor: GpuMonitor, crash_recovery=None,
                  stop_event: Optional[threading.Event] = None):
         self.monitor = monitor
         self.cr      = crash_recovery
         self.stop_event = stop_event   # set by AutoTuner.abort() -> end the step NOW
         self._proc: Optional[subprocess.Popen] = None
+        self._metrics: dict = {"RATE": [], "BW": [], "ERR": []}
+        self._t0 = 0.0
 
     def _worker_path(self):
         # Worker lives at project root, not in core/
@@ -100,19 +131,53 @@ class StressTester:
             "_stress_worker.py"
         )
 
-    def start(self):
+    def start(self, mode: str = "gemm"):
         wp = self._worker_path()
+        self._metrics = {"RATE": [], "BW": [], "ERR": []}
+        self._t0 = time.time()
         if os.path.exists(wp):
             try:
                 flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
                 self._proc = subprocess.Popen(
-                    [sys.executable, wp, str(os.getpid())],  # GUI PID → dead-man switch
-                    stdout=subprocess.DEVNULL,
+                    [sys.executable, wp, str(os.getpid()), mode],  # GUI PID → dead-man switch
+                    stdout=subprocess.PIPE,
                     stderr=subprocess.DEVNULL,
+                    text=True, encoding="utf-8", errors="replace",
                     creationflags=flags
                 )
+                threading.Thread(target=self._read_worker,
+                                 args=(self._proc, self._metrics, self._t0),
+                                 daemon=True).start()
             except:
                 pass
+
+    @staticmethod
+    def _read_worker(proc, metrics: dict, t0: float):
+        """Collect the worker's "RATE x" / "BW x" / "ERR n" lines. Always drains
+        the pipe, so the worker can never block on a full stdout buffer."""
+        try:
+            for line in proc.stdout:
+                parts = line.split()
+                if len(parts) < 2 or parts[0] not in metrics:
+                    continue
+                if parts[0] == "ERR":
+                    metrics["ERR"].append(parts[1])
+                    continue
+                try:
+                    metrics[parts[0]].append((time.time() - t0, float(parts[1])))
+                except ValueError:
+                    pass
+        except Exception:
+            pass
+        finally:
+            try:
+                proc.stdout.close()
+            except Exception:
+                pass
+
+    def _avg(self, key: str) -> float:
+        vals = [v for t, v in self._metrics.get(key, []) if t >= self.RAMP_S]
+        return round(sum(vals) / len(vals), 2) if vals else 0.0
 
     def stop(self):
         if self._proc:
@@ -127,12 +192,14 @@ class StressTester:
         self,
         duration_s: int,
         max_temp: int,
-        on_tick: Optional[Callable] = None
+        on_tick: Optional[Callable] = None,
+        mode: str = "gemm",
     ) -> StressResult:
         result = StressResult()
-        temps, voltages, clocks, usages = [], [], [], []
+        temps, voltages, clocks, usages, mem_clocks = [], [], [], [], []
+        samples = capped = 0
 
-        self.start()
+        self.start(mode)
         start = time.time()
 
         while True:
@@ -154,9 +221,12 @@ class StressTester:
             temps.append(stats.temp)
             if stats.voltage_mv > 0:
                 voltages.append(stats.voltage_mv)
-            clocks.append(stats.core_mhz)
-            if elapsed >= 3:                      # skip the worker's ramp-up
+            if elapsed >= self.RAMP_S:            # skip the worker's ramp-up
+                clocks.append(stats.core_mhz)
+                mem_clocks.append(float(getattr(stats, "mem_mhz", 0.0) or 0.0))
                 usages.append(float(stats.gpu_usage or 0.0))
+                samples += 1
+                capped += bool(getattr(stats, "power_capped", False))
 
             if on_tick:
                 try:
@@ -171,13 +241,21 @@ class StressTester:
                 result.passed   = False
                 return result
 
-            if stats.throttle not in ("None", ""):
+            # Only thermal / hardware slowdowns count. Running into the power
+            # limit is normal GPU Boost behaviour under full load — counting it
+            # (as before, with mislabelled bits) failed OC steps for no reason and
+            # made the power-limit stage unable to lower anything.
+            if getattr(stats, "throttle_protective", False):
                 result.throttle_hit = True
 
-            # Worker crash = GPU instability
+            # Worker gone = GPU instability (exit 3: it saw a wrong result)
             if self._proc and self._proc.poll() is not None:
                 result.crash_detected = True
-                result.abort_reason   = "Stress worker crashed (GPU unstable)"
+                if self._proc.returncode == self.EXIT_COMPUTE_ERROR or self._metrics["ERR"]:
+                    result.compute_error = True
+                    result.abort_reason = "Rechenfehler unter Last (GPU instabil)"
+                else:
+                    result.abort_reason = "Stress worker crashed (GPU unstable)"
                 break
 
             # TDR check every 10s
@@ -196,6 +274,11 @@ class StressTester:
         result.avg_temp     = round(sum(temps) / len(temps), 1) if temps else 0
         result.avg_core_mhz = round(sum(clocks) / len(clocks), 1) if clocks else 0
         result.avg_gpu_usage = round(sum(usages) / len(usages), 1) if usages else 0.0
+        result.avg_mem_mhz  = round(sum(mem_clocks) / len(mem_clocks), 1) if mem_clocks else 0
+        result.max_core_mhz = max(clocks) if clocks else 0
+        result.power_capped_pct = round(100.0 * capped / samples, 1) if samples else 0.0
+        result.avg_rate_tflops = self._avg("RATE")
+        result.avg_bw_gbs   = self._avg("BW")
         if voltages:
             result.min_voltage_mv = min(voltages)
             result.max_voltage_mv = max(voltages)
@@ -351,6 +434,10 @@ class AutoTuner:
             self._safe_reset()
 
     def _apply(self, core=0, mem=0, pwr_pct=100) -> bool:
+        """Apply one step. A step that could NOT be applied must never be
+        tested: it would run on the previous settings and be saved as "stable"
+        (the result used to be ignored) — so a failure raises TunerApplyError,
+        which ends the tune with an error and resets to stock."""
         p = TuneProfile(
             name="__tuning__",
             core_offset_mhz=core,
@@ -363,14 +450,36 @@ class AutoTuner:
             # Write crash flag before applying
             if self.cr:
                 self.cr.set_tuning_active(p.to_dict())
-            ok, _ = self.ab.write_and_apply(self.config.ab_slot, p)
-            if ok:
-                # Always set the limit (incl. 100 %): a later 100 % step used to
-                # leave a previously reduced limit in place. 100 % = stock.
-                watts = self.monitor.power_pct_to_watts(pwr_pct)
-                if watts > 0:
-                    self.monitor.set_power_limit(watts)
-            return ok
+            via_ab = self.ab.available
+            if via_ab:
+                ok, err = self.ab.write_and_apply(self.config.ab_slot, p)
+                if not ok:
+                    raise TunerApplyError(f"Afterburner: {err}")
+            elif core or mem:
+                raise TunerApplyError(
+                    "MSI Afterburner nicht gefunden — für Core-/Speicher-Offsets nötig")
+            # Always set the limit (incl. 100 %): a later 100 % step used to
+            # leave a previously reduced limit in place. 100 % = stock. Without
+            # Afterburner (power-only undervolt) NVML is the only way it's applied.
+            watts = self.monitor.power_pct_to_watts(pwr_pct)
+            nv_ok = watts > 0 and self.monitor.set_power_limit(watts)
+            if not via_ab and not nv_ok:
+                raise TunerApplyError(
+                    f"Power-Limit {pwr_pct} % ließ sich per NVML nicht setzen (Admin-Rechte?)")
+            return True
+
+    @staticmethod
+    def _perf_note(r: StressResult) -> str:
+        """E.g. "  41.3 TFLOPS" — only when the worker measured its work rate (cupy)."""
+        return f"  {r.avg_rate_tflops:.1f} TFLOPS" if r.avg_rate_tflops > 0 else ""
+
+    @staticmethod
+    def _fail_reason(r: StressResult) -> str:
+        if r.abort_reason:
+            return r.abort_reason
+        if r.throttle_hit:
+            return "Thermische/Hardware-Drosselung"
+        return "Crash" if r.crash_detected else "Unstable"
 
     def _save_stable(self, core, mem, pwr):
         """Save current values as last-known-stable for crash recovery."""
@@ -402,15 +511,24 @@ class AutoTuner:
                 return False           # aborted: never write after the reset
             if self.cr:
                 self.cr.set_tuning_active(p.to_dict())
+            if not self.ab.available:
+                raise TunerApplyError("MSI Afterburner nicht gefunden — für die V/F-Kurve nötig")
             ok, err = self.ab.write_and_apply(self.config.ab_slot, p)
         if not ok:
-            self._log(f"  V/F apply failed: {err}", "warning")
+            # Same rule as _apply(): an unapplied curve step must not be tested.
+            raise TunerApplyError(f"V/F-Kurve: {err}")
         return ok
 
     def _run_safe(self):
         self._open_run_log()
         try:
             self._run()
+        except TunerApplyError as e:
+            self._log(f"Anwenden fehlgeschlagen — Tune abgebrochen: {e}", "error")
+            self._set_state(TunerState.ERROR)
+            self._reset_locked()
+            if self.cr:
+                self.cr.clear_tuning_flag()
         except Exception as e:
             self._log(f"Tuner exception: {e}", "error")
             self._set_state(TunerState.ERROR)
@@ -473,7 +591,7 @@ class AutoTuner:
                 f"(nötig ≥ {self.MIN_GPU_LOAD_PCT:.0f} %). {why} Ein OC/UV-Test ohne "
                 f"GPU-Last würde instabile Werte als 'stabil' speichern — Tune abgebrochen.",
                 "error")
-            self._log("Lösung: 'pip install cupy-cuda12x' (NVIDIA) ODER parallel eine "
+            self._log("Lösung: 'pip install \"cupy-cuda12x[ctk]\"' (NVIDIA) ODER parallel eine "
                       "GPU-Last starten (z.B. FurMark im Stress-Tab) und den Tune neu starten.",
                       "warning")
             self._set_state(TunerState.ERROR)
@@ -485,6 +603,7 @@ class AutoTuner:
         self._log(
             f"Baseline OK | temp={base.avg_temp}°C | GPU-Last={base.avg_gpu_usage:.0f}% | "
             f"volt={base.avg_voltage_mv:.0f}mV | clk={base.avg_core_mhz:.0f}MHz"
+            f"{self._perf_note(base)} | Power-Limit erreicht {base.power_capped_pct:.0f}% der Zeit"
         )
         # Baseline is our first "stable" point
         self._save_stable(0, 0, 100)
@@ -493,6 +612,7 @@ class AutoTuner:
 
         # ── Stage 1: Core Clock Offset ─────────────────────────────────────────
         best_core = cfg.core_start_mhz
+        ref_result = base          # last passing run at (best_core, 100 %) — Stage 2's yardstick
 
         if mode in (TuneMode.OC_ONLY, TuneMode.OC_UV, TuneMode.FULL):
             self._set_state(TunerState.STAGE1)
@@ -525,7 +645,8 @@ class AutoTuner:
                     )
                     if self._cb_tick: self._cb_tick(s)
 
-                result = stress.run(cfg.step_test_s, cfg.max_temp_c, on_tick=_tick1)
+                result = stress.run(cfg.step_test_s, cfg.max_temp_c, on_tick=_tick1,
+                                    mode="mixed")
                 if self._stop.is_set():   # aborted mid-step: don't act on it
                     return
                 step_n += 1
@@ -533,19 +654,20 @@ class AutoTuner:
                 if result.passed and not result.throttle_hit:
                     best_core = candidate
                     cur_core  = candidate
+                    ref_result = result
                     self._save_stable(best_core, cfg.mem_offset_mhz, 100)
                     self._log(
                         f"  +{candidate}MHz ✓  step={cur_step}MHz  "
                         f"avg={result.avg_temp:.1f}°C  "
                         f"volt={result.avg_voltage_mv:.0f}mV  "
-                        f"clk={result.avg_core_mhz:.0f}MHz"
+                        f"clk={result.avg_core_mhz:.0f}/{result.max_core_mhz:.0f}MHz"
+                        f"{self._perf_note(result)}"
                     )
                     # After a success, try to push a little further
                     # Step stays the same unless we've been reducing it
                 else:
                     tdr_note = " [TDR!]" if result.tdr_detected else ""
-                    reason = result.abort_reason or (
-                        "Throttle" if result.throttle_hit else "Unstable")
+                    reason = self._fail_reason(result)
 
                     # Halve the step and try again from best_core
                     new_step = max(MIN_STEP_MHZ, cur_step // 2)
@@ -582,7 +704,13 @@ class AutoTuner:
 
         if mode in (TuneMode.UV_ONLY, TuneMode.OC_UV, TuneMode.FULL):
             self._set_state(TunerState.STAGE2)
-            self._log("Stage 2: Power limit reduction (adaptive stepping)...")
+            # A lower power limit is always "stable" — the driver just runs lower
+            # clocks. What matters is how much performance it costs, so the stage
+            # looks for the lowest limit that stays within power_max_loss_pct of the
+            # 100 % run. (It used to count the power limiting itself as a failure,
+            # so it could never lower anything.)
+            self._log(f"Stage 2: Power limit reduction — lowest limit with ≤ "
+                      f"{cfg.power_max_loss_pct:g} % performance loss (adaptive stepping)...")
             s2_base    = 50 if mode in (TuneMode.OC_UV, TuneMode.FULL) else 15
             MIN_PWR_STEP = 1   # 1% minimum step for power limit
             cur_pwr    = cfg.power_start_pct
@@ -592,6 +720,24 @@ class AutoTuner:
                 (cfg.power_start_pct - cfg.power_min_pct) // cfg.power_step_pct, 1) + 5
 
             self._progress(s2_base, "Stage 2: Power limit optimization")
+
+            # Reference at 100 % with the chosen core offset, in the same load the
+            # steps use. The baseline ran on a cold card (~2 % slower in the live
+            # calibration) and Stage 1 runs the mixed load — comparing against
+            # either would have mis-measured the loss.
+            self._apply(best_core, cfg.mem_offset_mhz, 100)
+            time.sleep(2)
+            ref_result = stress.run(cfg.step_test_s, cfg.max_temp_c,
+                                    on_tick=lambda e, d, s: (
+                                        self._progress(s2_base, f"Stage 2: Referenz 100 % {e}/{d}s"),
+                                        self._cb_tick(s) if self._cb_tick else None))
+            if self._stop.is_set():
+                return
+            if not ref_result.passed:
+                raise TunerApplyError(f"Referenzlauf bei 100 % fehlgeschlagen: "
+                                      f"{self._fail_reason(ref_result)}")
+            self._log(f"  Referenz 100 %: clk={ref_result.avg_core_mhz:.0f}MHz"
+                      f"{self._perf_note(ref_result)}")
 
             while not self._stop.is_set():
                 candidate = cur_pwr - cur_step
@@ -616,18 +762,22 @@ class AutoTuner:
                     return
                 pwr_step_n += 1
 
-                if result.passed and not result.throttle_hit:
+                loss = (1.0 - result.perf(ref_result)) * 100.0
+                if result.passed and not result.throttle_hit and loss <= cfg.power_max_loss_pct:
                     best_pwr = candidate
                     cur_pwr  = candidate
                     self._save_stable(best_core, cfg.mem_offset_mhz, best_pwr)
                     self._log(
                         f"  {candidate}% ✓  step={cur_step}%  "
                         f"avg={result.avg_temp:.1f}°C  "
-                        f"volt={result.avg_voltage_mv:.0f}mV"
+                        f"volt={result.avg_voltage_mv:.0f}mV  "
+                        f"Leistung {-loss:+.1f}%{self._perf_note(result)}"
                     )
                 else:
                     tdr_note = " [TDR!]" if result.tdr_detected else ""
-                    reason   = result.abort_reason or "Unstable"
+                    reason   = (self._fail_reason(result)
+                                if not result.passed or result.throttle_hit else
+                                f"Leistung {-loss:+.1f}% (erlaubt −{cfg.power_max_loss_pct:g}%)")
                     new_step = max(MIN_PWR_STEP, cur_step // 2)
                     if new_step < cur_step:
                         self._log(
@@ -713,7 +863,8 @@ class AutoTuner:
                     )
                     if self._cb_tick: self._cb_tick(s)
 
-                result = stress.run(cfg.vf_step_test_s, cfg.max_temp_c, on_tick=_tick3)
+                result = stress.run(cfg.vf_step_test_s, cfg.max_temp_c, on_tick=_tick3,
+                                    mode="mixed")
                 if self._stop.is_set():   # aborted mid-step: don't act on it
                     return
                 vf_step_n += 1
@@ -731,8 +882,7 @@ class AutoTuner:
                     )
                 else:
                     tdr_note = " [TDR!]" if result.tdr_detected else ""
-                    reason   = result.abort_reason or (
-                        "Crash" if result.crash_detected else "Unstable")
+                    reason   = self._fail_reason(result)
                     new_step = max(MIN_VF_STEP, cur_vf_step // 2)
                     if new_step < cur_vf_step:
                         self._log(
@@ -790,8 +940,37 @@ class AutoTuner:
 
         if run_mem:
             self._set_state(TunerState.STAGE4)
-            self._log("Stage 4: Memory overclock (Ada GDDR6X has high headroom)...")
+            self._log("Stage 4: Memory overclock — memory load, bandwidth must keep rising "
+                      "(GDDR6X corrects errors by retrying: past its limit it gets SLOWER, "
+                      "it doesn't crash)...")
             self._progress(86, "Stage 4: Memory clock optimization")
+
+            # Reference bandwidth at the current memory offset.
+            if best_volt_mv > 0:
+                self._apply_vf(best_core, best_volt_mv, target_freq if run_vf else 0,
+                               best_mem_offset)
+            else:
+                self._apply(best_core, best_mem_offset, best_pwr)
+            time.sleep(2)
+            mref = stress.run(min(cfg.step_test_s, 30), cfg.max_temp_c, mode="mem",
+                              on_tick=lambda e, d, s: (
+                                  self._progress(86, f"Stage 4: Referenz-Bandbreite {e}/{d}s"),
+                                  self._cb_tick(s) if self._cb_tick else None))
+            if self._stop.is_set():
+                return
+            best_bw = mref.avg_bw_gbs if mref.passed else 0.0
+            if best_bw > 0:
+                self._log(f"  Referenz: {best_bw:.0f} GB/s @ {mref.avg_mem_mhz:.0f} MHz "
+                          f"(Mem+{best_mem_offset}MHz)")
+            else:
+                self._log("  Bandbreite nicht messbar (cupy fehlt?) — Speicher-OC nur mit "
+                          "Absturz-/Fehlererkennung", "warning")
+
+            # Measured bandwidth per accepted offset. The stepping only stops once
+            # bandwidth falls OUT of the noise band — by then it has crept past the
+            # peak into the range where GDDR6X already corrects errors. The result
+            # is therefore the offset with the highest measured bandwidth.
+            bw_at = {best_mem_offset: best_bw} if best_bw > 0 else {}
 
             # Adaptive stepping for Memory OC
             MIN_MEM_STEP = 5   # MHz
@@ -822,22 +1001,31 @@ class AutoTuner:
                     )
                     if self._cb_tick: self._cb_tick(s)
 
-                result = stress.run(cfg.step_test_s, cfg.max_temp_c, on_tick=_tick4)
+                result = stress.run(cfg.step_test_s, cfg.max_temp_c, on_tick=_tick4,
+                                    mode="mem")
                 if self._stop.is_set():   # aborted mid-step: don't act on it
                     return
                 mem_step_n += 1
 
-                if result.passed and not result.crash_detected:
+                bw = result.avg_bw_gbs
+                bw_drop = (best_bw > 0 and bw > 0 and
+                           bw < best_bw * (1.0 - cfg.mem_bw_drop_pct / 100.0))
+                bw_note = f"  {bw:.0f} GB/s @ {result.avg_mem_mhz:.0f} MHz" if bw > 0 else ""
+                if result.passed and not result.crash_detected and not bw_drop:
                     best_mem_offset = candidate_mem
                     cur_mem         = candidate_mem
+                    best_bw         = max(best_bw, bw)
+                    if bw > 0:
+                        bw_at[candidate_mem] = bw
                     self._log(
                         f"  Mem+{candidate_mem}MHz ✓  step={cur_mem_step}MHz  "
-                        f"avg={result.avg_temp:.1f}°C"
+                        f"avg={result.avg_temp:.1f}°C{bw_note}"
                     )
                 else:
                     tdr_note  = " [TDR!]" if result.tdr_detected else ""
-                    reason    = result.abort_reason or (
-                        "Crash" if result.crash_detected else "Unstable")
+                    reason    = (f"Bandbreite {bw:.0f} < {best_bw:.0f} GB/s — Fehlerkorrektur "
+                                 f"(EDC) bremst" if bw_drop and result.passed
+                                 else self._fail_reason(result))
                     new_step  = max(MIN_MEM_STEP, cur_mem_step // 2)
                     if new_step < cur_mem_step:
                         self._log(
@@ -867,6 +1055,18 @@ class AutoTuner:
                         time.sleep(1)
                         break
 
+            if len(bw_at) > 1 and not self._stop.is_set():
+                peak = max(bw_at, key=lambda o: (bw_at[o], -o))   # tie -> lower offset
+                if peak < best_mem_offset:
+                    self._log(f"  Bandbreiten-Maximum bei Mem+{peak}MHz ({bw_at[peak]:.0f} GB/s) — "
+                              f"darüber (bis +{best_mem_offset}MHz) kein Gewinn mehr, der Speicher "
+                              f"korrigiert dort schon Fehler → +{peak}MHz übernommen")
+                    best_mem_offset = peak
+                    if best_volt_mv > 0:
+                        self._apply_vf(best_core, best_volt_mv,
+                                       target_freq if run_vf else 0, best_mem_offset)
+                    else:
+                        self._apply(best_core, best_mem_offset, best_pwr)
             self._log(f"Stage 4 done: best memory = +{best_mem_offset}MHz "
                       f"(precision ±{MIN_MEM_STEP}MHz)")
         else:
@@ -904,7 +1104,8 @@ class AutoTuner:
             )
             if self._cb_tick: self._cb_tick(s)
 
-        final = stress.run(cfg.final_test_s, cfg.max_temp_c, on_tick=_tick_final)
+        final = stress.run(cfg.final_test_s, cfg.max_temp_c, on_tick=_tick_final,
+                           mode="mixed")
         if self._stop.is_set():   # aborted mid-step: don't act on it
             return
 

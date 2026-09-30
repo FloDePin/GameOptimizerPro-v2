@@ -35,10 +35,12 @@ verified bug from those reviews is fixed.
   restores the last stable profile on the next boot. Integrates with **MSI
   Afterburner** (MAHM shared memory for real mV readings); GPU-generation
   auto-detection (Pascal→Ada, RDNA 1–3).
-- **Windows Optimizer — 83 tweaks** across Windows, Gaming, Network and Audio,
-  each with **live status verification** that reads the real registry/service
-  state (not just a saved flag), shown as ● green (verified) / ◑ amber
-  (applied, unverified) / ○ grey (inactive).
+- **Windows Optimizer — 106 tweaks** across Windows, Gaming, Network and Audio
+  (incl. the Windows 11 24H2/26H2 AI features and storage/RAM tweaks), each
+  with **live status verification** (except the one-time Disk Cleanup) that
+  reads the real registry/service state (not just a saved flag), shown as
+  ● green (verified) / ◑ amber (applied, unverified) / ○ grey (inactive). A
+  **drift check** at start offers to re-apply tweaks a Windows update has reset.
 - **Graduated one-click presets** — 🟢 Minimal → 🟡 Medium → 🔴 Hard (Debloat),
   cumulative intensity tiers, plus curated Gaming, Privacy & Anti-Telemetry,
   Debloat, Network, Performance, Windows 11 Classic and All-Safe presets.
@@ -56,17 +58,19 @@ verified bug from those reviews is fixed.
   live state detection, exact BIOS menu paths + registry equivalents; covers
   AMD Zen 3/4/5 and Intel 12/13/14th Gen, including a motherboard vendor
   auto-install (bloatware) warning.
-- **Live Dashboard** — real-time GPU telemetry + CPU/RAM/Disk tiles and a
-  one-click network latency test (gateway + Cloudflare/Google, jitter & loss).
-- **System Cleaner & Restore Point**, **Tune History**, **Temperature Warning**
-  (toast at 90 °C), **Startup Manager**, **background Update Checker**, and full
-  **DE/EN** language switching.
+- **Live Dashboard** — real-time GPU telemetry + CPU/RAM/Disk tiles, an
+  **Optimization Score**, a **monitor refresh-rate advisor** and a one-click
+  network latency test (gateway + Cloudflare/Google, jitter & loss).
+- **System Cleaner + opt-in Deep Clean & Restore Point**, **Services Manager**,
+  **Tune History**, **Temperature Warning** (toast at 90 °C), **Startup
+  Manager**, **background Update Checker**, and full **DE/EN** language switching.
 
-### 🔁 Full v1 parity (ported from GameOptimizerPro v1)
+### 🔁 v1 parity (ported from GameOptimizerPro v1)
 
 v2 is a Python rewrite of the PowerShell/WPF v1, and a handful of v1 features had
-never made it across. They are now ported, with v1's original commands as the
-reference:
+never made it across. The first batch is below; a line-by-line audit later
+showed that this was **not** complete yet — the rest followed in round 9 (see
+the fixes list). Ported with v1's original commands as the reference:
 
 - **Registry Backup** — exports all **36** registry branches the tweaks can touch
   as `.reg` files to `%LOCALAPPDATA%\GameOptimizerPro\RegistryBackups\`, so any
@@ -90,8 +94,8 @@ reference:
   reverted. `power_cpu_max_100` ships **without** a revert command on purpose —
   100 % is the Windows default, so a "revert" would write the identical value.
 
-Tweak count: **71 → 83**, all with live verifiers (VERIFY_MAP stays 1:1) and full
-English descriptions.
+Tweak count: **71 → 83** in this batch (→ **106** after round 9), all with live
+verifiers (VERIFY_MAP stays 1:1) and full English descriptions.
 
 ### 🛡️ Safety & honesty
 
@@ -310,18 +314,238 @@ English descriptions.
     destroyed (no more "invalid command name" noise on exit); the Startup Manager
     tolerates being closed while it is still loading.
 
-### ⚠️ Known open issue
+- **Round 8 — Afterburner profile writer (the former "known open issue"):**
+  - **Profiles now reach Afterburner.** `write_and_apply` wrote
+    `Profiles\MSIAfterburner{slot}.cfg` with invented keys (`CoreClockOffset` in
+    MHz, `VoltagePoints`, …) that Afterburner never reads — applying a profile had
+    no effect. It now writes Afterburner's **real per-GPU profile**
+    `Profiles\VEN_10DE&DEV_…&SUBSYS_…&REV_…&BUS_…&DEV_0&FN_0.cfg`, chosen by the
+    card's PCI identity from NVML (a leftover file of an old card is never
+    touched): `[ProfileN]` with `CoreClkBoost` / `MemClkBoost` in **kHz**,
+    `PowerLimit` in % of stock and the binary `VFCurve` (header + per point
+    voltage / base / offset floats — only the offset floats are changed, every
+    other byte is kept). A plain offset goes onto every curve point, as
+    Afterburner does; the V/F undervolt writes a real flat curve from the card's
+    own curve points (`CoreClkBoost=1000000` marks a custom curve) and never puts
+    a point above the tested frequency. Format cross-checked against a real
+    RTX 3090 profile, the hekmon/aiup `msiaf` parser, KingAi's Afterburner tools
+    and Annihil's VF-curve parser (new module `core/ab_profile.py`).
+  - Afterburner reads that file only when it starts, so new values mean: close it
+    (WM_CLOSE, terminate only if it hangs, never within 8 s of its own start),
+    write atomically, start it again with `-ProfileN` (minimized, no focus
+    steal). Identical values are just re-sent with `-ProfileN` — no restart. The
+    original file is backed up once per session to
+    `%LOCALAPPDATA%\GameOptimizerPro\AfterburnerBackups\`.
+  - **"Reset to stock" loaded the user's slot 1** (whatever was saved there). It
+    now writes stock values (0 / 0 / 100 %, stock curve) into the app's slot.
+  - **Setup checker** read the installer's *template* `MSIAfterburner.cfg` and
+    looked for a key that doesn't exist (`EnableVoltageControlInterface`). It now
+    reads `Profiles\MSIAfterburner.cfg` (`UnlockVoltageControl`,
+    `UnlockVoltageMonitoring`, the "GPU voltage" graph) and shows whether the
+    card's profile file exists. The per-slot "🔒 locked" check (it read a file
+    Afterburner never had) is gone.
+  - **Fan:** sources disagree on Afterburner's `FanMode` encoding (0 = auto vs.
+    1 = auto), so the writer never touches fan keys; the manual fan slider was
+    removed rather than pretending.
+  - **MAHM reader is thread-safe.** With Afterburner restarting on every tuning
+    step, one thread could unmap the shared-memory view while another was still
+    copying from it (access violation). Stress-tested: ~300 000 reads while a
+    fake section was destroyed and recreated 59 times — no error. Afterburner's
+    "Power" source in **%** is no longer shown as watts.
+  - **The tuner ignored failed applies.** `_apply()`'s result was never checked,
+    so a step that could not be applied ran its stress test on the previous
+    settings and was saved as "stable"; and "Undervolt only" without Afterburner
+    never set the power limit at all (NVML was only called after a successful
+    Afterburner write). Now a failed apply ends the tune with a clear error and
+    resets to stock; power-only undervolting works via NVML without Afterburner,
+    while core/memory offsets and the V/F curve say plainly that Afterburner is
+    required.
+  - GPU-tab Apply / Reset / profile apply and Settings → "load startup profile"
+    run off the UI thread (they take seconds now); applying is blocked while an
+    Auto-Tune runs.
+  - **The tuner counted normal power limiting as a failure.** Its NVML
+    throttle table was shifted by one bit (0x04, the software power cap, was
+    labelled "Thermal"; 0x02, application clocks, "Power"), and *any* active
+    reason failed a step. Under full load a GeForce practically always runs
+    into its power limit, so OC steps failed for no reason — and the power-limit
+    stage, whose very lever *is* the power limit, could never lower anything.
+    Bits now come from `nvml.h`; only thermal / hardware slowdowns
+    (0x08 / 0x20 / 0x40 / 0x80) count, and the dashboard shows "Power-Limit" as
+    normal instead of a warning.
+  - **Instability is detected by wrong results (gpu-burn / OCCT method).** The
+    stress worker repeats the same SGEMM and compares every result with the
+    first (cuBLAS is deterministic; tolerance a few ULPs) — one wrong value ends
+    the step with "computation error". A CUDA error *after* the load started is
+    now an instability signal instead of a silent fall-back to CPU load. It also
+    reports its work rate (TFLOPS).
+  - **Power-limit stage has a real criterion:** the lowest limit that costs at
+    most **3 %** performance (work rate, else clock) against the 100 % run at the
+    chosen core offset (`power_max_loss_pct`). Published RTX 40 measurements put
+    70–80 % power limits at a few percent loss in games; a full-load stress test
+    loses more than a game, so 3 % is conservative.
+  - **Memory stage measures bandwidth.** GDDR6X retries failed transfers (EDC),
+    so a memory overclock past its limit gets *slower* instead of crashing — the
+    old crash-only test would have kept "passing" it. Memory steps now run a
+    bandwidth load (copies verified against a reference) and stop when bandwidth
+    drops more than 2 % below the best seen (measured run-to-run noise: 0.8 %);
+    the result is the offset with the **highest measured bandwidth** — the
+    stepping itself creeps a little past the peak, where the memory already
+    corrects errors. Without cupy it says so and falls back to crash detection.
+    (Note: the Full / V/F-curve / Memory modes exist in the tuner but are not
+    selectable in the GPU tab — it offers OC, UV and OC+UV.)
+  - `install.bat` offers `pip install "cupy-cuda12x[ctk]"` (no CUDA Toolkit
+    needed) and shows the current Afterburner setup (the old "unlock the
+    padlock" step was wrong); all cupy hints now include `[ctk]`.
+  - **`tools/ab_selftest.py`**: `info` (read-only), `dryrun` (the exact diff,
+    verifies that no other section changes, writes nothing), `live` (+15 MHz /
+    90 % via Afterburner, measured with NVML, optional flat curve, then stock
+    values and the original file are restored — also on Ctrl+C; refuses while
+    the GPU is busy), `restore` (put a backup back).
+  - *Verification status at that point:* offline only (199 checks) — format tests against
+    spec-built files in the real layout, the controller flow on a fake install,
+    real process control against a dummy `MSIAfterburner.exe`, the MAHM stress
+    test, the GPU/Settings/Stress/Dashboard tabs under a real Tk mainloop, the
+    stress worker against a numpy-backed cupy stand-in with injected errors, and
+    every tuner stage against a scripted GPU.
+  - **First read-only checks on a real system** (RTX 4080, Afterburner
+    4.6.6.16757): the card's profile file was found by PCI ID, its `VFCurve`
+    parsed as 127 points from 450 to 1240 mV (6448 hex chars = 12-byte header +
+    256 slots + 140 trailing bytes — exactly the documented layout), and the
+    MAHM reader read all 55 live sources with values matching NVML (temperature,
+    clocks). Two things the real data corrected: Afterburner's **"Power" in W is
+    source 0x61** (0x60 is the percentage) — it was ignored and the NVML value
+    used instead; and 4.6.6 keeps **no graph list** (`Sources=`) in
+    `MSIAfterburner.cfg`, so "is the GPU-voltage graph on?" is now answered from
+    the live monitoring data. (Also seen: `FanMode=1` with the fan in auto — one
+    more reason not to trust the "0 = auto" reading and to leave fans alone.)
 
-- **Applying OC profiles to MSI Afterburner has no effect.** `write_and_apply`
-  writes `Profiles\MSIAfterburner{slot}.cfg` with `CoreClockOffset` in MHz, but
-  Afterburner keeps profiles **per GPU** in
-  `Profiles\VEN_10DE&DEV_…&BUS_…&DEV_0&FN_0.cfg`, in `[Profile1]`…`[Profile5]`
-  sections with `CoreClkBoost` / `MemClkBoost` in **kHz**, `PowerLimit` in % and
-  a binary `VFCurve` (verified against three independent real-world files and
-  tools). `/Profile2` therefore loads Afterburner's own, unchanged profile 2. A
-  correct fix has to close Afterburner, write its real profile file and restart
-  it; it can't be tested without Afterburner and NVML can't read back the offset
-  on GeForce, so it is pending a decision rather than shipped blind.
+- **Round 8 — live on the real system** (RTX 4080, Afterburner 4.6.6, driver 617,
+  Windows 11 26H2):
+  - **The Afterburner writer works on real hardware.** `tools/ab_selftest.py live`
+    wrote +15 MHz / 90 % into slot 2, Afterburner restarted with `-Profile2`, and
+    NVML read the new power limit back (**288 W** = 90 % of 320 W); identical
+    values were then applied *without* a restart, "reset to stock" wrote
+    0 / 0 / 100 %, and the original profile file came back **byte-exact**.
+    (`nvmlDeviceGetClockOffsets` is readable but does *not* report Afterburner's
+    offset, so the core offset can't be confirmed via NVML — the power limit is.)
+  - **Real bug found live: frozen monitoring after an Afterburner restart.**
+    In the tray Afterburner ignores WM_CLOSE, so the restart ends in a kill; a
+    killed Afterburner doesn't mark its shared memory as closed, every reader
+    that still holds a handle keeps the old section alive, and the *new*
+    Afterburner then doesn't publish into it. Result seen: the dashboard showed
+    8 % load / 210 MHz for 14 minutes of full load. Fix: the reader lets go of
+    the section *before* the kill (`on_ab_closing` → `suspend()`), the
+    controller waits until the section is really gone, reconnects when the new
+    Afterburner is ready (`on_ab_started` → `resume()`), and a section whose
+    time stamp stops moving for 8 s is treated as dead and never re-attached.
+    GPU values now come from NVML first; Afterburner only supplies what NVML
+    can't (voltage, memory voltage, fan rpm).
+  - **Game-like load for the OC search.** A constant full-load SGEMM keeps the
+    card at its power limit (~2510 MHz here) — but games crash at the *boost*
+    point (high clock, high voltage, lower power). The stress worker's `mixed`
+    mode alternates 10 s heavy load with 10 s half-duty load that reaches
+    **2790 MHz @ 1075 mV** — the exact operating point measured in Hunt:
+    Showdown. Stage 1, the V/F stage and the final test use it; the power-limit
+    stage keeps the steady load (it needs a reproducible reference, measured
+    warm), the memory stage its bandwidth load.
+  - Calibration on the card: 0 computation errors at stock,
+    step-to-step work-rate noise **0.06 %**, bandwidth noise **0.8 %** (hence the
+    2 % memory criterion), 74 °C max. A Hunt: Showdown capture: ~69 % GPU load,
+    ~232 W, never power-limited — so in this game an OC gains little, an
+    undervolt costs nothing.
+  - Hardware detection: VRAM showed 4 GB on a 16 GB card (WMI's `AdapterRAM` is
+    32-bit) — now read from the driver's `HardwareInformation.qwMemorySize`; RAM
+    type DDR5 from `SMBIOSMemoryType` (34) instead of "Unknown"; NVMe drives via
+    `MSFT_PhysicalDisk.BusType` (17).
+  - Dashboard: the network test at the bottom was cut off — the tab scrolls now.
+  - Still to do *on real hardware*: a complete end-to-end Auto-Tune run (all
+    parts are tested individually and against a scripted GPU) —
+    [TESTANLEITUNG.md](TESTANLEITUNG.md), step 8.
+
+- **Round 9 — v1 parity audit + Windows 11 26H2:**
+  - **Honest correction:** the earlier "full v1 parity" claim was wrong. A
+    line-by-line audit of v1 (`GameOptimizerPro.ps1`) found 24 tweaks and 5
+    features that never made it into v2. 18 tweaks and all 5 features are ported
+    now with v1's commands as the reference — checked, not copied blindly — and
+    6 tweaks deliberately not (see below):
+    - **Storage & RAM:** long paths, free the reserved storage (~7 GB), system-
+      managed pagefile, clear pagefile at shutdown, memory compression off, SSD
+      TRIM on, scheduled defrag off, **NVMe queue depth** (only offered with an
+      NVMe drive), **write-cache buffer flushing off** (advanced; v1 wrote
+      `UserWriteCacheSetting`, which is the *other* checkbox — v2 sets
+      `CacheIsPowerProtected`, the value Device Manager's "turn off buffer
+      flushing" really uses).
+    - **Comfort / Windows 11:** NumLock at start-up, skip the lock screen, remove
+      the Chat icon, hide "Recommended" in Start.
+    - **Network / audio:** TCP (ECN and timestamps off, SACK on), QoS reserve
+      0 % (described honestly: Windows does *not* permanently reserve 20 %),
+      MMCSS "Audio" task profile, `SystemResponsiveness` 0 (shared with the
+      network-throttling tweak — reverting one keeps the value while the other
+      still needs it).
+    - **Disk Cleanup (one-time):** safe categories only, then
+      `DISM /StartComponentCleanup` **without** `/ResetBase`. Deliberately not:
+      Downloads, Recycle Bin, Windows.old, shader cache, old drivers — v1's
+      `/sagerun` profile included several of those.
+    - **Deep Clean** (Settings, every target opt-in): browser *caches* of
+      Chrome/Edge/Firefox (never passwords, history, bookmarks, cookies),
+      Windows Update download cache (the service is stopped and restarted
+      around it), thumbnails, prefetch, CBS logs / minidumps / error reports,
+      and the Recycle Bin (extra confirmation). Only really deleted files count
+      as freed; files in use are skipped.
+    - **Services Manager** (own window instead of opening services.msc): v1's
+      list of 29 rarely needed services with category, a safe/caution rating and
+      live status / start type. Disabling remembers the **original start type**
+      (incl. "Automatic (delayed)"); "Enable" restores it, or the Windows
+      default — v1 always set "Manual", so e.g. the print spooler no longer
+      started on its own. Changed from v1: the Xbox services are "caution"
+      (Game Pass PC games need them), the touch-keyboard service is gone (it
+      doesn't exist since 24H2, and its successor must never be disabled —
+      typing in Search and apps breaks), the 24H2/26H2 AI host was added.
+    - **Dashboard:** an **Optimization Score** — the share of *safe*, applicable
+      tweaks the verifier finds active on the system right now (moderate /
+      advanced tweaks don't count, so a high score never pushes towards risky
+      ones; one-time actions and either-or choices like the DNS provider are
+      left out) — and a **monitor advisor** that compares each display's refresh
+      rate with the highest one the driver offers *at the current resolution*
+      (v1 used the adapter's maximum over all resolutions). On the test PC it
+      immediately found two monitors running at 50 Hz instead of 60 Hz.
+    - **Drift check at start:** tweaks the app applied that are no longer (fully)
+      active — typically reset by a feature update — are listed with the choice
+      *re-apply* (after a registry backup), *mark as not applied*, or *ask
+      again next time*. Failed checks never count as drift.
+    - **Registry backup** covers what the new tweaks touch, plus v1's later
+      additions (Explorer folder views, per-device keys of the GPU and every
+      disk): 43 fixed branches + the device keys (45 on the test PC).
+  - **Windows 11 26H2** (installed on the test PC the day before): the update
+    re-provisioned the Microsoft 365 Copilot app (Office Hub) and the
+    discontinued Dev Home, and runs a new auto-start AI host (`WSAIFabricSvc`).
+    New tweaks, each using Microsoft's documented policies where one exists
+    (Policy CSP *WindowsAI*): **Click to Do** off (computer + user),
+    **Paint AI** off (Cocreator, Image Creator, generative fill / erase, remove
+    background), **Notepad AI** off, the **AI host service** off, and removal of
+    the **Copilot app + Dev Home** including their provisioned packages (so the
+    next feature update doesn't bring them back). Updated: **Recall** now also
+    sets `AllowRecallEnablement=0`, which removes the component and its
+    snapshots on the next restart; **on-device text/image generation** also
+    sets the AppPrivacy *Force Deny* policy apps can't override; **Remove
+    Bloatware** also removes the provisioned packages, Mixed Reality and the
+    remaining ad apps. Enterprise-only policies (e.g. removing the Copilot app
+    via policy) were deliberately not used — they do nothing on Home/Pro.
+  - **Not ported, on purpose** (checked against v1's code): the four NVIDIA
+    registry tweaks (threaded optimization, max pre-rendered frames, shader
+    cache size, PowerMizer) — current drivers keep these settings in their own
+    profile database (NVIDIA Control Panel / App), so the registry values do
+    nothing; *Spatial Sound off* — it writes a value Windows doesn't use for
+    that setting (and spatial sound is off by default); *Audio device power
+    save* — undocumented values, and USB selective suspend is already covered.
+  - **Memory stage** result is now the bandwidth peak (see the memory bullet
+    above) — found while re-running the scripted-GPU tests.
+  - Totals: **106 tweaks** (105 with a live check — Disk Cleanup is a one-time
+    action), 90 of them "safe". Tests: **313 checks in 15 suites**, including a
+    PowerShell *parse* check of all 303 command snippets (apply, revert,
+    verify) and of the Services Manager scripts. The tests that need Afterburner's
+    process or shared memory now use test names, so they run safely next to a
+    running Afterburner.
 
 ### 🔎 Reviewed, verified NOT a bug
 

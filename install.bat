@@ -51,16 +51,28 @@ echo [2/2] Installing dependencies from requirements.txt...
 
 echo.
 echo  ==========================================
-echo   Done! Optional CUDA stress test:
-echo     "%PY%" -m pip install cupy-cuda12x
+echo   GPU-Stresstest fuer den Auto-Tuner (NVIDIA)
 echo  ==========================================
+echo   Der Auto-Tuner braucht echte GPU-Last. Dafuer gibt es 'cupy'
+echo   (ca. 1-2 GB Download, kein CUDA-Toolkit noetig). Ohne cupy geht
+echo   der Tuner nur mit parallel laufendem FurMark.
 echo.
-echo  Before first run - Afterburner setup:
-echo    Settings ^> General:
-echo      [x] Unlock voltage control ^> Standard MSI
-echo      [x] Unlock voltage monitoring
-echo    Settings ^> Monitoring ^> GPU voltage: [x]
-echo    Profile slot 2-5: unlock the padlock icon
+choice /C JN /M "cupy jetzt installieren (J = ja, N = nein)"
+if not errorlevel 2 (
+    echo [optional] Installing cupy-cuda12x[ctk] ...
+    "%PY%" -m pip install "cupy-cuda12x[ctk]"
+)
+echo.
+echo  ==========================================
+echo   Fertig! Afterburner einrichten (einmalig):
+echo  ==========================================
+echo    Einstellungen ^> Allgemein:
+echo      [x] Spannungssteuerung freischalten
+echo      [x] Spannungsueberwachung freischalten
+echo      [x] Minimiert starten (empfohlen)
+echo    Einstellungen ^> Ueberwachung: [x] GPU-Spannung, [x] Leistung
+echo    Nichts verstellen, dann Speichern ^> Slot 1 klicken
+echo    Details: TESTANLEITUNG.md
 echo.
 echo  Start with: GameOptimizerPro.bat
 echo.

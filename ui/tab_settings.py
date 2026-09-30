@@ -7,7 +7,8 @@ GameOptimizerPro Settings Tab
 """
 
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, ttk
+import os
 import threading
 from ui.widgets import *
 from core import system_cleaner
@@ -24,13 +25,26 @@ class SettingsTab(tk.Frame):
         self._build()
 
     def _build(self):
-        tk.Label(self, text="Settings", font=FT, fg=WHT, bg=BG1
+        # Scrollable — with Deep Clean the page is taller than a normal window.
+        self._canvas = tk.Canvas(self, bg=BG1, highlightthickness=0)
+        sb = ttk.Scrollbar(self, orient="vertical", command=self._canvas.yview)
+        body = tk.Frame(self._canvas, bg=BG1)
+        win = self._canvas.create_window((0, 0), window=body, anchor="nw")
+        body.bind("<Configure>", lambda e: self._canvas.configure(
+            scrollregion=self._canvas.bbox("all")))
+        self._canvas.bind("<Configure>", lambda e: self._canvas.itemconfigure(
+            win, width=e.width))
+        self._canvas.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        self._canvas.pack(side="left", fill="both", expand=True)
+
+        tk.Label(body, text="Settings", font=FT, fg=WHT, bg=BG1
                  ).pack(padx=14, pady=(12, 8), anchor="w")
 
         # ── Startup ───────────────────────────────────────────────────────────
-        SecHdr(self, "Startup").pack(fill="x", padx=14, pady=(4, 4))
+        SecHdr(body, "Startup").pack(fill="x", padx=14, pady=(4, 4))
 
-        stt_f = tk.Frame(self, bg=BG2, padx=12, pady=10)
+        stt_f = tk.Frame(body, bg=BG2, padx=12, pady=10)
         stt_f.pack(fill="x", padx=14, pady=(0, 8))
 
         # Autostart toggle
@@ -71,17 +85,17 @@ class SettingsTab(tk.Frame):
         self.lbl_startup_result.pack(anchor="w", pady=2)
 
         # ── Afterburner Setup ─────────────────────────────────────────────────
-        SecHdr(self, "Afterburner Setup Checker").pack(fill="x", padx=14, pady=(8, 4))
+        SecHdr(body, "Afterburner Setup Checker").pack(fill="x", padx=14, pady=(8, 4))
 
-        self.setup_frame = tk.Frame(self, bg=BG1)
+        self.setup_frame = tk.Frame(body, bg=BG1)
         self.setup_frame.pack(fill="x", padx=14, pady=(0, 8))
 
-        mk_btn(self, "⟳ Setup prüfen", self._run_setup_check, BG3, TXT
+        mk_btn(body, "⟳ Setup prüfen", self._run_setup_check, BG3, TXT
                ).pack(padx=14, anchor="w", pady=(0, 4))
 
         # ── System Restore Point ──────────────────────────────────────────────
-        SecHdr(self, "Wiederherstellungspunkt").pack(fill="x", padx=14, pady=(8, 4))
-        rp_f = tk.Frame(self, bg=BG2, padx=12, pady=10)
+        SecHdr(body, "Wiederherstellungspunkt").pack(fill="x", padx=14, pady=(8, 4))
+        rp_f = tk.Frame(body, bg=BG2, padx=12, pady=10)
         rp_f.pack(fill="x", padx=14, pady=(0, 8))
         tk.Label(rp_f,
                  text="Erstellt einen Windows-Wiederherstellungspunkt als Sicherheitsnetz — "
@@ -96,8 +110,8 @@ class SettingsTab(tk.Frame):
         self.lbl_restore.pack(anchor="w", pady=(4, 0))
 
         # ── Registry-Backup ───────────────────────────────────────────────────
-        SecHdr(self, "Registry-Backup").pack(fill="x", padx=14, pady=(8, 4))
-        rb_f = tk.Frame(self, bg=BG2, padx=12, pady=10)
+        SecHdr(body, "Registry-Backup").pack(fill="x", padx=14, pady=(8, 4))
+        rb_f = tk.Frame(body, bg=BG2, padx=12, pady=10)
         rb_f.pack(fill="x", padx=14, pady=(0, 8))
         tk.Label(rb_f,
                  text="Exportiert alle Registry-Zweige, die die Tweaks anfassen können, als "
@@ -117,14 +131,29 @@ class SettingsTab(tk.Frame):
         self.lbl_regbackup.pack(anchor="w", pady=(4, 0))
 
         # ── System Cleaner ────────────────────────────────────────────────────
-        SecHdr(self, "System Cleaner (Temp-Dateien)").pack(fill="x", padx=14, pady=(8, 4))
-        cln_f = tk.Frame(self, bg=BG2, padx=12, pady=10)
+        SecHdr(body, "System Cleaner & Deep Clean").pack(fill="x", padx=14, pady=(8, 4))
+        cln_f = tk.Frame(body, bg=BG2, padx=12, pady=10)
         cln_f.pack(fill="x", padx=14, pady=(0, 8))
         tk.Label(cln_f,
-                 text="Löscht nur dedizierte Temp-/Dump-Ordner (Benutzer-Temp, Windows-Temp, "
-                      "CrashDumps). Niemals Dokumente, Browserprofile oder Papierkorb. "
-                      "Dateien in Benutzung werden übersprungen.",
+                 text="Immer: Benutzer-Temp, Windows-Temp, CrashDumps. Optional (Deep Clean, "
+                      "aus v1): die angehakten Ziele unten. Niemals Dokumente oder Browserprofile "
+                      "(Passwörter, Verlauf, Lesezeichen). Dateien in Benutzung werden übersprungen "
+                      "und zählen nicht als freigegeben.",
                  font=FM, fg=DIM, bg=BG2, justify="left", wraplength=560).pack(anchor="w")
+        deep_f = tk.Frame(cln_f, bg=BG2)
+        deep_f.pack(anchor="w", fill="x", pady=(6, 0))
+        self._deep_vars: dict[str, tk.BooleanVar] = {}
+        for key, (label, desc, confirm) in system_cleaner.DEEP_GROUPS.items():
+            row = tk.Frame(deep_f, bg=BG2)
+            row.pack(anchor="w", fill="x")
+            v = tk.BooleanVar(value=False)
+            self._deep_vars[key] = v
+            tk.Checkbutton(row, variable=v, bg=BG2, activebackground=BG2, selectcolor=BG3,
+                           fg=TXT, highlightthickness=0, bd=0).pack(side="left")
+            tk.Label(row, text=label, font=FL, fg=WRN if confirm else TXT, bg=BG2
+                     ).pack(side="left", padx=(2, 6))
+            tk.Label(row, text=desc, font=FM, fg=DIM, bg=BG2, justify="left",
+                     wraplength=420, anchor="w").pack(side="left", fill="x")
         cln_btns = tk.Frame(cln_f, bg=BG2)
         cln_btns.pack(anchor="w", pady=(8, 2))
         mk_btn(cln_btns, "🔍 Scannen", self._cleaner_scan, BG3, TXT).pack(side="left", padx=(0, 6))
@@ -135,8 +164,8 @@ class SettingsTab(tk.Frame):
         self.lbl_cleaner.pack(anchor="w", pady=(6, 0))
 
         # ── About ─────────────────────────────────────────────────────────────
-        SecHdr(self, "About").pack(fill="x", padx=14, pady=(8, 4))
-        about_f = tk.Frame(self, bg=BG2, padx=12, pady=10)
+        SecHdr(body, "About").pack(fill="x", padx=14, pady=(8, 4))
+        about_f = tk.Frame(body, bg=BG2, padx=12, pady=10)
         about_f.pack(fill="x", padx=14)
         tk.Label(about_f,
                  text="GameOptimizerPro v2.0\n"
@@ -148,6 +177,16 @@ class SettingsTab(tk.Frame):
 
         # Run setup check on init
         self.after(200, self._run_setup_check)
+        self._bind_wheel(self._canvas)
+
+    def _on_wheel(self, e):
+        if self._canvas.yview() != (0.0, 1.0):
+            self._canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
+
+    def _bind_wheel(self, widget):
+        widget.bind("<MouseWheel>", self._on_wheel)
+        for child in widget.winfo_children():
+            self._bind_wheel(child)
 
     def _toggle_autostart(self):
         if not self.startup_loader:
@@ -164,9 +203,16 @@ class SettingsTab(tk.Frame):
     def _load_startup_now(self):
         if not self.startup_loader:
             return
-        ok, msg = self.startup_loader.load_startup_profile()
-        self.lbl_startup_result.config(
-            text=msg, fg=OK if ok else WRN)
+        self.lbl_startup_result.config(text="Lade Profil über Afterburner …", fg=DIM)
+
+        def work():
+            ok, msg = self.startup_loader.load_startup_profile()
+            try:
+                self.after(0, lambda: self.lbl_startup_result.config(
+                    text=msg, fg=OK if ok else WRN))
+            except Exception:
+                pass
+        threading.Thread(target=work, daemon=True).start()
 
     def _create_restore_point(self):
         self.btn_restore.config(state="disabled")
@@ -199,33 +245,68 @@ class SettingsTab(tk.Frame):
         except Exception as e:
             messagebox.showerror("Fehler", f"Backup-Ordner konnte nicht geöffnet werden:\n{e}")
 
+    def _cleaner_targets(self):
+        keys = [k for k, v in self._deep_vars.items() if v.get()]
+        return (system_cleaner.get_targets()
+                + system_cleaner.get_deep_targets([k for k in keys if k != "recyclebin"]),
+                "recyclebin" in keys)
+
     def _cleaner_scan(self):
         self.lbl_cleaner.config(text="Scanne…", fg=DIM)
+        targets, with_bin = self._cleaner_targets()
+
         def work():
-            targets = system_cleaner.scan()
+            system_cleaner.scan(targets)
             tf = sum(t.file_count for t in targets)
             tb = sum(t.bytes for t in targets)
-            lines = [f"Gefunden: {tf} Dateien, {system_cleaner.human_size(tb)}"]
+            groups: dict[str, list] = {}
             for t in targets:
-                if t.exists:
-                    lines.append(f"   • {t.label}: {t.file_count} Dateien, "
-                                 f"{system_cleaner.human_size(t.bytes)}")
+                if t.exists and t.file_count:
+                    g = system_cleaner.DEEP_GROUPS.get(t.key, (t.label,))[0] if t.key else t.label
+                    acc = groups.setdefault(g, [0, 0])
+                    acc[0] += t.file_count
+                    acc[1] += t.bytes
+            if with_bin:
+                n, size = system_cleaner.recycle_bin_info()
+                if n:
+                    groups["Papierkorb"] = [n, size]
+                    tf += n
+                    tb += size
+            lines = [f"Gefunden: {tf} Dateien, {system_cleaner.human_size(tb)}"]
+            for g, (n, size) in groups.items():
+                lines.append(f"   • {g}: {n} Dateien, {system_cleaner.human_size(size)}")
             self.after(0, lambda: self.lbl_cleaner.config(
                 text="\n".join(lines), fg=OK if tf else DIM))
         threading.Thread(target=work, daemon=True).start()
 
     def _cleaner_clean(self):
+        targets, with_bin = self._cleaner_targets()
+        deep = sorted({system_cleaner.DEEP_GROUPS[t.key][0] for t in targets if t.key})
+        extra = ("\n\nDeep Clean: " + ", ".join(deep)) if deep else ""
         if not messagebox.askyesno(
             "Bereinigen",
-            "Temp-Dateien jetzt löschen?\n\nBetrifft nur Temp-/Dump-Ordner. "
-            "Dateien, die gerade in Benutzung sind, werden übersprungen."):
+            "Jetzt bereinigen?\n\nImmer: Temp-/Dump-Ordner. Dateien, die gerade in Benutzung "
+            "sind, werden übersprungen." + extra):
             return
+        if with_bin and not messagebox.askyesno(
+            "Papierkorb leeren",
+            "Der Papierkorb ALLER Laufwerke wird endgültig geleert.\n\n"
+            "Gelöschte Dateien sind danach nicht mehr wiederherstellbar. Fortfahren?",
+            icon="warning"):
+            with_bin = False
         self.lbl_cleaner.config(text="Bereinige…", fg=DIM)
         self.btn_clean.config(state="disabled")
+
         def work():
-            res = system_cleaner.clean()
+            res = system_cleaner.clean(targets)
+            freed = res.bytes_freed
+            bin_note = ""
+            if with_bin:
+                ok, size = system_cleaner.empty_recycle_bin()
+                freed += size
+                bin_note = ("   + Papierkorb geleert" if ok else "   (Papierkorb: nicht möglich)")
             msg = (f"✓ {res.files_deleted} Dateien gelöscht, "
-                   f"{system_cleaner.human_size(res.bytes_freed)} freigegeben")
+                   f"{system_cleaner.human_size(freed)} freigegeben{bin_note}")
             if res.errors:
                 msg += f"   ({res.errors} in Benutzung übersprungen)"
             self.after(0, lambda: (
@@ -253,34 +334,48 @@ class SettingsTab(tk.Frame):
 
         mahm = self.monitor.mahm.available
         checks.append((
-            "MAHM Shared Memory (Spannung verfügbar)",
+            "MAHM Shared Memory (Afterburner-Monitoring)",
             mahm,
-            "Spannungswerte aktiv ✓ — Volt wird im Dashboard angezeigt" if mahm else
-            "Für grünes MAHM: 1) AB starten & im Tray lassen  "
-            "2) AB → Einstellungen → Überwachung → 'GPU Spannung' Haken setzen  "
-            "3) AB → Allgemein → 'Spannungsüberwachung entsperren' aktivieren"
+            "✓ Afterburner-Monitoring wird gelesen" if mahm else
+            "Afterburner starten und im Tray lassen"
         ))
 
         ab_cfg = self.ab.check_ab_setup() if self.ab.available else {}
+        no_cfg = "Afterburner einmal starten (legt Profiles\\MSIAfterburner.cfg an)"
         checks.append((
             "AB: Unlock Voltage Control",
             ab_cfg.get("voltage_control", False),
             "✓" if ab_cfg.get("voltage_control") else
-            "AB → Settings → General → Unlock voltage control → Standard MSI"
+            (no_cfg if not ab_cfg.get("cfg_found") else
+             "AB → Einstellungen → Allgemein → Spannungssteuerung freischalten")
         ))
         checks.append((
             "AB: Unlock Voltage Monitoring",
             ab_cfg.get("voltage_monitoring", False),
             "✓" if ab_cfg.get("voltage_monitoring") else
-            "AB → Settings → General → Unlock voltage monitoring aktivieren"
+            (no_cfg if not ab_cfg.get("cfg_found") else
+             "AB → Einstellungen → Allgemein → Spannungsüberwachung freischalten")
+        ))
+        # Ground truth: does Afterburner's monitoring export a voltage right now?
+        # (4.6.6 keeps no graph list in its cfg until the page is changed.)
+        volt = mahm and self.monitor.mahm.read().gpu_voltage_mv > 0
+        if not mahm and ab_cfg.get("voltage_graph") is not None:
+            volt = bool(ab_cfg.get("voltage_graph"))
+        checks.append((
+            "AB: Graph 'GPU-Spannung' aktiv",
+            volt,
+            "✓ Spannung wird geliefert" if volt else
+            "AB → Einstellungen → Überwachung → Haken bei 'GPU-Spannung' (für V/F-Tuning)"
         ))
 
-        locked = self.ab.check_profile_locked(2) if self.ab.available else False
+        if self.ab.available:
+            gpu_cfg, why = self.ab.find_gpu_profile()
+        else:
+            gpu_cfg, why = None, "Afterburner nicht installiert"
         checks.append((
-            "AB Profil-Slot 2 entsperrt",
-            not locked,
-            "✓ Slot 2 ist beschreibbar" if not locked else
-            "Schloss-Symbol neben Slot 2 in Afterburner öffnen"
+            "AB: Profildatei der Grafikkarte",
+            bool(gpu_cfg),
+            os.path.basename(gpu_cfg) if gpu_cfg else why
         ))
 
         try:
@@ -306,6 +401,7 @@ class SettingsTab(tk.Frame):
             "✓" if tray_ok else "pip install pystray Pillow"
         ))
 
+        self.after(50, lambda: self._bind_wheel(self.setup_frame))
         for i, (label, ok, detail) in enumerate(checks):
             row = tk.Frame(
                 self.setup_frame,

@@ -54,9 +54,8 @@ VERIFY_MAP: dict[str, str] = {
         'if(-not $reg -and -not (Test-Path $od)){"1"}else{"0"}'
     ),
     "remove_recall": (
-        '$v=(Get-ItemProperty "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsAI" '
-        '-Name DisableAIDataAnalysis -EA SilentlyContinue).DisableAIDataAnalysis; '
-        'if($v -eq 1){"1"}else{"0"}'
+        '$k=Get-ItemProperty "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsAI" -EA SilentlyContinue; '
+        'if($k -and $k.DisableAIDataAnalysis -eq 1 -and $k.AllowRecallEnablement -eq 0){"1"}else{"0"}'
     ),
     "remove_bloatware": (
         'if(Get-AppxPackage -AllUsers "*king.com*" -EA SilentlyContinue){"0"}else{"1"}'
@@ -418,8 +417,9 @@ VERIFY_MAP: dict[str, str] = {
         '-Name AllowStorageSenseGlobal -EA SilentlyContinue).AllowStorageSenseGlobal; if($v -eq 0){"1"}else{"0"}'
     ),
     "disable_ai_text_image_gen": (
-        '$v=(Get-ItemProperty "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\systemAIModels" '
-        '-Name Value -EA SilentlyContinue).Value; if($v -eq "Deny"){"1"}else{"0"}'
+        '$v=(Get-ItemProperty "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\AppPrivacy" '
+        '-Name LetAppsAccessSystemAIModels -EA SilentlyContinue).LetAppsAccessSystemAIModels; '
+        'if($v -eq 2){"1"}else{"0"}'
     ),
 
     # ── Portiert aus v1: CTT Essentials / Adapter / Power Plan / AMD ─────────
@@ -494,11 +494,83 @@ VERIFY_MAP: dict[str, str] = {
         'if((Get-ItemProperty $k.PSPath -Name EnableAntiLag -EA SilentlyContinue).EnableAntiLag -eq 1){$any=$true} }; '
         'if($any){"1"}else{"0"}'
     ),
+    # ── v1-Parität + Windows 11 26H2 (KI) ────────────────────────────────────
+    'enable_long_paths': (
+        '$v=(Get-ItemProperty \'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\FileSystem\' -Name \'LongPathsEnabled\' -EA SilentlyContinue).\'LongPathsEnabled\'; if($v -eq 1){"1"}else{"0"}'
+    ),
+    'numlock_on_startup': (
+        '$v=(Get-ItemProperty \'HKCU:\\Control Panel\\Keyboard\' -Name \'InitialKeyboardIndicators\' -EA SilentlyContinue).\'InitialKeyboardIndicators\'; if($v -eq \'2147483650\'){"1"}else{"0"}'
+    ),
+    'disable_lock_screen': (
+        '$v=(Get-ItemProperty \'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Personalization\' -Name \'NoLockScreen\' -EA SilentlyContinue).\'NoLockScreen\'; if($v -eq 1){"1"}else{"0"}'
+    ),
+    'disable_reserved_storage': (
+        '$s=(Get-WindowsReservedStorageState -EA SilentlyContinue).ReservedStorageState; if("$s" -eq \'Disabled\'){"1"}else{"0"}'
+    ),
+    'pagefile_system_managed': (
+        '$c=Get-CimInstance Win32_ComputerSystem -EA SilentlyContinue; if($c -and $c.AutomaticManagedPagefile){"1"}else{"0"}'
+    ),
+    'clear_pagefile_shutdown': (
+        '$v=(Get-ItemProperty \'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Memory Management\' -Name \'ClearPageFileAtShutdown\' -EA SilentlyContinue).\'ClearPageFileAtShutdown\'; if($v -eq 1){"1"}else{"0"}'
+    ),
+    'disable_memory_compression': (
+        '$m=Get-MMAgent -EA SilentlyContinue; if($m -and -not $m.MemoryCompression){"1"}else{"0"}'
+    ),
+    'enable_ssd_trim': (
+        '$q=@(fsutil behavior query DisableDeleteNotify 2>$null); $l=@($q | Where-Object { $_ -match \'NTFS\' })[0]; if(-not $l){ $l=@($q | Where-Object { $_ -match \'=\' })[0] }; if($l -match \'=\\s*0\\b\'){"1"}else{"0"}'
+    ),
+    'disable_scheduled_defrag': (
+        '$t=Get-ScheduledTask -TaskPath \'\\Microsoft\\Windows\\Defrag\\\' -TaskName \'ScheduledDefrag\' -EA SilentlyContinue; if($t -and "$($t.State)" -eq \'Disabled\'){"1"}else{"0"}'
+    ),
+    'nvme_queue_depth': (
+        '$idx=@(Get-PhysicalDisk -EA SilentlyContinue | Where-Object { $_.BusType -eq \'NVMe\' } | ForEach-Object { [string]$_.DeviceId }); $d=@(Get-CimInstance Win32_DiskDrive -EA SilentlyContinue | Where-Object { $idx -contains [string]$_.Index })[0]; $v=$null; if($d){ $v=(Get-ItemProperty (\'HKLM:\\SYSTEM\\CurrentControlSet\\Enum\\\'+$d.PNPDeviceID+\'\\Device Parameters\\StorPort\') -Name QueueDepth -EA SilentlyContinue).QueueDepth }; if($v -eq 32){"1"}else{"0"}'
+    ),
+    'disable_write_cache_flush': (
+        '$d=@(Get-CimInstance Win32_DiskDrive -EA SilentlyContinue | Where-Object { $_.PNPDeviceID -and $_.MediaType -match \'Fixed hard disk\' })[0]; $v=$null; if($d){ $v=(Get-ItemProperty (\'HKLM:\\SYSTEM\\CurrentControlSet\\Enum\\\'+$d.PNPDeviceID+\'\\Device Parameters\\Disk\') -Name CacheIsPowerProtected -EA SilentlyContinue).CacheIsPowerProtected }; if($v -eq 1){"1"}else{"0"}'
+    ),
+    'w11_remove_chat_icon': (
+        '$v=(Get-ItemProperty \'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\' -Name \'TaskbarMn\' -EA SilentlyContinue).\'TaskbarMn\'; if($v -eq 0){"1"}else{"0"}'
+    ),
+    'w11_hide_recommended': (
+        '$v=(Get-ItemProperty \'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Explorer\' -Name \'HideRecommendedSection\' -EA SilentlyContinue).\'HideRecommendedSection\'; if($v -eq 1){"1"}else{"0"}'
+    ),
+    'disable_click_to_do': (
+        '$v=(Get-ItemProperty \'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsAI\' -Name \'DisableClickToDo\' -EA SilentlyContinue).\'DisableClickToDo\'; if($v -eq 1){"1"}else{"0"}'
+    ),
+    'disable_paint_ai': (
+        '$k=Get-ItemProperty \'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Paint\' -EA SilentlyContinue; if($k -and $k.DisableCocreator -eq 1 -and $k.DisableGenerativeFill -eq 1 -and $k.DisableImageCreator -eq 1){"1"}else{"0"}'
+    ),
+    'disable_notepad_ai': (
+        '$v=(Get-ItemProperty \'HKLM:\\SOFTWARE\\Policies\\WindowsNotepad\' -Name \'DisableAIFeatures\' -EA SilentlyContinue).\'DisableAIFeatures\'; if($v -eq 1){"1"}else{"0"}'
+    ),
+    'disable_ai_fabric_service': (
+        '$s=Get-Service -Name WSAIFabricSvc -EA SilentlyContinue; if($s -and "$($s.StartType)" -eq \'Disabled\'){"1"}else{"0"}'
+    ),
+    'remove_m365_copilot_devhome': (
+        'if(Get-AppxPackage -AllUsers \'*Microsoft.MicrosoftOfficeHub*\' -EA SilentlyContinue){"0"}elseif(Get-AppxPackage -AllUsers \'*Microsoft.Windows.DevHome*\' -EA SilentlyContinue){"0"}else{"1"}'
+    ),
+    'tcp_optimize': (
+        '$k=Get-ItemProperty \'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\' -EA SilentlyContinue; if($k -and $k.SackOpts -eq 1 -and $k.TcpMaxDupAcks -eq 2){"1"}else{"0"}'
+    ),
+    'disable_qos_limit': (
+        '$v=(Get-ItemProperty \'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Psched\' -Name \'NonBestEffortLimit\' -EA SilentlyContinue).\'NonBestEffortLimit\'; if($v -eq 0){"1"}else{"0"}'
+    ),
+    'mmcss_audio_profile': (
+        '$k=Get-ItemProperty \'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile\\Tasks\\Audio\' -EA SilentlyContinue; if($k -and $k.\'Latency Sensitive\' -eq \'True\' -and $k.\'Scheduling Category\' -eq \'High\'){"1"}else{"0"}'
+    ),
+    'audio_service_priority': (
+        '$m=(Get-ItemProperty \'HKLM:\\SOFTWARE\\GameOptimizerPro\' -Name SR_AudioPriority -EA SilentlyContinue).SR_AudioPriority; $r=(Get-ItemProperty \'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile\' -Name SystemResponsiveness -EA SilentlyContinue).SystemResponsiveness; if($m -eq 1 -and $r -eq 0){"1"}else{"0"}'
+    ),
+
 }
 
 
 # Slow checks that use AppxPackage or long-running cmdlets
-SLOW_CHECKS = {"remove_cortana", "remove_xbox", "remove_bloatware"}
+SLOW_CHECKS = {"remove_cortana", "remove_xbox", "remove_bloatware",
+               # WMI / storage / Appx queries take seconds each
+               "remove_m365_copilot_devhome", "disable_reserved_storage",
+               "pagefile_system_managed", "disable_memory_compression",
+               "disable_scheduled_defrag", "nvme_queue_depth", "disable_write_cache_flush"}
 
 
 class TweakVerifier:

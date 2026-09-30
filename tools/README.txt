@@ -18,4 +18,10 @@ Without PresentMon you can still use the Diagnose tab's "CSV analysieren"
 button to analyze any PresentMon / CapFrameX / OCAT frametime CSV you already
 have — that path needs no external binary.
 
+Afterburner self-test (ab_selftest.py)
+--------------------------------------
+Checks the MSI Afterburner integration: `python tools\ab_selftest.py info`
+(read-only), `dryrun` (shows what would be written), `live` (small reversible
+test, admin terminal) and `restore`. Step-by-step guide: TESTANLEITUNG.md.
+
 Nothing here is required for the rest of the app.
