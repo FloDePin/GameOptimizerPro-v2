@@ -854,6 +854,58 @@ check("Kurven-Check ✗" in L and "Kurven-Check ✓" in L, "logged: failed, step
 # E12 old modes are untouched by the new mode
 check(TunerConfig().mode == TuneMode.OC_UV and TunerConfig().goal == "balanced", "defaults unchanged")
 
+print("F  live values between steps (GPU page)")
+# The GPU page's tiles only got values from inside a measured step: between the
+# memory steps (Afterburner restart, FurMark starting / ending) they stood still
+# for up to ~20 s while FurMark visibly ran. A running tune fills such gaps.
+
+
+class LiveMon:
+    reads = 0
+
+    def read(self):
+        LiveMon.reads += 1
+        return types.SimpleNamespace(temp=60, voltage_mv=0.0, core_mhz=2800.0, gpu_power_w=260.0)
+
+
+lt = AutoTuner(LiveMon(), types.SimpleNamespace(available=False),
+               ProfileManager(os.path.join(TMP, "live")), TunerConfig(),
+               log_dir=os.path.join(TMP, "live_logs"))
+ticks, phase = [], {}
+lt.on_tick(lambda s: ticks.append(time.monotonic()))
+
+
+def fake_run():
+    for _ in range(6):                     # a measured step: its own tick every 0.25 s
+        lt._tick(types.SimpleNamespace(temp=61))
+        time.sleep(0.25)
+    phase["step_end"], phase["step_reads"] = time.monotonic(), LiveMon.reads
+    time.sleep(3.2)                        # Afterburner restart + FurMark start: no step ticks
+    phase["gap_end"] = time.monotonic()
+
+
+lt._run = fake_run
+lt.start()
+lt._thread.join(15)
+n_end = len(ticks)
+time.sleep(1.2)
+gap = [x for x in ticks if x > phase["step_end"]]
+marks = [phase["step_end"]] + gap + [phase["gap_end"]]
+worst = max(b - a for a, b in zip(marks, marks[1:]))
+check(phase["step_reads"] == 0, "during a step with its own ticks the live loop stays out of the way")
+check(len(gap) >= 1 and worst <= 2.5,
+      f"between steps a live value at least every ~2 s ({len(gap)} live, longest gap {worst:.1f} s)")
+check(len(ticks) == n_end, "nothing after the run has ended")
+
+prog = []
+lt.on_progress(lambda pct, msg: prog.append((pct, msg)))
+lt.ab = types.SimpleNamespace(available=True, write_and_apply=lambda slot, prof: (True, ""))
+lt._progress(37, "Stufe")
+ok, _err = lt._ab_write(TuneProfile(name="x"))
+check(ok and prog[-1][0] == 37 and "Afterburner" in prog[-1][1]
+      and ("Neustart" in prog[-1][1] or "restart" in prog[-1][1]),
+      f"the Afterburner restart is announced on the GPU page, progress kept: {prog[-1]}")
+
 shutil.rmtree(TMP, ignore_errors=True)
 print("\n%d failure(s)" % len(FAILS))
 for f in FAILS:

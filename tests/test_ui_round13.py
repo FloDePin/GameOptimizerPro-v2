@@ -210,6 +210,50 @@ check(title == "Start all-round tuner" and "goal: Balanced" in msg and "Ziel" no
 root.destroy()
 
 I18N._current_lang = "de"
+
+print("Status dot / voltage hint while the tuner restarts Afterburner")
+from unittest import mock
+import ui.main_window as MW
+import ui.tab_dashboard as TD
+from ui.theme import ACC, AMBER, DIM, GREEN
+from core.nvtune_core import GpuStats
+
+
+class _Lbl:
+    def __init__(self):
+        self.kw = {}
+
+    def config(self, **kw):
+        self.kw.update(kw)
+
+
+mahm = types.SimpleNamespace(available=False, restarting=True)
+win = types.SimpleNamespace(lbl_ab=_Lbl(), lbl_nvml=_Lbl(), lbl_mahm=_Lbl(),
+                            ab=types.SimpleNamespace(available=True),
+                            monitor=types.SimpleNamespace(nvml=types.SimpleNamespace(available=True),
+                                                          mahm=mahm))
+MW.GameOptimizerWindow._refresh_indicators(win)
+check(win.lbl_mahm.kw.get("fg") == ACC, "MAHM dot blue while Afterburner is restarted on purpose")
+mahm.restarting = False
+MW.GameOptimizerWindow._refresh_indicators(win)
+check(win.lbl_mahm.kw.get("fg") == AMBER, "orange when it is really gone")
+mahm.available = True
+MW.GameOptimizerWindow._refresh_indicators(win)
+check(win.lbl_mahm.kw.get("fg") == GREEN, "green when it delivers")
+
+dash = mock.MagicMock()
+dash.hw.gpu_vram_mb = 16376
+st = GpuStats()
+st.mahm_restarting = True
+TD.DashboardTab._update(dash, st)
+kw = dash.lbl_volt_src.config.call_args.kwargs
+check("Afterburner startet neu" in kw.get("text", "") and kw.get("fg") == DIM,
+      f"dashboard voltage: 'Afterburner startet neu' instead of 'freischalten': {kw}")
+st.mahm_restarting = False
+TD.DashboardTab._update(dash, st)
+check("freischalten" in dash.lbl_volt_src.config.call_args.kwargs.get("text", ""),
+      "without a restart the hint to enable voltage monitoring stays")
+
 shutil.rmtree(tmp, ignore_errors=True)
 print("\n%d failure(s)" % len(FAILS))
 for f in FAILS:

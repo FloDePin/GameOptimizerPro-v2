@@ -571,7 +571,11 @@ class GameOptimizerWindow(ctk.CTk):
             lbl.config(text=f"● {name}", fg=GREEN if ok else bad_col)
         put(self.lbl_ab, "AB", self.ab.available, ERR)
         put(self.lbl_nvml, "NVML", self.monitor.nvml.available, AMBER)
-        put(self.lbl_mahm, "MAHM", self.monitor.mahm.available, AMBER)
+        # Blue while the tuner restarts Afterburner on purpose (every step) — the
+        # orange warning made the user think the monitoring had failed.
+        mahm = self.monitor.mahm
+        put(self.lbl_mahm, "MAHM", mahm.available,
+            ACC if getattr(mahm, "restarting", False) else AMBER)
 
     def _start_updater(self):
         # Runs entirely on the main thread. Tk is not thread-safe, and after()
@@ -585,7 +589,9 @@ class GameOptimizerWindow(ctk.CTk):
                 self._refresh_indicators()
             except tk.TclError:
                 return   # window destroyed → stop the poller cleanly
-            self._tick_id = self.after(5000, tick)
+            # every second: the clock shows seconds, and a 5-s poll showed an
+            # Afterburner restart late or not at all
+            self._tick_id = self.after(1000, tick)
         self._tick_id = self.after(1000, tick)
 
     def _toggle_lang(self):

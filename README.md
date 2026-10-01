@@ -238,8 +238,8 @@ GameOptimizerPro **2.0** is the finalized release: the complete feature set belo
 - 🖥 **New interface (CustomTkinter)** — sidebar, cards that adapt to the window width, tuner log always visible, search in the optimizer; Autostart and Services manager are pages now
 - 🔥 **FurMark 1/2 + 3DMark** with recording of temperature, clocks, power and driver resets during the test; FurMark location remembered
 - 🔊 **Audio tweaks work on Windows 11 26H2** — through the Windows audio API instead of locked registry keys
-- 🎯 **All-round tuner** — own V/F curve measured point by point (HYDRA-style), memory tested with the whole card under load, goal switch Max / Balanced / Efficiency, 5-min FurMark final test and a before/after report; GPU table with RTX 50 and cautious start values; AMD/Intel get a clear "not supported"
-- 🧪 711 automated checks in 21 test suites (in `tests/`), incl. a PowerShell parse check of every command, the whole UI under a real main loop and the All-round tuner against a simulated card
+- 🎯 **All-round tuner** — own V/F curve measured point by point (HYDRA-style), memory tested with the whole card under load, goal switch Max / Balanced / Efficiency, 5-min FurMark final test and a before/after report, live values through the whole tune; GPU table with RTX 50 and cautious start values; AMD/Intel get a clear "not supported"
+- 🧪 724 automated checks in 21 test suites (in `tests/`), incl. a PowerShell parse check of every command, the whole UI under a real main loop and the All-round tuner against a simulated card
 
 See [CHANGELOG.md](CHANGELOG.md) for the full detail.
 

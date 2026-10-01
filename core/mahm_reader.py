@@ -227,6 +227,9 @@ class MAHMReader:
     # NEW Afterburner then doesn't publish into it — every reader saw frozen idle
     # values (8 % load, 210 MHz) for 14 minutes of full load. Seen live.
     STALE_S = 8.0
+    # After resume() a new section may need a moment before it delivers; that
+    # long the reader still counts as "restarting" (status dot), not as a fault.
+    RESTART_GRACE_S = 10.0
 
     def __init__(self):
         self._handle = None           # section handle (from OpenFileMappingW)
@@ -240,6 +243,7 @@ class MAHMReader:
         self._seen_at = 0.0           # … and when it last changed
         self._stale_time = None       # stamp of a section recognised as frozen
         self._suspended_until = 0.0   # no reconnect while Afterburner restarts
+        self._grace_until = 0.0       # resume() found no section yet: still restarting
         self._try_open()
 
     def _release(self):
@@ -335,10 +339,23 @@ class MAHMReader:
         with self._lock:
             self._suspended_until = 0.0
             self._try_open_locked()
+            self._grace_until = (0.0 if self._available
+                                 else time.monotonic() + self.RESTART_GRACE_S)
 
     @property
     def available(self):
         return self._available
+
+    @property
+    def restarting(self) -> bool:
+        """Afterburner is being restarted on purpose: between suspend() and
+        resume(), and shortly after while its new section starts up. The tuner
+        does that for every step — the status dot and the voltage tile say so
+        instead of a warning (the user took the orange dot for a fault)."""
+        if self._available:
+            return False
+        now = time.monotonic()
+        return now < self._suspended_until or now < self._grace_until
 
     @property
     def error(self):

@@ -299,6 +299,11 @@ class DashboardTab(Page):
         if s.voltage_mv > 0:
             self.lbl_volt.config(text=f"{s.voltage_mv:.0f} mV", fg=VOLT)
             self.lbl_volt_src.config(text="via MAHM", fg=DIM)
+        elif getattr(s, "mahm_restarting", False):
+            # the tuner restarts Afterburner for every step — not a setting to fix
+            self.lbl_volt.config(text="-- mV", fg=DIM)
+            self.lbl_volt_src.config(text=tr("Afterburner startet neu …", "Afterburner restarting …"),
+                                     fg=DIM)
         else:
             self.lbl_volt.config(text="-- mV", fg=DIM)
             self.lbl_volt_src.config(text=tr("In AB 'Spannungsüberwachung' freischalten",

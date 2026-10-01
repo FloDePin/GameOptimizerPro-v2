@@ -53,6 +53,7 @@ class GpuStats:
     # Source flags
     nvml_ok:        bool  = False
     mahm_ok:        bool  = False
+    mahm_restarting: bool = False    # Afterburner is being restarted on purpose (tune step)
 
 
 # NVML clock-event ("throttle") reasons — values from nvml.h. Running into the
@@ -784,6 +785,8 @@ class GpuMonitor:
         self.nvml.enrich(stats)
 
         mahm_data = self.mahm.read()
+        if not mahm_data.available:
+            stats.mahm_restarting = bool(getattr(self.mahm, "restarting", False))
         if mahm_data.available:
             stats.mahm_ok = True
             # Take a MAHM value only when Afterburner actually exports it (> 0).

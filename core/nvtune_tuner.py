@@ -379,6 +379,8 @@ class AutoTuner:
         self._cb_log:      Optional[Callable] = None
         self._cb_progress: Optional[Callable] = None
         self._cb_tick:     Optional[Callable] = None
+        self._last_tick = 0.0             # when the GPU page last got live values
+        self._last_pct = 0                # last progress value (for status-only texts)
 
         # Serializes every Afterburner/NVML write. abort() takes it too, so no
         # tuning write can land AFTER the reset (the old race re-applied an OC).
@@ -443,8 +445,43 @@ class AutoTuner:
             self._cb_log(msg, lvl)
 
     def _progress(self, pct, msg):
+        if pct >= 0:
+            self._last_pct = pct
         if self._cb_progress:
             self._cb_progress(pct, msg)
+
+    # The GPU page's tiles and graph only got values from inside a measured step.
+    # Between steps (Afterburner restart, FurMark starting, waiting for FurMark to
+    # end) nothing came for up to ~20 s while FurMark visibly ran — the user saw
+    # the values stand still during the memory test. While a tune runs,
+    # _live_loop fills such gaps: no tick for LIVE_GAP_S -> read and send one.
+    LIVE_GAP_S = 1.5
+
+    def _tick(self, s):
+        self._last_tick = time.monotonic()
+        if self._cb_tick:
+            try:
+                self._cb_tick(s)
+            except Exception:
+                pass
+
+    def _live_loop(self, done: threading.Event):
+        while not done.wait(0.5):
+            if self._cb_tick is None or time.monotonic() - self._last_tick < self.LIVE_GAP_S:
+                continue
+            try:
+                s = self.monitor.read()
+            except Exception:
+                continue
+            if not done.is_set():
+                self._tick(s)
+
+    def _ab_write(self, p: TuneProfile):
+        """Afterburner write + restart, announced on the GPU page: for those
+        seconds its monitoring (voltage) is gone on purpose."""
+        self._progress(self._last_pct, CT.T("Afterburner übernimmt die Einstellungen (Neustart) …",
+                                            "Afterburner applies the settings (restart) …"))
+        return self.ab.write_and_apply(self.config.ab_slot, p)
 
     def start(self):
         if self._thread and self._thread.is_alive():
@@ -517,7 +554,7 @@ class AutoTuner:
                 self.cr.set_tuning_active(p.to_dict())
             via_ab = self.ab.available
             if via_ab:
-                ok, err = self.ab.write_and_apply(self.config.ab_slot, p)
+                ok, err = self._ab_write(p)
                 if not ok:
                     raise TunerApplyError(f"Afterburner: {err}")
             elif core or mem:
@@ -616,7 +653,7 @@ class AutoTuner:
                 self.cr.set_tuning_active(p.to_dict())
             if not self.ab.available:
                 raise TunerApplyError("MSI Afterburner nicht gefunden — für die V/F-Kurve nötig")
-            ok, err = self.ab.write_and_apply(self.config.ab_slot, p)
+            ok, err = self._ab_write(p)
         if not ok:
             # Same rule as _apply(): an unapplied curve step must not be tested.
             raise TunerApplyError(f"V/F-Kurve: {err}")
@@ -641,7 +678,7 @@ class AutoTuner:
         mref = stress.run(min(cfg.step_test_s, 30), cfg.max_temp_c, mode="mem",
                           on_tick=lambda e, d, s: (
                               self._progress(prog_base, f"Stage 4: Referenz-Bandbreite {e}/{d}s"),
-                              self._cb_tick(s) if self._cb_tick else None))
+                              self._tick(s)))
         if self._stop.is_set():
             return None
         best_bw = mref.avg_bw_gbs if mref.passed else 0.0
@@ -685,7 +722,7 @@ class AutoTuner:
                     f"Stage 4: Mem+{cm}MHz (step {cur_mem_step}MHz) | "
                     f"{e}/{d}s | {s.temp}°C | {s.mem_mhz:.0f}MHz"
                 )
-                if self._cb_tick: self._cb_tick(s)
+                self._tick(s)
 
             result = stress.run(cfg.step_test_s, cfg.max_temp_c, on_tick=_tick4,
                                 mode="mem")
@@ -752,6 +789,9 @@ class AutoTuner:
         self._open_run_log()
         from core.power_state import keep_awake
         keep_awake(True)          # no sleep / screen-off in the middle of a step
+        live_done = threading.Event()
+        self._last_tick = time.monotonic()
+        threading.Thread(target=self._live_loop, args=(live_done,), daemon=True).start()
         try:
             self._run()
         except TunerApplyError as e:
@@ -767,6 +807,7 @@ class AutoTuner:
             if self.cr:
                 self.cr.clear_tuning_flag()
         finally:
+            live_done.set()
             keep_awake(False)
             self._close_run_log()
 
@@ -799,7 +840,7 @@ class AutoTuner:
                     5 + int(e / d * 10),
                     f"Baseline: {e}/{d}s | {s.temp}°C | {s.voltage_mv:.0f}mV"
                 ),
-                self._cb_tick(s) if self._cb_tick else None
+                self._tick(s)
             )
         )
         if self._stop.is_set(): return
@@ -879,7 +920,7 @@ class AutoTuner:
                         f"Stage 1: +{c}MHz (step {cur_step}MHz) | "
                         f"{e}/{d}s | {s.temp}°C | {s.voltage_mv:.0f}mV"
                     )
-                    if self._cb_tick: self._cb_tick(s)
+                    self._tick(s)
 
                 result = stress.run(cfg.step_test_s, cfg.max_temp_c, on_tick=_tick1,
                                     mode="mixed")
@@ -966,7 +1007,7 @@ class AutoTuner:
             ref_result = stress.run(cfg.step_test_s, cfg.max_temp_c,
                                     on_tick=lambda e, d, s: (
                                         self._progress(s2_base, f"Stage 2: Referenz 100 % {e}/{d}s"),
-                                        self._cb_tick(s) if self._cb_tick else None))
+                                        self._tick(s)))
             if self._stop.is_set():
                 return
             if not ref_result.passed:
@@ -991,7 +1032,7 @@ class AutoTuner:
                         f"Stage 2: {p}% (step {cur_step}%) | "
                         f"{e}/{d}s | {s.temp}°C | {s.voltage_mv:.0f}mV"
                     )
-                    if self._cb_tick: self._cb_tick(s)
+                    self._tick(s)
 
                 result = stress.run(cfg.step_test_s, cfg.max_temp_c, on_tick=_tick2)
                 if self._stop.is_set():   # aborted mid-step: don't act on it
@@ -1097,7 +1138,7 @@ class AutoTuner:
                         f"Stage 3: {mv}mV (step {cur_vf_step}mV) | "
                         f"{e}/{d}s | {s.temp}°C | {s.voltage_mv:.0f}mV | {s.core_mhz:.0f}MHz"
                     )
-                    if self._cb_tick: self._cb_tick(s)
+                    self._tick(s)
 
                 result = stress.run(cfg.vf_step_test_s, cfg.max_temp_c, on_tick=_tick3,
                                     mode="mixed")
@@ -1218,7 +1259,7 @@ class AutoTuner:
                     75 + int(e / d * 20),
                     f"Final: {e}/{d}s | {s.temp}°C | {s.voltage_mv:.0f}mV | {s.core_mhz:.0f}MHz"
                 )
-                if self._cb_tick: self._cb_tick(s)
+                self._tick(s)
 
             final = stress.run(cfg.final_test_s, cfg.max_temp_c, on_tick=_tick_final,
                                mode="mixed")
@@ -1347,7 +1388,7 @@ class AutoTuner:
                 self.cr.set_tuning_active(p.to_dict())
             if not self.ab.available:
                 raise TunerApplyError("MSI Afterburner nicht gefunden — für die V/F-Kurve nötig")
-            ok, err = self.ab.write_and_apply(self.config.ab_slot, p)
+            ok, err = self._ab_write(p)
             if not ok:
                 raise TunerApplyError(f"V/F-Kurve: {err}")
             watts = self.monitor.power_pct_to_watts(pwr_pct)
@@ -1385,8 +1426,7 @@ class AutoTuner:
                 self._progress(prog + int(min(e / max(d, 1), 1.0) * prog_span),
                                f"{label}: {e}/{d}s | {s.temp}°C | {s.gpu_power_w:.0f} W | "
                                f"{s.core_mhz:.0f} MHz")
-                if self._cb_tick:
-                    self._cb_tick(s)
+                self._tick(s)
             r = stress.run(seconds, cfg.max_temp_c, on_tick=_tick, mode="gemm")
             if self._stop.is_set():
                 return None
@@ -1423,8 +1463,7 @@ class AutoTuner:
             self._progress(prog + int(min(el / max(seconds, 1), 1.0) * prog_span),
                            f"{label}: {el:.0f}/{seconds}s | {s.temp}°C | "
                            f"{s.gpu_power_w:.0f} W | {s.core_mhz:.0f} MHz")
-            if self._cb_tick:
-                self._cb_tick(s)
+            self._tick(s)
 
         res = furmark.run_benchmark(cfg.furmark_path, seconds, cfg.bench_width, cfg.bench_height,
                                     cfg.bench_msaa, stop_event=ev, on_tick=tick)
@@ -1497,8 +1536,7 @@ class AutoTuner:
         def tick(e, d, s):
             self._progress(prog, f"{label}: {mv} mV → {mhz} MHz ({off:+.0f}) | {e}/{d}s | "
                                  f"{s.temp}°C | {s.voltage_mv:.0f} mV | {s.core_mhz:.0f} MHz")
-            if self._cb_tick:
-                self._cb_tick(s)
+            self._tick(s)
 
         r = stress.run(cfg.step_test_s, cfg.max_temp_c, on_tick=tick, mode="boost")
         if self._stop.is_set():
@@ -1568,13 +1606,13 @@ class AutoTuner:
                     res.update(ok=False, error=str(e))
             th = threading.Thread(target=_fm, daemon=True)
             th.start()
+            self._progress(prog, T(f"{label}: FurMark startet …", f"{label}: FurMark starting …"))
             time.sleep(4)                               # FurMark is up before the copies start
 
         def tick(e, d, s):
             self._progress(prog, f"{label}: {e}/{d}s | {s.temp}°C | {s.gpu_power_w:.0f} W | "
                                  f"{s.mem_mhz:.0f} MHz")
-            if self._cb_tick:
-                self._cb_tick(s)
+            self._tick(s)
 
         r = stress.run(seconds, cfg.max_temp_c, on_tick=tick, mode="mem")
         if not r.passed or self._stop.is_set():
@@ -1710,7 +1748,7 @@ class AutoTuner:
                            on_tick=lambda e, d, s: (
                                self._progress(15, f"Boost-Probe: {e}/{d}s | {s.voltage_mv:.0f} mV | "
                                                   f"{s.core_mhz:.0f} MHz"),
-                               self._cb_tick(s) if self._cb_tick else None))
+                               self._tick(s)))
         if self._stop.is_set():
             return
         if not probe.passed:
@@ -1975,8 +2013,7 @@ class AutoTuner:
                     self._progress(92 + int(e / max(d, 1) * 6),
                                    T(f"Rechen-Prüfung: {e}/{d}s | {s.temp}°C | {s.core_mhz:.0f} MHz",
                                      f"Compute check: {e}/{d}s | {s.temp}°C | {s.core_mhz:.0f} MHz"))
-                    if self._cb_tick:
-                        self._cb_tick(s)
+                    self._tick(s)
                 verify = stress.run(cfg.final_test_s, cfg.max_temp_c, on_tick=_tick_v, mode="mixed")
                 if self._stop.is_set():
                     return

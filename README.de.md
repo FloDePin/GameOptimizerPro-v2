@@ -237,8 +237,8 @@ GameOptimizerPro **2.0** ist der finalisierte Release: der komplette Funktionsum
 - 🖥 **Neue Oberfläche (CustomTkinter)** — Seitenleiste, Karten passen sich der Fensterbreite an, Tuner-Log immer sichtbar, Suche im Optimizer; Autostart- und Dienste-Manager sind jetzt Seiten
 - 🔥 **FurMark 1/2 + 3DMark** mit Aufzeichnung von Temperatur, Takt, Leistung und Treiber-Resets während des Tests; FurMark-Pfad bleibt gespeichert
 - 🔊 **Audio-Tweaks funktionieren unter Windows 11 26H2** — über die Windows-Audio-API statt gesperrter Registry-Schlüssel
-- 🎯 **Rundum-Tuner** — eigene V/F-Kurve Punkt für Punkt gemessen (nach HYDRA-Vorbild), Speicher mit der ganzen Karte unter Last geprüft, Ziel-Schalter Max / Ausgewogen / Effizienz, 5-min-FurMark-Endtest und Vorher/Nachher-Bericht; GPU-Tabelle mit RTX 50 und vorsichtigen Startwerten; AMD/Intel bekommen ein klares „nicht unterstützt“
-- 🧪 711 automatische Prüfungen in 21 Test-Suiten (in `tests/`), inkl. PowerShell-Syntaxprüfung jedes Befehls, der ganzen Oberfläche unter echter Hauptschleife und des Rundum-Tuners gegen eine simulierte Karte
+- 🎯 **Rundum-Tuner** — eigene V/F-Kurve Punkt für Punkt gemessen (nach HYDRA-Vorbild), Speicher mit der ganzen Karte unter Last geprüft, Ziel-Schalter Max / Ausgewogen / Effizienz, 5-min-FurMark-Endtest und Vorher/Nachher-Bericht, Live-Werte während des ganzen Tunes; GPU-Tabelle mit RTX 50 und vorsichtigen Startwerten; AMD/Intel bekommen ein klares „nicht unterstützt“
+- 🧪 724 automatische Prüfungen in 21 Test-Suiten (in `tests/`), inkl. PowerShell-Syntaxprüfung jedes Befehls, der ganzen Oberfläche unter echter Hauptschleife und des Rundum-Tuners gegen eine simulierte Karte
 
 Vollständige Details in [CHANGELOG.md](CHANGELOG.md).
 

@@ -43,6 +43,9 @@ Punkte, Speicher +1000, Endtest bestanden). App einmal **schließen** (Tray → 
 3. **Tune starten → Ja.** Dauer ca. 40–60 min. Afterburner startet bei jedem Schritt kurz neu
    (minimiert), FurMark-Fenster gehen auf — nicht schließen. Siehst du **Bildfehler** (z. B. grüne
    Stippen): sofort **Abbrechen** und mir Bescheid geben.
+   Neu: Die Werte oben auf der GPU-Seite (Temp, Takt, Leistung) laufen jetzt auch **zwischen** den
+   Schritten weiter. Während Afterburner neu startet, ist **„● MAHM“ unten links kurz blau** und die
+   Spannung zeigt „--“ — das ist gewollt. **Orange** heißt: Afterburner liefert wirklich nichts.
 4. Am Ende: **„Bericht“** öffnet den Bericht (Punkte, Kandidaten, Vorher/Nachher, Empfehlungen).
    Das Profil heißt `GOP_CURVE_…` und liegt in Afterburner-Slot 2.
 5. Gegenprobe im Spiel oder mit 3DMark (Speed Way lag nach Lauf 3 bei 7622, Durchschnitt aller

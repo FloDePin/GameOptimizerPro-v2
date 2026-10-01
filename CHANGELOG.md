@@ -815,6 +815,34 @@ verifiers (VERIFY_MAP stays 1:1) and full English descriptions.
     readings, power-limited card, abort, English) and `tests/test_ui_round13.py`
     (GPU tab: modes, goal switch, start configuration, AMD / no NVML) — 711
     checks in 21 suites, all green.
+- **Round 13 follow-up — live values through the whole tune** (the user, about
+  the memory stage of the live run: "while FurMark runs the values are not read,
+  and MAHM at the bottom left turns orange now and then"):
+  - Measured first: a read-only logger (Afterburner's shared memory and NVML
+    every 0.5 s) while the user ran FurMark 2 for 79 s at full load (2880 MHz,
+    266 W, 65 °C) — Afterburner stamped fresh values every second, the voltage
+    never dropped out, NVML never took longer than 18 ms. FurMark itself was
+    not the cause.
+  - The cause was the tuner's own timing: the GPU page's tiles and graph only
+    got values from inside a measured step. Every memory step restarts
+    Afterburner, waits 2 s, starts FurMark, waits 4 s and after the step waits
+    for FurMark to end — about 18 s of every 63-s step without new values (run-3
+    log), part of it with FurMark already or still running. A tune now keeps the
+    page live: when no step value came for 1.5 s, a light loop reads the monitor
+    and sends one (`AutoTuner._live_loop`; the NVML reads keep no state, so the
+    measurements are not affected).
+  - The orange dot was Afterburner being restarted on purpose (the reader lets
+    go of its section for every step). `MAHMReader.restarting` tells that apart
+    from a real outage: the status dot is **blue** while the tuner restarts
+    Afterburner (and up to 10 s after, until the new section delivers) and
+    orange only when it is really gone; the dashboard says "Afterburner
+    restarting …" instead of "enable voltage monitoring in AB"; the GPU page
+    says "Afterburner applies the settings (restart) …" and "FurMark starting
+    …". The status dots refresh every second (was 5 s).
+  - Tests: the live loop (quiet during a step, fills a 3.2-s gap, stops with
+    the run), the restart announcement, `restarting` (suspended / right after
+    resume without a section / a real outage after the grace time), the status
+    dot colours and the dashboard hint — 724 checks in 21 suites, all green.
 
 ### 🔎 Reviewed, verified NOT a bug
 
