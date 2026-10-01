@@ -103,6 +103,14 @@ check(CT.anchor_voltages(VOLTS, 1047, 850, 50) == [1045, 995, 945, 895],
 check(CT.anchor_voltages(VOLTS, 1050, 850, 25) == [1050, 1025, 1000, 975, 950, 925, 900, 875, 850],
       "cap voltages every 25 mV")
 check(CT.anchor_voltages([], 1050) == [], "no curve -> nothing to measure")
+check(CT.anchor_voltages(VOLTS, 1052) == [1050, 1025, 1000, 975, 950, 925, 900, 875, 850],
+      "default: a point every 25 mV (finer than the old 50)")
+ra = CT.search_anchor(lambda v, f: CT.PointTest(True, False, measured_mv=920.0), 875, 2160, 2380)
+check(not ra.reachable and ra.ran_mv == 920 and ra.below_floor and len(ra.steps) == 1,
+      "875 mV, the card stays at 920: below its floor under load (one step, no more)")
+rb = CT.search_anchor(lambda v, f: CT.PointTest(True, False, measured_mv=1040.0), 1075, 2805, 2900)
+check(not rb.reachable and not rb.below_floor,
+      "1075 mV, the card only gets to 1040 (power limit): not reachable, but no floor")
 
 print("A  goals")
 stock = CT.Candidate("Standard", score=1900, power_w=280, temp_c=66, clock_mhz=2760, passed=True)
@@ -240,6 +248,11 @@ for n in ("AMD Radeon RX 9070 XT", "AMD Radeon RX 7900 XTX", "Intel(R) Arc(TM) B
     check(not g[n].tuner_supported and g[n].vendor in ("AMD", "Intel"), f"{n}: tuner not supported ({g[n].generation})")
 check(g["AMD Radeon RX 9070 XT"].generation == "AMD RDNA 4", "RX 9070 XT = RDNA 4")
 check(g["Weird GPU"].generation == "Unknown" and g["Weird GPU"].core_start_mhz == 0, "unknown: no start value (coarse search)")
+check(a.curve_core_max_mhz == 350 and b.curve_core_max_mhz == 500,
+      "Rundum 'Core max' per point: +100 over the classic limit (RTX 4080 +350, RTX 5080 +500)")
+check(all(x.curve_core_max_mhz == x.core_max_mhz + 100 for x in g.values() if x.tuner_supported)
+      and all(x.curve_core_max_mhz == 0 for x in g.values() if not x.tuner_supported),
+      "every NVIDIA generation gets the extra room, AMD / Intel nothing")
 
 # ── B: own curve in the Afterburner profile ──────────────────────────────────
 print("B  own curve (VFCurve.with_anchor_curve / apply_slot)")
@@ -455,8 +468,9 @@ class SimGPU:
 
     def __init__(self, folder, pl_w=320.0, boost_factor=0.78, tdr_volts=(), long_margin=0,
                  voltage=True, fm_broken=False, mem_limit=5000, fm_mem_limit=None,
-                 check_crash_once=False, short_once=False):
+                 check_crash_once=False, short_once=False, floor_mv=0.0):
         self.folder, self.pl_w, self.boost_factor = folder, pl_w, boost_factor
+        self.floor_mv = floor_mv              # lowest voltage the card runs at under load
         self.tdr_volts, self.long_margin, self.voltage = tdr_volts, long_margin, voltage
         self.fm_broken = fm_broken
         self.mem_limit = mem_limit            # memory errors above this (any load)
@@ -489,7 +503,8 @@ class SimGPU:
         """Highest clock up to the voltage limit (lowest voltage for it); down
         the curve while the load would exceed the power limit."""
         pl = self.pl_w * self.pwr_pct / 100
-        pts = sorted(((v, f) for v, f in self.curve if v <= self.CEILING + 0.01),
+        pts = sorted(((v, f) for v, f in self.curve
+                      if self.floor_mv - 0.01 <= v <= self.CEILING + 0.01),
                      key=lambda p: (-p[1], p[0]))
         for i, (v, f) in enumerate(pts):
             if self.power(v, f, factor) <= pl:
@@ -651,7 +666,8 @@ def tune(gpu_kw=None, furmark=True, on_run=None, lang="de", **cfg):
     ab = SimAB(gpu, folder)
     conf = dict(mode=TuneMode.CURVE, goal="balanced", core_max_mhz=300, max_temp_c=85,
                 mem_stage=False, furmark_path=FAKE_FURMARK if furmark else "", ab_slot=2,
-                crash_pause_s=0, mem_oc_max_mhz=1000)
+                crash_pause_s=0, mem_oc_max_mhz=1000,
+                curve_anchor_step_mv=50)       # the E scenarios were built on 50 mV; E19/E20: 25
     conf.update(cfg)
     t = AutoTuner(SimMon(gpu), ab, ProfileManager(os.path.join(folder, "profiles")),
                   TunerConfig(**conf), log_dir=os.path.join(folder, "logs"))
@@ -850,6 +866,36 @@ check(t.state == TunerState.DONE and t.best_profile.curve_points[-1] == [1050, 2
       and t.best_profile.curve_points[-2] == [1000, 2832],
       f"curve check crash at 1050 mV -> 1050 −15, the rest untouched: {t.best_profile.curve_points}")
 check("Kurven-Check ✗" in L and "Kurven-Check ✓" in L, "logged: failed, stepped back, passed")
+
+# E19 the default now: a point every 25 mV, each one starting at its neighbour's result
+from collections import Counter
+t, gpu, ab, logs, folder = tune(curve_anchor_step_mv=25)
+bp = t.best_profile
+L = "\n".join(logs)
+check(t.state == TunerState.DONE and "Messpunkte: 1050, 1025, 1000, 975, 950, 925, 900, 875, 850 mV" in L,
+      "25-mV run: nine points from the ceiling down")
+pts = dict((v, f) for v, f in bp.curve_points)
+check(sorted(pts) == [850, 875, 900, 925, 950, 975, 1000, 1025, 1050]
+      and all(abs(pts[v] - (gpu.limit(v) - 30)) <= 6 for v in pts),
+      f"every point = its own limit found to ±5 MHz, minus 30: {bp.curve_points}")
+check(all(a[1] <= b[1] for a, b in zip(bp.curve_points, bp.curve_points[1:])), "monotonic curve")
+per_pt = Counter(round(x[2]) for x in gpu.runs if x[0] == "boost")
+check(max(c for v, c in per_pt.items() if v != 1050) <= 6,
+      f"closer points need fewer steps (they start at the neighbour's offset): {dict(per_pt)}")
+
+# E20 a card that never goes below 920 mV under load: one test at 900 mV, the rest skipped
+t, gpu, ab, logs, folder = tune({"floor_mv": 920.0}, curve_anchor_step_mv=25)
+bp = t.best_profile
+L = "\n".join(logs)
+check(t.state == TunerState.DONE and [v for v, f in bp.curve_points] == [925, 950, 975, 1000, 1025, 1050],
+      f"points down to 925 mV, nothing below the card's floor: {bp.curve_points}")
+check("lief bei 920 mV" in L and "→ 900 mV: unter Last nicht erreichbar" in L
+      and "Punkt 8/9: 875 mV — übersprungen" in L and "Punkt 9/9: 850 mV — übersprungen" in L
+      and "Punkt 8/9: 875 mV (Stock" not in L,
+      "900 mV tested once (ran 920), 875 / 850 skipped without a test")
+rep = "\n".join(t.last_report["lines"] + t.last_report["recommendations"])
+check("875 mV: unter der Mindestspannung der Karte unter Last" in rep
+      and "900 mV liegt unter der Mindestspannung" in rep, "the report says why")
 
 # E12 old modes are untouched by the new mode
 check(TunerConfig().mode == TuneMode.OC_UV and TunerConfig().goal == "balanced", "defaults unchanged")

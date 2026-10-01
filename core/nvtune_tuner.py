@@ -111,19 +111,13 @@ class TunerConfig:
     vf_step_test_s:  int  = 60         # Test duration per voltage step
     # Stage 4: Memory OC
     mem_oc_enabled:  bool = True       # Run memory OC in FULL mode
-    mem_oc_step_mhz: int  = 50         # Memory step size
     mem_oc_max_mhz:  int  = 1000       # Max memory offset
     # Memory stage inside the OC / UV / OC+UV modes (GPU tab: "Speicher mit
-    # übertakten") and the search precision of the memory stage.
+    # übertakten") — the Rundum-Tuner's whole-card stage (_mem_stage_full).
     mem_stage:        bool = False
-    mem_min_step_mhz: int  = 5
     # Stage 2: lowest power limit that costs at most this much performance
     # under full load (RTX 40: ~70-80 % PL costs only a few % in games).
     power_max_loss_pct: float = 3.0
-    # Stage 4: GDDR6X retries failed transfers (EDC) instead of crashing — an
-    # overclock past the limit LOSES bandwidth. Stop when it drops by more than this.
-    # (45 s windows of the bandwidth load varied by 0.8 % on an RTX 4080.)
-    mem_bw_drop_pct: float = 2.0
     # Rundum-Tuner (TuneMode.CURVE) — see core/curve_tune.py. The points are
     # tested with step_test_s each, the compute-checked final run is final_test_s.
     goal:                str = "balanced"   # "max" | "balanced" | "efficiency"
@@ -133,7 +127,7 @@ class TunerConfig:
     curve_down_mhz:      int = 30      # start value failed: down in these steps
     curve_safety_mhz:    int = 30      # taken off every point (HYDRA: workload + cold boost)
     curve_recovery_mhz:  int = 60      # ... where the search caused a driver reset
-    curve_anchor_step_mv: int = 50     # measured points: every 50 mV from the top ...
+    curve_anchor_step_mv: int = 25     # measured points: every 25 mV from the top (GPU tab: 25/50) ...
     curve_min_mv:        int = 850     # ... down to this voltage
     curve_cap_step_mv:   int = 25      # benchmarked curve caps: every 25 mV below the top
     curve_check_s:       int = 30      # FurMark on the new curve (memory +0) before the memory stage
@@ -611,7 +605,7 @@ class AutoTuner:
             c2 = max(0, core - cfg.core_step_mhz)
             return c2, volt, mem, pwr, f"Core +{core}→+{c2} MHz"
         if mem > 0:
-            m2 = mem // 2 if attempt < 4 and mem > 100 else 0
+            m2 = max(0, mem - cfg.mem_curve_step_mhz)
             return core, volt, m2, pwr, f"Speicher +{mem}→+{m2} MHz"
         if core > 0:
             c2 = max(0, core - cfg.core_step_mhz)
@@ -658,132 +652,6 @@ class AutoTuner:
             # Same rule as _apply(): an unapplied curve step must not be tested.
             raise TunerApplyError(f"V/F-Kurve: {err}")
         return ok
-
-    def _mem_stage(self, stress: "StressTester", apply_mem: Callable[[int], object],
-                   start_mem: int, prog_base: int = 86, prog_span: int = 8) -> Optional[int]:
-        """Stage 4: the memory offset with the highest MEASURED bandwidth.
-        apply_mem(offset) applies the current core settings with that memory
-        offset. -> the best offset, or None when the tune was aborted."""
-        cfg = self.config
-        best_mem_offset = start_mem
-        self._set_state(TunerState.STAGE4)
-        self._log("Stage 4: Memory overclock — memory load, bandwidth must keep rising "
-                  "(GDDR6X corrects errors by retrying: past its limit it gets SLOWER, "
-                  "it doesn't crash)...")
-        self._progress(prog_base, "Stage 4: Memory clock optimization")
-
-        # Reference bandwidth at the current memory offset.
-        apply_mem(best_mem_offset)
-        time.sleep(2)
-        mref = stress.run(min(cfg.step_test_s, 30), cfg.max_temp_c, mode="mem",
-                          on_tick=lambda e, d, s: (
-                              self._progress(prog_base, f"Stage 4: Referenz-Bandbreite {e}/{d}s"),
-                              self._tick(s)))
-        if self._stop.is_set():
-            return None
-        best_bw = mref.avg_bw_gbs if mref.passed else 0.0
-        if best_bw > 0:
-            self._log(f"  Referenz: {best_bw:.0f} GB/s @ {mref.avg_mem_mhz:.0f} MHz "
-                      f"(Mem+{best_mem_offset}MHz)")
-        else:
-            self._log("  Bandbreite nicht messbar (cupy fehlt?) — Speicher-OC nur mit "
-                      "Absturz-/Fehlererkennung", "warning")
-
-        # Measured bandwidth per accepted offset. The stepping only stops once
-        # bandwidth falls OUT of the noise band — by then it has crept past the
-        # peak into the range where GDDR6X already corrects errors. The result
-        # is therefore the offset with the highest measured bandwidth.
-        bw_at = {best_mem_offset: best_bw} if best_bw > 0 else {}
-
-        # Adaptive stepping for Memory OC
-        MIN_MEM_STEP = max(1, cfg.mem_min_step_mhz)   # MHz
-        cur_mem      = best_mem_offset
-        cur_mem_step = cfg.mem_oc_step_mhz
-        mem_step_n   = 0
-        est_mem_steps = max(cfg.mem_oc_max_mhz // cfg.mem_oc_step_mhz, 1) + 6
-        # Highest offset still worth testing: 'Mem Max', then just below
-        # every offset that failed (a coarse step must not re-test it).
-        upper = cfg.mem_oc_max_mhz
-
-        while not self._stop.is_set():
-            candidate_mem = min(cur_mem + cur_mem_step, upper)
-            if candidate_mem <= cur_mem:
-                if upper == cfg.mem_oc_max_mhz:
-                    self._log(f"Stage 4: Memory limit +{cfg.mem_oc_max_mhz}MHz reached")
-                break
-
-            apply_mem(candidate_mem)
-            time.sleep(2)
-
-            sn_cap = mem_step_n
-            def _tick4(e, d, s, cm=candidate_mem, sn=sn_cap):
-                self._progress(
-                    prog_base + int(min(sn / est_mem_steps, 1.0) * prog_span),
-                    f"Stage 4: Mem+{cm}MHz (step {cur_mem_step}MHz) | "
-                    f"{e}/{d}s | {s.temp}°C | {s.mem_mhz:.0f}MHz"
-                )
-                self._tick(s)
-
-            result = stress.run(cfg.step_test_s, cfg.max_temp_c, on_tick=_tick4,
-                                mode="mem")
-            if self._stop.is_set():   # aborted mid-step: don't act on it
-                return None
-            mem_step_n += 1
-
-            bw = result.avg_bw_gbs
-            bw_drop = (best_bw > 0 and bw > 0 and
-                       bw < best_bw * (1.0 - cfg.mem_bw_drop_pct / 100.0))
-            bw_note = f"  {bw:.0f} GB/s @ {result.avg_mem_mhz:.0f} MHz" if bw > 0 else ""
-            if result.passed and not result.crash_detected and not bw_drop:
-                best_mem_offset = candidate_mem
-                cur_mem         = candidate_mem
-                best_bw         = max(best_bw, bw)
-                if bw > 0:
-                    bw_at[candidate_mem] = bw
-                self._log(
-                    f"  Mem+{candidate_mem}MHz ✓  step={cur_mem_step}MHz  "
-                    f"avg={result.avg_temp:.1f}°C{bw_note}"
-                )
-            else:
-                upper     = candidate_mem - MIN_MEM_STEP   # never re-test next to a failure
-                tdr_note  = " [TDR!]" if result.tdr_detected else ""
-                reason    = (f"Bandbreite {bw:.0f} < {best_bw:.0f} GB/s — Fehlerkorrektur "
-                             f"(EDC) bremst" if bw_drop and result.passed
-                             else self._fail_reason(result))
-                new_step  = max(MIN_MEM_STEP, cur_mem_step // 2)
-                if new_step < cur_mem_step:
-                    self._log(
-                        f"  Mem+{candidate_mem}MHz ✗{tdr_note}  {reason} "
-                        f"— halving step: {cur_mem_step}→{new_step}MHz", "warning"
-                    )
-                    self._set_state(TunerState.BACKOFF)
-                    apply_mem(best_mem_offset)
-                    time.sleep(1)
-                    cur_mem_step = new_step
-                    cur_mem      = best_mem_offset
-                else:
-                    self._log(
-                        f"  Mem+{candidate_mem}MHz ✗{tdr_note}  {reason} "
-                        f"— at min step ({MIN_MEM_STEP}MHz), stopping", "warning"
-                    )
-                    self._set_state(TunerState.BACKOFF)
-                    apply_mem(best_mem_offset)
-                    time.sleep(1)
-                    break
-
-        if len(bw_at) > 1 and not self._stop.is_set():
-            peak = max(bw_at, key=lambda o: (bw_at[o], -o))   # tie -> lower offset
-            if peak < best_mem_offset:
-                self._log(f"  Bandbreiten-Maximum bei Mem+{peak}MHz ({bw_at[peak]:.0f} GB/s) — "
-                          f"darüber (bis +{best_mem_offset}MHz) kein Gewinn mehr, der Speicher "
-                          f"korrigiert dort schon Fehler → +{peak}MHz übernommen")
-                best_mem_offset = peak
-                apply_mem(best_mem_offset)
-        if self._stop.is_set():
-            return None
-        self._log(f"Stage 4 done: best memory = +{best_mem_offset}MHz "
-                  f"(precision ±{MIN_MEM_STEP}MHz)")
-        return best_mem_offset
 
     def _run_safe(self):
         self._open_run_log()
@@ -1221,9 +1089,15 @@ class AutoTuner:
                     self._apply_vf(best_core, best_volt_mv, target_freq if run_vf else 0, m)
                 else:
                     self._apply(best_core, m, best_pwr)
-            best_mem_offset = self._mem_stage(stress, apply_mem, best_mem_offset)
-            if best_mem_offset is None:          # aborted
+            # The whole card under load, as in the Rundum-Tuner. The old stage took the
+            # bandwidth peak of a memory-only load: in the live run that was +1500 —
+            # green speckles in FurMark and a driver reset.
+            got = self._mem_stage_full(stress, apply_mem, prog_base=86)
+            if got is None:                      # aborted
                 return
+            best_mem_offset, _note = got
+            if best_mem_offset < 0:              # even +0 fails: the core setting is too tight
+                return self._curve_fail(_note)
         else:
             self._log("Stage 4 skipped (mode doesn't include Memory OC)")
 
@@ -1550,7 +1424,7 @@ class AutoTuner:
             # Both ways: ABOVE it means the live curve put a faster point higher
             # up (seen live: 875 mV under test, the card ran 920 mV).
             if r.steady_voltage_mv > 0:
-                reached = abs(r.steady_voltage_mv - mv) <= 10
+                reached = abs(r.steady_voltage_mv - mv) <= CT.REACH_TOL_MV
             elif r.max_core_mhz > 0:          # no voltage readings: only this point runs that fast
                 reached = r.max_core_mhz >= mhz - 60
         seen = (f"{r.steady_voltage_mv:.0f} mV" if r.steady_voltage_mv > 0 else "? mV")
@@ -1633,20 +1507,22 @@ class AutoTuner:
             ran = (res.get("duration_ms") or 0) / 1000.0 or float(res.get("elapsed_s") or 0)
             if ran and ran < seconds * 0.9:
                 reason = T(f"FurMark lief nur {ran:.0f} s", f"FurMark ran only {ran:.0f} s")
-        info = (f"{r.avg_bw_gbs:.0f} GB/s, {r.max_temp:.0f}°C"
+        info = ((f"{r.avg_bw_gbs:.0f} GB/s, " if r.avg_bw_gbs > 0 else "") + f"{r.max_temp:.0f}°C"
                 + (f", FurMark {res.get('fps_avg')} FPS" if res.get("ok") else ""))
         if reason:
             self._crash_pause()
         return not reason, reason, info
 
-    def _mem_stage_full(self, stress: "StressTester", anchors):
-        """Memory for the Rundum-Tuner — the plan the user asked for after the
-        first live run (memory +1500 taken straight from the bandwidth peak gave
-        green speckles and a driver reset in FurMark): +500 first, then +100
-        steps up to 'Mem max' (default 1000), each step with the WHOLE card under
-        load (_whole_card_run) on the checked curve. Result: the highest step
-        that passed — one step lower when a failure marked the edge; reaching
-        'Mem max' without a failure keeps 'Mem max'.
+    def _mem_stage_full(self, stress: "StressTester", apply_mem: Callable[[int], object],
+                        prog_base: int = 60, prog_span: int = 8):
+        """Memory for every mode — the plan the user asked for after the first
+        live run (memory +1500 taken straight from the bandwidth peak gave green
+        speckles and a driver reset in FurMark): +500 first, then +100 steps up
+        to 'Mem max' (default 1000), each step with the WHOLE card under load
+        (_whole_card_run). apply_mem(offset) applies the found core settings
+        (the checked curve, or offset / V/F lock / power limit) with that memory
+        offset. Result: the highest step that passed — one step lower when a
+        failure marked the edge; reaching 'Mem max' without a failure keeps it.
         -> (offset, report line), (-1, error) when even +0 fails, None = aborted."""
         cfg = self.config
         T = CT.T
@@ -1664,10 +1540,10 @@ class AutoTuner:
         while True:
             if self._stop.is_set():
                 return None
-            self._apply_curve(anchors, 0, m, 100)
+            apply_mem(m)
             time.sleep(2)
             ok, why, info = self._whole_card_run(stress, cfg.step_test_s, f"Mem+{m}MHz",
-                                                 60 + min(n, 7))
+                                                 prog_base + min(n, prog_span - 1))
             if ok is None:
                 return None
             n += 1
@@ -1684,10 +1560,11 @@ class AutoTuner:
                     break
                 m = max(0, m - step)             # the start value failed: down from there
         if best is None:
-            return -1, T("Speicher: schon +0 MHz hält die Last auf der ganzen Karte nicht — Kurve/"
-                         "Kühlung prüfen, kein Profil gespeichert",
-                         "Memory: even +0 MHz fails the whole-card load — check the curve / "
-                         "cooling, no profile saved")
+            return -1, T("Speicher: schon +0 MHz hält die Last auf der ganzen Karte nicht — die "
+                         "Kern-Einstellung (Kurve/Offset) oder die Kühlung reicht nicht, kein "
+                         "Profil gespeichert",
+                         "Memory: even +0 MHz fails the whole-card load — the core setting "
+                         "(curve / offset) or the cooling isn't enough, no profile saved")
         edge = failed_at is not None and failed_at > best
         result = max(0, best - step) if edge else best
         if edge:
@@ -1702,7 +1579,8 @@ class AutoTuner:
         return result, line
 
     def _curve_fail(self, msg: str):
-        """End a Rundum run without a profile: log, back to stock, error state."""
+        """End a run without a profile (Rundum, or a memory stage where even +0
+        fails): log, back to stock, error state."""
         self._log(msg, "error")
         self._reset_locked()
         if self.cr:
@@ -1819,9 +1697,17 @@ class AutoTuner:
         results: list = []
         prior, known = int(cfg.curve_prior_mhz), bool(cfg.curve_prior_mhz)
         n = len(anchors_mv)
+        floor_mv = 0.0          # the card ran ABOVE a point: its minimum voltage under this load
         for i, mv in enumerate(anchors_mv, 1):
             pt = curve.lock_point(mv)
             base_mhz = pt.base_mhz
+            if floor_mv:
+                results.append(CT.AnchorResult(mv, base_mhz, reachable=False, ran_mv=floor_mv))
+                self._log(T(f"  Punkt {i}/{n}: {mv} mV — übersprungen: unter der Mindestspannung "
+                            f"der Karte unter Last ({floor_mv:.0f} mV)",
+                            f"  Point {i}/{n}: {mv} mV — skipped: below the card's minimum voltage "
+                            f"under load ({floor_mv:.0f} mV)"))
+                continue
             start = int(round(base_mhz + prior))
             step = cfg.curve_step_mhz if known else cfg.curve_coarse_step_mhz
             self._log(T(f"  Punkt {i}/{n}: {mv} mV (Stock {base_mhz:.0f} MHz) — Start bei "
@@ -1845,6 +1731,8 @@ class AutoTuner:
             elif not r.reachable:
                 self._log(T(f"  → {mv} mV: unter Last nicht erreichbar",
                             f"  → {mv} mV: not reachable under load"), "warning")
+                if r.below_floor:
+                    floor_mv = r.ran_mv
             else:
                 self._log(T(f"  → {mv} mV: kein stabiler Takt gefunden",
                             f"  → {mv} mV: no stable clock found"), "warning")
@@ -1899,7 +1787,7 @@ class AutoTuner:
         # 5) memory — the whole card under load (see _mem_stage_full)
         mem = 0
         if cfg.mem_stage and cfg.mem_oc_enabled:
-            got = self._mem_stage_full(stress, anchors)
+            got = self._mem_stage_full(stress, lambda m: self._apply_curve(anchors, 0, m, 100))
             if got is None:
                 return
             mem, mem_note = got

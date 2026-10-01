@@ -205,12 +205,12 @@ check(any("Endtest bestanden nach 1 Rücknahme" in m for m in logs) and "Rückna
       "log + profile notes say it was backed off")
 check(not any("Conservative" in m or "conservative" in m for m in logs), "no untested 'conservative' profile any more")
 
-g = GPU(final_limit=160, mem_limit=500)
+g = GPU(final_limit=160, mem_limit=900)
 t, logs, ab, saved = tune(g, mem_offset_mhz=1000)
-check([(c, m) for c, m, p in g.finals] == [(172, 1000), (157, 1000), (157, 500)],
-      f"with a user memory offset: core first, then memory halved: {g.finals}")
-check(t.best_profile and t.best_profile.mem_offset_mhz == 500 and t.best_profile.core_offset_mhz == 157,
-      "saved: +157 core / +500 memory (what passed)")
+check([(c, m) for c, m, p in g.finals] == [(172, 1000), (157, 1000), (157, 900)],
+      f"with a memory offset: core first, then memory one 100-MHz step back (was: halved): {g.finals}")
+check(t.best_profile and t.best_profile.mem_offset_mhz == 900 and t.best_profile.core_offset_mhz == 157,
+      "saved: +157 core / +900 memory (what passed)")
 
 g = GPU(never=True)
 t, logs, ab, saved = tune(g)

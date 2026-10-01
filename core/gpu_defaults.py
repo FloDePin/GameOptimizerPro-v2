@@ -20,6 +20,13 @@ V/F-Kurve und NVML — beides gibt es nur für NVIDIA.
 
 from dataclasses import dataclass
 
+# The Rundum-Tuner searches every voltage point until a failure, so 'Core max'
+# is only its sanity bound there. At low voltages the stable offset is larger
+# than an overall offset (RTX 4080 live: +165 MHz at the top of the curve, +220
+# at 925 mV, where the limit ended the search instead of a failure) — the curve
+# mode gets this much more room than the classic modes.
+CURVE_CORE_EXTRA_MHZ = 100
+
 
 @dataclass
 class GpuDefaults:
@@ -41,6 +48,13 @@ class GpuDefaults:
     mem_start_mhz:  int  = 0
     vendor:         str  = "NVIDIA"
     tuner_supported: bool = True      # MSI Afterburner curve + NVML: NVIDIA only
+
+    @property
+    def curve_core_max_mhz(self) -> int:
+        """'Core max' of the Rundum-Tuner (per voltage point)."""
+        if not (self.tuner_supported and self.core_max_mhz):
+            return self.core_max_mhz
+        return self.core_max_mhz + CURVE_CORE_EXTRA_MHZ
 
 
 def _nv(prefix, gen, step, core_max, core_start, mem_max, mem_start, power_min, notes,

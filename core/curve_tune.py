@@ -38,6 +38,11 @@ def T(de: str, en: str) -> str:
 
 # ── one point of the curve ───────────────────────────────────────────────────
 
+# A step counts for a point when the card's median voltage was within this of it
+# (two points of Ada's 5-mV grid).
+REACH_TOL_MV = 10
+
+
 @dataclass
 class PointTest:
     """Outcome of one stress step at (voltage point, frequency)."""
@@ -58,11 +63,19 @@ class AnchorResult:
     tdr: bool = False
     reachable: bool = True
     limit_hit: bool = False      # stopped by 'Core max', not by a failure
+    ran_mv: float = 0.0          # not reachable: the voltage the card ran at instead
     steps: list = field(default_factory=list)   # (mhz, passed, reason)
 
     @property
     def offset(self) -> int:
         return int(self.best_mhz - self.base_mhz) if self.best_mhz else 0
+
+    @property
+    def below_floor(self) -> bool:
+        """Not reachable because the card ran ABOVE the point: under this load it
+        never goes that low (RTX 4080: ~920 mV), so no lower point is reachable
+        either — the tuner skips them instead of testing each one."""
+        return not self.reachable and self.ran_mv > self.mv + REACH_TOL_MV
 
 
 def search_anchor(test: Callable[[int, int], PointTest], mv: int, base_mhz: float,
@@ -91,6 +104,7 @@ def search_anchor(test: Callable[[int, int], PointTest], mv: int, base_mhz: floa
         r.tdr |= t.tdr
         if t.passed and not t.reached:
             r.reachable = False
+            r.ran_mv = float(t.measured_mv or 0.0)
             return r
         if t.passed:
             lo = f
@@ -146,7 +160,7 @@ def curve_anchors(results: list[AnchorResult]) -> list[tuple[int, int]]:
 
 
 def anchor_voltages(point_voltages: list[float], ceiling_mv: float, floor_mv: float = 850,
-                    step_mv: int = 50) -> list[int]:
+                    step_mv: int = 25) -> list[int]:
     """Voltage points to measure, top-down: the highest curve point at or below
     the ceiling (the highest voltage the card reached), then every `step_mv`
     down to `floor_mv` — each snapped to a real curve point."""

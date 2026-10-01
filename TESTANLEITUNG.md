@@ -19,7 +19,7 @@ Profil übernommen (NVML las **288 W** zurück), gleiche Werte gingen ohne Neust
 | 7b | Neue Funktionen prüfen (Dashboard, Dienste, Deep Clean, 26H2-Tweaks) | teils | 10 min | ✅ erledigt — Befunde siehe unten |
 | 8 | Erster Auto-Tune | ja, Abbruch setzt zurück | 20–30 min | ✅ zweimal gelaufen (+179 MHz / 97 %; 2. Lauf mit Mem +1000 im Endtest durchgefallen) |
 | 8b | Nach dem Update (Runde 12): neue Oberfläche, FurMark/3DMark, Audio | ja | 30 min | ✅ erledigt |
-| 8c | **Rundum-Tuner (Runde 13) — Punkte unten** | ja, Abbruch setzt zurück | 40–60 min | ✅ Lauf 3 bestanden (+3,7 % FurMark) |
+| 8c | **Rundum-Tuner (Runde 13) — Punkte unten** | ja, Abbruch setzt zurück | 50–80 min | ✅ Lauf 3 bestanden (+3,7 % FurMark) |
 | 9 | Danach: im Alltag prüfen und als Standard setzen | ja | — | offen |
 
 **Wichtig für alle Schritte ab 3:** Kein Spiel und keine 3D-Anwendung offen lassen.
@@ -38,9 +38,10 @@ Punkte, Speicher +1000, Endtest bestanden). App einmal **schließen** (Tray → 
    - **Ausgewogen** — mindestens die Hälfte des Gewinns, davon die meisten Punkte pro Watt
    - **Effizienz** — Standard-Leistung bei möglichst wenig Watt (Undervolting)
 2. In der Karte „Rundum-Parameter“ muss grün **„✓ FurMark 2 (v…)“** stehen. Die Standardwerte
-   passen (Core max 250, 45 s je Punkt, 30 MHz Sicherheit, 5 min FurMark-Endtest, Speicher max
-   1000). Im Start-Dialog steht der Startwert — bei dir jetzt dein gespeichertes Profil.
-3. **Tune starten → Ja.** Dauer ca. 40–60 min. Afterburner startet bei jedem Schritt kurz neu
+   passen (Core max 350 je Punkt, Punktabstand 25 mV, 45 s je Punkt, 30 MHz Sicherheit, 5 min
+   FurMark-Endtest, Speicher max 1000). Im Start-Dialog steht der Startwert — bei dir jetzt dein
+   gespeichertes Profil.
+3. **Tune starten → Ja.** Dauer ca. 50–80 min (Punktabstand 50 mV: 40–60 min). Afterburner startet bei jedem Schritt kurz neu
    (minimiert), FurMark-Fenster gehen auf — nicht schließen. Siehst du **Bildfehler** (z. B. grüne
    Stippen): sofort **Abbrechen** und mir Bescheid geben.
    Neu: Die Werte oben auf der GPU-Seite (Temp, Takt, Leistung) laufen jetzt auch **zwischen** den
@@ -50,6 +51,16 @@ Punkte, Speicher +1000, Endtest bestanden). App einmal **schließen** (Tray → 
    Das Profil heißt `GOP_CURVE_…` und liegt in Afterburner-Slot 2.
 5. Gegenprobe im Spiel oder mit 3DMark (Speed Way lag nach Lauf 3 bei 7622, Durchschnitt aller
    RTX 4080: 7424). Stürzt ein Spiel ab: den Tune mit größerer „Sicherheit (MHz)“ wiederholen.
+
+Nachtrag zu Runde 13 (feinere Kurve, Speicher in allen Modi):
+- Messpunkte jetzt **alle 25 mV** statt alle 50 (Feld **„Punktabstand“**, 50 = schneller). Punkte
+  unter der Mindestspannung deiner Karte unter Last (bei dir ~920 mV) werden nach einem Test
+  übersprungen.
+- **Core max** im Rundum-Modus **+350** statt +250: Bei 925 mV hatte im Lauf 3 die alte Grenze die
+  Suche beendet, nicht ein Fehler. Gesucht wird weiterhin bis zum ersten Fehler.
+- **OC / UV / OC + UV:** Der Speicher wird jetzt genauso geprüft wie im Rundum-Modus — ganze
+  Karte unter Last (FurMark + geprüfte Speicherkopien), +500 → +1000 in 100er-Schritten. Fällt
+  der Endtest wegen des Speichers durch, geht er 100 MHz zurück statt zu halbieren.
 
 Außerdem neu: Die Meldung „NumLock beim Start einschalten — nicht mehr aktiv“ kommt nach einem
 Neustart nicht mehr (Windows schreibt den Wert beim Abmelden um, die Prüfung akzeptiert beide

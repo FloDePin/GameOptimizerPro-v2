@@ -7,12 +7,19 @@ TESTS = ["test_ab_profile.py", "test_real_profile.py", "test_ab_controller.py", 
          "test_ui_round12.py", "test_round13.py", "test_ui_round13.py", "ps_parse_all.py",
          "ci_backslash_check.py"]
 SKIPPED = 2          # exit code of a test that can't run here (e.g. no Afterburner)
+# These map real (alpha-0) windows for real geometry. They run on their own,
+# never-shown desktop (run_hidden_desktop.py), so the battery can't take the
+# focus from a fullscreen game while it runs.
+WINDOWED = {"test_ui_new.py", "test_round10.py", "test_ui_round12.py"}
 env = dict(os.environ, PYTHONIOENCODING="utf-8")
 total_ok = total_fail = 0
 bad = []
 for t in TESTS:
     t0 = time.time()
-    r = subprocess.run([sys.executable, os.path.join(HERE, t)], capture_output=True, text=True,
+    cmd = [sys.executable, os.path.join(HERE, t)]
+    if t in WINDOWED and os.name == "nt":
+        cmd.insert(1, os.path.join(HERE, "run_hidden_desktop.py"))
+    r = subprocess.run(cmd, capture_output=True, text=True,
                        encoding="utf-8", errors="replace", env=env, timeout=900, cwd=HERE)
     out = r.stdout + r.stderr
     ok = out.count("  ok   ")

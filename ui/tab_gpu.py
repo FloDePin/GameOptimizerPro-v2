@@ -40,11 +40,11 @@ MODES = [
      "Proven and quicker (20–45 min) — best of both: higher clocks, lower temperatures, same "
      "or better performance."),
     ("curve", "Rundum", "All-round",
-     "Neu und am gründlichsten (40–60 min) — misst jeden Spannungspunkt der V/F-Kurve einzeln "
+     "Neu und am gründlichsten (50–80 min) — misst die V/F-Kurve alle 25 mV Punkt für Punkt "
      "(wie HYDRA), baut daraus eine eigene Kurve, vergleicht per FurMark-Benchmark und wählt nach "
      "dem Ziel. Endtest: 5 min FurMark + Rechenprüfung, danach ein Bericht.",
-     "New and most thorough (40–60 min) — measures every voltage point of the V/F curve on its "
-     "own (like HYDRA), builds an own curve from it, compares with FurMark benchmarks and picks "
+     "New and most thorough (50–80 min) — measures the V/F curve point by point every 25 mV "
+     "(like HYDRA), builds an own curve from it, compares with FurMark benchmarks and picks "
      "by the goal. Final test: 5 min FurMark + compute check, then a report."),
 ]
 
@@ -164,6 +164,7 @@ class GpuTunerTab(Page):
         self.v_goal      = tk.StringVar(value="balanced")
         self.v_fm_final  = tk.IntVar(value=5)      # FurMark final test (min)
         self.v_safety    = tk.IntVar(value=30)     # MHz taken off every measured point
+        self.v_point_mv  = tk.IntVar(value=25)     # voltage point spacing: 25 = finer, 50 = faster
 
         self._build_curve_cards(left)
 
@@ -192,20 +193,24 @@ class GpuTunerTab(Page):
             NumberField(cell, var, lo, hi, step, width=64, bg=CARD_BG).pack(anchor="w", pady=(2, 0))
             grid.add(cell)
 
-        # Memory stage: searched and MEASURED, not a fixed guess (the old
-        # 'Mem Offset' field applied an unsearched value to every step).
+        # Memory stage: searched with the whole card under load (as in the Rundum
+        # mode) — not a fixed guess, and not the bandwidth peak of a memory-only load.
         mem = tk.Frame(params.body, bg=CARD_BG)
         mem.pack(fill="x", pady=(12, 0))
         self.chk_mem_stage = CheckBox(mem, self.v_mem_stage, accent=CYAN, bg=CARD_BG,
                                       text=tr("Speicher mit übertakten", "Overclock memory too"), font=F_BB)
         self.chk_mem_stage.pack(anchor="w")
         WrapLabel(mem, text=tr(
-            "Stufe 4 misst die Speicher-Bandbreite: GDDR6X korrigiert Fehler durch Wiederholen und "
-            "wird über dem Limit LANGSAMER statt abzustürzen — genommen wird das Bandbreiten-Maximum "
-            "(bis 'Speicher max.'). Dauert ca. 6–10 min länger.",
-            "Stage 4 measures memory bandwidth: GDDR6X corrects errors by retrying and gets SLOWER "
-            "above its limit instead of crashing — the bandwidth peak is taken (up to 'Mem max'). "
-            "Takes about 6–10 min longer."), font=F_XS, fg=DIM, bg=CARD_BG).pack(fill="x", pady=(4, 0))
+            "Stufe 4 wie im Rundum-Modus: Start mit einem vorsichtigen Wert je Kartengeneration "
+            "(RTX 40: +500), dann 100er-Schritte bis „Speicher max.“ — jeder Schritt mit der ganzen "
+            "Karte unter Last (FurMark + geprüfte Speicherkopien), damit Fehler sofort auffallen. "
+            "Übernommen: der höchste bestandene Schritt, 100 MHz darunter, wenn ein Fehler kam. "
+            "Dauert ca. 6–10 min länger.",
+            "Stage 4 as in the All-round mode: starts at a cautious value per card generation "
+            "(RTX 40: +500), then 100-MHz steps up to 'Mem max' — every step with the whole card "
+            "under load (FurMark + verified memory copies), so errors show at once. Used: the "
+            "highest step that passed, 100 MHz lower if a step failed. Takes about 6–10 min "
+            "longer."), font=F_XS, fg=DIM, bg=CARD_BG).pack(fill="x", pady=(4, 0))
         self._show_mode_cards()
 
         # ── Right: controls, live values, graph, progress, log ───────────────
@@ -294,9 +299,10 @@ class GpuTunerTab(Page):
         grid = ResponsiveGrid(cp.body, min_width=150, max_cols=2, gap=10, bg=CARD_BG)
         grid.pack(fill="x")
         for label, var, lo, hi, step in (
-            (tr("Core max. (MHz)", "Core max (MHz)"),               self.v_core_max, 0, 500, 15),
+            (tr("Core max. (MHz)", "Core max (MHz)"),               self.v_core_max, 0, 600, 15),
             (tr("Max. Temperatur (°C)", "Max temp (°C)"),           self.v_max_temp, 70, 95, 1),
             (tr("Test je Punkt (s)", "Test per point (s)"),         self.v_step_dur, 15, 300, 15),
+            (tr("Punktabstand (mV)", "Point spacing (mV)"),         self.v_point_mv, 25, 50, 25),
             (tr("Sicherheit (MHz)", "Safety margin (MHz)"),         self.v_safety, 15, 90, 15),
             (tr("FurMark-Endtest (min)", "FurMark final (min)"),    self.v_fm_final, 1, 15, 1),
             (tr("Rechenprüfung (s)", "Compute check (s)"),          self.v_final_dur, 60, 600, 30),
@@ -322,14 +328,20 @@ class GpuTunerTab(Page):
             "lower if a step failed."),
             font=F_XS, fg=DIM, bg=CARD_BG).pack(fill="x", pady=(4, 0))
         WrapLabel(cp.body, text=tr(
-            "Je Spannungspunkt: Kurve dort flach, leichte Boost-Last (die Karte sitzt genau auf dem "
-            "Punkt), jedes Ergebnis wird geprüft. +15 MHz bis zum Fehler, dann halbiert bis 5 MHz. "
-            "Übernommen wird der gefundene Takt minus Sicherheit (60 MHz, wo der Treiber neu "
-            "starten musste).",
-            "Per voltage point: curve flat there, light boost load (the card sits exactly on the "
+            "Messpunkte alle „Punktabstand“ mV (25 = genauer, 50 = schneller) von der höchsten "
+            "erreichten Spannung bis 850 mV; Punkte unter der Mindestspannung der Karte unter Last "
+            "werden übersprungen. Je Punkt: Kurve dort flach, leichte Boost-Last (die Karte sitzt "
+            "genau auf dem Punkt), jedes Ergebnis wird geprüft. +15 MHz bis zum Fehler, dann "
+            "halbiert bis 5 MHz. Übernommen wird der gefundene Takt minus Sicherheit (60 MHz, wo "
+            "der Treiber neu starten musste). „Core max“ ist hier nur die Obergrenze je Punkt — "
+            "gesucht wird bis zum ersten Fehler.",
+            "Points every 'Point spacing' mV (25 = finer, 50 = faster) from the highest voltage "
+            "reached down to 850 mV; points below the card's minimum voltage under load are "
+            "skipped. Per point: curve flat there, light boost load (the card sits exactly on the "
             "point), every result checked. +15 MHz until a failure, then halved down to 5 MHz. "
             "Used: the clock found minus the safety margin (60 MHz where the driver had to "
-            "restart)."), font=F_XS, fg=DIM, bg=CARD_BG).pack(fill="x", pady=(10, 0))
+            "restart). 'Core max' is only the upper bound per point here — the search goes to "
+            "the first failure."), font=F_XS, fg=DIM, bg=CARD_BG).pack(fill="x", pady=(10, 0))
         self._update_furmark_status()
 
     def _select_goal(self, goal_id: str):
@@ -506,8 +518,10 @@ class GpuTunerTab(Page):
                      f"{tr('Vorgaben', 'Defaults')}: Core max +{d.core_max_mhz} MHz, "
                      f"Mem max +{d.mem_max_mhz} MHz, Power min {d.power_min_pct} %, "
                      f"Temp-Limit {d.max_temp_c} °C"
-                     + (tr(f"  ·  Rundum-Start: Core +{d.core_start_mhz}, Speicher +{d.mem_start_mhz}",
-                           f"  ·  All-round start: core +{d.core_start_mhz}, memory +{d.mem_start_mhz}")
+                     + (tr(f"  ·  Rundum: Start Core +{d.core_start_mhz}, Speicher +{d.mem_start_mhz}, "
+                           f"Core max +{d.curve_core_max_mhz} je Punkt",
+                           f"  ·  All-round: start core +{d.core_start_mhz}, memory +{d.mem_start_mhz}, "
+                           f"core max +{d.curve_core_max_mhz} per point")
                         if d.tuner_supported else ""),
                 fg=ACC if d.tuner_supported else AMBER
             )
@@ -537,7 +551,7 @@ class GpuTunerTab(Page):
                 self.v_core_max.set(0)
                 self.v_pwr_min.set(100)
             elif mode_id == "curve":
-                self.v_core_max.set(d.core_max_mhz)
+                self.v_core_max.set(d.curve_core_max_mhz)   # per point, searched to a failure
                 self.v_mem_stage.set(True)
                 self.v_mem_max.set(min(1000, d.mem_max_mhz))   # +500 … +1000 (whole-card test)
             else:  # oc_uv
@@ -682,12 +696,16 @@ class GpuTunerTab(Page):
         fm = self._furmark_v2()
         self._update_furmark_status()
         step_s, fm_s, ver_s = self.v_step_dur.get(), self.v_fm_final.get() * 60, self.v_final_dur.get()
-        # ~5 points x ~5 steps, AB restart ~10 s each; curve check; memory (+500 … max in
-        # 100-MHz steps); ~4 benchmarks; final test
+        # Points (RTX 40: 1075 … 850 mV) x steps each, AB restart ~10 s per step: ~5 steps at
+        # 50 mV, ~4 at 25 mV (a point starts at its neighbour's result); curve check; memory
+        # (+500 … max in 100-MHz steps); ~4 benchmarks; final test
+        pmv = max(25, min(100, self.v_point_mv.get()))
+        n_pts = (1075 - 850) // pmv + 1
+        per_pt = 5 if pmv >= 50 else 4
         mem_start = self._mem_start()
         mem_steps = max(1, (self.v_mem_max.get() - mem_start) // 100 + 1)
-        est = (150 + 25 * (step_s + 10) + 45 + (mem_steps * (step_s + 15) if mem_on else 0)
-               + 330 + fm_s + ver_s + 60)
+        est = (150 + n_pts * per_pt * (step_s + 10) + 45
+               + (mem_steps * (step_s + 15) if mem_on else 0) + 330 + fm_s + ver_s + 60)
         lo, hi = int(est * 0.8 / 60), int(est * 1.3 / 60 + 0.999)
         gname = next(tr(de, en) for gid, de, en, _d, _e in GOALS if gid == goal)
         prior, from_profile = self._curve_prior()
@@ -717,7 +735,7 @@ class GpuTunerTab(Page):
             f"Rundum-Tuner — Ziel: {gname}\n"
             f"AB-Slot {slot}  |  Core max +{self.v_core_max.get()} MHz  |  Max. Temp "
             f"{self.v_max_temp.get()} °C\n"
-            f"Spannungspunkte: alle 50 mV ab der höchsten erreichten, je Schritt {step_s} s{start}\n"
+            f"Spannungspunkte: alle {pmv} mV ab der höchsten erreichten, je Schritt {step_s} s{start}\n"
             f"Benchmark: {bench}\n{mem_line}\n"
             f"Endtest: {fm_s // 60} min FurMark + {ver_s} s Rechenprüfung{volt_line}\n\n"
             f"Dauer ca. {lo}–{hi} Minuten. Afterburner startet bei jedem Schritt kurz neu (minimiert). "
@@ -725,7 +743,7 @@ class GpuTunerTab(Page):
             f"All-round tuner — goal: {gname}\n"
             f"AB slot {slot}  |  Core max +{self.v_core_max.get()} MHz  |  Max temp "
             f"{self.v_max_temp.get()} °C\n"
-            f"Voltage points: every 50 mV from the highest reached, {step_s} s per step{start}\n"
+            f"Voltage points: every {pmv} mV from the highest reached, {step_s} s per step{start}\n"
             f"Benchmark: {bench}\n{mem_line}\n"
             f"Final test: {fm_s // 60} min FurMark + {ver_s} s compute check{volt_line}\n\n"
             f"Takes about {lo}–{hi} minutes. Afterburner restarts briefly for every step "
@@ -737,8 +755,8 @@ class GpuTunerTab(Page):
             max_temp_c=self.v_max_temp.get(), step_test_s=step_s, final_test_s=ver_s,
             final_bench_s=fm_s, curve_safety_mhz=self.v_safety.get(), curve_prior_mhz=prior,
             mem_offset_mhz=0, mem_stage=mem_on, mem_oc_max_mhz=max(100, self.v_mem_max.get()),
-            mem_oc_step_mhz=250, mem_min_step_mhz=25, ab_slot=slot,
-            furmark_path=fm, bench_msaa=8, mem_curve_start_mhz=mem_start,
+            ab_slot=slot, furmark_path=fm, bench_msaa=8, mem_curve_start_mhz=mem_start,
+            curve_anchor_step_mv=pmv,
         )
         self.tuner.config = cfg
         self.tuner.last_report_path = ""
@@ -776,16 +794,25 @@ class GpuTunerTab(Page):
         }.get(self.v_mode.get(), "OC + UV")
 
         mem_on = bool(self.v_mem_stage.get())
-        mem_line = (f"Speicher: bis +{self.v_mem_max.get()}MHz, Bandbreite gemessen"
-                    if mem_on else "Speicher: wird nicht übertaktet")
+        fm = self._furmark_v2() if mem_on else ""
+        mem_start = self._mem_start()
+        load = (tr("FurMark + Datenprüfung", "FurMark + data check") if fm else
+                tr("Datenprüfung — FurMark 2 nicht gefunden", "data check — FurMark 2 not found"))
+        mem_line = (tr(f"Speicher: +{mem_start} bis +{self.v_mem_max.get()} MHz in 100er-Schritten, "
+                       f"ganze Karte unter Last ({load}), 100 MHz Sicherheit",
+                       f"Memory: +{mem_start} to +{self.v_mem_max.get()} MHz in 100-MHz steps, whole "
+                       f"card under load ({load}), 100 MHz safety")
+                    if mem_on else tr("Speicher: wird nicht übertaktet", "Memory: not overclocked"))
         if not messagebox.askyesno("Start Tune",
             f"Mode: {mode_str}\n"
             f"AB Slot: {slot}\n"
             f"Core Max: +{self.v_core_max.get()}MHz  |  "
             f"Power Min: {self.v_pwr_min.get()}%  |  "
             f"Max Temp: {self.v_max_temp.get()}°C\n"
-            f"{mem_line}\n\n"
-            f"Dauer ca. {'30-45' if mem_on else '20-35'} Minuten. Start?"):
+            f"{mem_line}\n"
+            + (tr("FurMark-Fenster gehen bei den Speicher-Schritten auf — nicht schließen.\n",
+                  "FurMark windows open during the memory steps — don't close them.\n") if fm else "")
+            + f"\nDauer ca. {'30-45' if mem_on else '20-35'} Minuten. Start?"):
             return
 
         cfg = TunerConfig(
@@ -799,8 +826,8 @@ class GpuTunerTab(Page):
             mem_offset_mhz=0,
             mem_stage=mem_on,
             mem_oc_max_mhz=max(100, self.v_mem_max.get()),
-            mem_oc_step_mhz=250,        # coarse first, halved on the first drop ...
-            mem_min_step_mhz=25,        # ... down to ±25 MHz (5 would add minutes for nothing)
+            mem_curve_start_mhz=mem_start,   # whole-card stage: cautious start, 100-MHz steps
+            furmark_path=fm, bench_msaa=8,   # FurMark during every memory step
             ab_slot=slot,
         )
         self.tuner.config = cfg

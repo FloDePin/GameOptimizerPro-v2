@@ -82,8 +82,28 @@ check(tab.v_mode.get() == "curve" and tab.params_card.winfo_manager() == ""
       "'Rundum': goal + Rundum parameters instead of the classic card")
 order = [w for w in tab.mode_card.master.pack_slaves() if w.winfo_manager() == "pack"]
 check(order[:3] == [tab.mode_card, tab.goal_card, tab.curve_card], "order: mode, goal, parameters")
-check("HYDRA" in tab.lbl_mode_desc.cget("text") and "40–60 min" in tab.lbl_mode_desc.cget("text"),
-      "mode description")
+check("HYDRA" in tab.lbl_mode_desc.cget("text") and "50–80 min" in tab.lbl_mode_desc.cget("text")
+      and "25 mV" in tab.lbl_mode_desc.cget("text"), "mode description")
+from core.gpu_defaults import get_defaults as _gd
+check(tab.v_core_max.get() == _gd("NVIDIA GeForce RTX 4080").curve_core_max_mhz == 350,
+      f"Rundum: 'Core max' +350 per point (classic +250): {tab.v_core_max.get()}")
+
+
+def _texts(w):
+    out = []
+    for c in w.winfo_children():
+        try:
+            out.append(str(c.cget("text")))
+        except Exception:
+            pass
+        out += _texts(c)
+    return out
+
+
+ctexts = _texts(tab.curve_card)
+check("Punktabstand (mV)" in ctexts and tab.v_point_mv.get() == 25,
+      "Rundum parameters: 'Punktabstand' 25 mV by default")
+check(any("übersprungen" in x and "25 = genauer" in x for x in ctexts), "and explained")
 check(list(tab._goal_labels) == ["Max. Leistung", "Ausgewogen", "Effizienz"] and tab.v_goal.get() == "balanced",
       "goal switch, 'Ausgewogen' preselected")
 tab._select_goal("efficiency")
@@ -116,8 +136,8 @@ check(cfg and cfg.final_bench_s == 300 and cfg.final_test_s == tab.v_final_dur.g
       and cfg.curve_safety_mhz == 45 and cfg.curve_prior_mhz == 179 and cfg.furmark_path == FM
       and cfg.bench_msaa == 8 and cfg.step_test_s == tab.v_step_dur.get(),
       "config: 5-min FurMark, compute check, safety 45, start +179, FurMark 2, 8x MSAA")
-check(cfg and cfg.mem_stage and cfg.mem_oc_step_mhz == 250 and cfg.mem_min_step_mhz == 25,
-      "memory stage as in the other modes")
+check(cfg and cfg.mem_stage and cfg.curve_anchor_step_mv == 25 and "alle 25 mV" in msg,
+      "points every 25 mV (config and dialog), memory stage on")
 check(title == "Rundum-Tuner starten" and "Ziel: Effizienz" in msg and "+179 MHz" in msg
       and "5 min FurMark" in msg and "Minuten" in msg and "nicht spielen" in msg,
       "start dialog explains goal, start value, final test, duration")
@@ -125,13 +145,29 @@ check("Speicher: +500 bis +1000 MHz in 100er-Schritten, ganze Karte unter Last" 
       and cfg.mem_oc_max_mhz == 1000 and cfg.mem_curve_start_mhz == 500 and cfg.mem_curve_step_mhz == 100,
       "memory plan in the dialog and the config: +500 … +1000, 100-MHz steps, whole card")
 
+import re as _re
+est25 = int(_re.search(r"Dauer ca\. (\d+)–", msg).group(1))
+tab.v_point_mv.set(50)
+tab._start_tune()
+cfg50, msg50 = started[-1], ASKED[-1][1]
+est50 = int(_re.search(r"Dauer ca\. (\d+)–", msg50).group(1))
+check(cfg50.curve_anchor_step_mv == 50 and "alle 50 mV" in msg50 and est50 < est25,
+      f"50 mV: faster ({est50} vs {est25} min at the low end)")
+tab.v_point_mv.set(25)
+
 tab._select_mode("oc_uv")
 root.update_idletasks()
 check(tab.params_card.winfo_manager() == "pack" and tab.curve_card.winfo_manager() == ""
       and tab.goal_card.winfo_manager() == "", "back to OC + UV: classic parameters again")
+check(tab.v_core_max.get() == 250, "classic modes keep their 'Core max' (+250)")
 tab._start_tune()
 check(started[-1].mode == TuneMode.OC_UV and "Mode: OC + Undervolt" in ASKED[-1][1],
       "classic start unchanged")
+c2 = started[-1]
+check(c2.mem_stage and c2.mem_curve_start_mhz == 500 and c2.furmark_path == FM and c2.bench_msaa == 8
+      and "ganze Karte unter Last (FurMark + Datenprüfung)" in ASKED[-1][1]
+      and "FurMark-Fenster gehen bei den Speicher-Schritten auf" in ASKED[-1][1],
+      "classic memory stage: the whole card under load as in Rundum (+500, FurMark 2)")
 
 pm.save(TuneProfile(name="GOP_CURVE_BAL_1001_2130", core_offset_mhz=142, is_stable=True,
                     curve_points=[[850, 2531], [1050, 2937]], curve_cap_mv=1025,

@@ -843,6 +843,51 @@ verifiers (VERIFY_MAP stays 1:1) and full English descriptions.
     the run), the restart announcement, `restarting` (suspended / right after
     resume without a section / a real outage after the grace time), the status
     dot colours and the dashboard hint — 724 checks in 21 suites, all green.
+- **Round 13 follow-up 2 — a finer curve, the whole-card memory test in every
+  mode, more room per point** (the user: "finish the open points — build it,
+  simulate it, done"; built and tested in the simulation only, while the user
+  was gaming):
+  - **Points every 25 mV** (was 50; `TunerConfig.curve_anchor_step_mv`, GPU tab
+    "Punktabstand" 25 / 50): between two measured points the curve was only
+    interpolated, and the stable offset is not linear in the voltage (RTX 4080
+    live: +165 at 1075 mV, +177 at 1025, +206 at 975, +220 at 925). Each point
+    starts at its neighbour's result, so the closer points need fewer steps. A
+    point the card stays *above* under load (875 mV, the card ran at 920) is
+    below its minimum voltage — `AnchorResult.below_floor` — and every lower
+    point is skipped instead of tested one by one. The start dialog's estimate
+    counts the points (25 mV ≈ 50–80 min, 50 mV ≈ 40–60).
+  - **"Core max" per point +100 MHz for the All-round mode**
+    (`GpuDefaults.curve_core_max_mhz`; RTX 4080 +350 instead of +250): every
+    point is searched up to its first failure, so the limit is only a sanity
+    bound — in run 3 the old limit, not a failure, ended the search at 925 mV.
+    The classic modes keep their limit.
+  - **OC / UV / OC + UV / memory-only use the All-round tuner's memory stage**
+    (`_mem_stage_full` takes the apply function of the mode): +500 (per
+    generation) → "Mem max" in 100-MHz steps, every step with FurMark 2 and the
+    verified memory copies at once, 100 MHz safety after a failure, no profile
+    when even +0 fails. The old stage took the bandwidth peak of a memory-only
+    load — the method that gave +1500 and green speckles in the first live run;
+    it is removed together with its settings (`mem_oc_step_mhz`,
+    `mem_min_step_mhz`, `mem_bw_drop_pct`). A failed final test takes memory
+    back by 100 MHz (was: halved), like the All-round tuner. The GPU tab passes
+    FurMark 2 and the generation's start value to these modes too; a step
+    without bandwidth numbers no longer logs "0 GB/s".
+  - Tests: anchors every 25 mV and the floor (`test_round13` A), the curve
+    "Core max" for every generation, two new simulated runs (E19: nine points,
+    each found to ±5 MHz, at most 6 steps per point; E20: a card that never goes
+    below 920 mV — one test at 900 mV, 875 / 850 skipped, the report explains
+    it), the classic memory stage rewritten (`test_memstage`: +500 → failure →
+    −100, FurMark during every step, start value failing, +0 failing → no
+    profile, "Mem max", memory-only, final test −100), the stage tests and the
+    GPU tab (point spacing, estimate, Core max per mode, classic config) — 746
+    checks in 21 suites, all green.
+  - **The test battery while a game runs:** the three suites that map real
+    (invisible, alpha-0) windows for real geometry could take the focus from a
+    fullscreen game. `tests/run_hidden_desktop.py` runs a test on its own Windows
+    desktop that is never switched to (CreateDesktop + SetThreadDesktop before
+    tkinter is imported — windows belong to their thread's desktop; checked: the
+    Tk window has its real size and is not among the user's desktop windows);
+    `run_all_tests.py` uses it for those suites.
 
 ### 🔎 Reviewed, verified NOT a bug
 

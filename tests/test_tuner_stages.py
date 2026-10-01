@@ -1,5 +1,5 @@
 """Tuner stage logic with a scripted 'GPU': power limit is normal, Stage 2 finds the
-lowest limit with <= 3 % loss, Stage 4 stops when bandwidth drops (EDC)."""
+lowest limit with <= 3 % loss, Stage 4 loads the whole card (+500, 100-MHz steps)."""
 import os, sys, time, types, tempfile, shutil
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -111,25 +111,30 @@ t, logs = tune(TuneMode.OC_UV, gpu, core_step_mhz=15, core_max_mhz=120, power_st
 check(t.best_profile.core_offset_mhz in (50, 52) and t.best_profile.power_limit_pct == 88,
       f"+{t.best_profile.core_offset_mhz} MHz @ {t.best_profile.power_limit_pct}%")
 
-print("MEM only: stop when bandwidth falls (GDDR6X error correction)")
-gpu = GPU()
-t, logs = tune(TuneMode.MEM_ONLY, gpu, mem_oc_step_mhz=50, mem_oc_max_mhz=1000)
+print("MEM only: the whole card under load, +500 then 100-MHz steps (as in Rundum)")
+class MemGPU(GPU):
+    def run(self, duration_s, max_temp, on_tick=None, mode="gemm"):
+        r = super().run(duration_s, max_temp, on_tick, mode)
+        if mode == "mem" and self.mem > 650:
+            r.passed, r.crash_detected, r.compute_error = False, True, True
+            r.abort_reason = "Rechenfehler unter Last (GPU instabil)"
+        return r
+gpu = MemGPU()
+t, logs = tune(TuneMode.MEM_ONLY, gpu, mem_oc_max_mhz=1000, crash_pause_s=0)
 m = t.best_profile.mem_offset_mhz
-check(t.state == TunerState.DONE and 600 <= m <= 625, f"memory +{m} MHz (bandwidth peaks at +600)")
-check(any("Fehlerkorrektur" in x for x in logs), "the stop is explained as EDC slowing down")
-check(any(r[0] == "mem" for r in gpu.runs) and gpu.runs[-1][0] == "mixed",
-      "memory steps use the memory load, the final test the mixed game-like load")
-check(any("Bandbreiten-Maximum" in x for x in logs) or m == 600,
-      "result is the bandwidth PEAK, not the last offset inside the noise band")
-check(any("Referenz:" in x and "GB/s" in x for x in logs), "reference bandwidth measured first")
+check(t.state == TunerState.DONE and m == 500, f"memory +{m} MHz (+600 passed, +700 failed -> 100 MHz safety)")
+check([r[2] for r in gpu.runs if r[0] == "mem"] == [500, 600, 700], "steps +500, +600, +700")
+check(gpu.runs[-1][0] == "mixed", "the final test runs the mixed game-like load")
+check(any("+600 MHz bestanden, +700 nicht" in x or "+600 MHz passed, +700 did not" in x for x in logs),
+      "the result is explained")
 
-print("MEM only without cupy (no bandwidth) -> old behaviour + warning")
+print("MEM only without cupy (no bandwidth numbers) -> still checked for errors")
 class NoBW(GPU):
     def run(self, *a, **k):
         r = super().run(*a, **k); r.avg_bw_gbs = 0.0; return r
-t, logs = tune(TuneMode.MEM_ONLY, NoBW(), mem_oc_step_mhz=100, mem_oc_max_mhz=400)
-check(t.best_profile.mem_offset_mhz == 400 and any("nicht messbar" in x for x in logs),
-      "without bandwidth numbers it only watches for crashes, and says so")
+t, logs = tune(TuneMode.MEM_ONLY, NoBW(), mem_oc_max_mhz=400, crash_pause_s=0)
+check(t.best_profile.mem_offset_mhz == 400 and not any("0 GB/s" in x for x in logs),
+      "'Mem max' below the start value: +400 tested and kept, no '0 GB/s' noise")
 
 print("\n%d failure(s)" % len(FAILS))
 sys.exit(1 if FAILS else 0)

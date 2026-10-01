@@ -1,6 +1,10 @@
-"""Round 11 — memory OC inside the Auto-Tune (OC / OC+UV): searched with a
-bandwidth measurement instead of a fixed, unsearched 'Mem Offset'. Scripted GPU
-(nothing is applied to the real card); the GPU tab runs under a real mainloop."""
+"""Memory OC inside the Auto-Tune (OC / UV / OC+UV / MEM_ONLY). Round 11 searched
+the bandwidth peak of a memory-only load; since round 13 every mode uses the
+Rundum-Tuner's whole-card stage: +500 first, 100-MHz steps up to 'Mem max', each
+step with FurMark and the verified memory copies at once, 100 MHz safety after a
+failure (the bandwidth peak gave +1500 and green speckles in the live run).
+Scripted GPU (nothing is applied to the real card); the GPU tab runs under a real
+mainloop."""
 import os, sys, tempfile, time, types, shutil
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -12,20 +16,26 @@ def check(c, label):
     if not c:
         FAILS.append(label)
 
+import core.i18n as I18N
+I18N._current_lang = "de"                  # in memory only
 import core.nvtune_tuner as NT
+from core import furmark as FMOD
 from core.nvtune_tuner import AutoTuner, TunerConfig, TuneMode, TunerState, StressResult
 _real_time = NT.time
 NT.time = types.SimpleNamespace(sleep=lambda s: None, time=time.time, monotonic=time.monotonic)
 
 
 class GPU:
-    """Core unstable above +175 (steps); memory bandwidth rises until +1000 and
-    then falls (GDDR6X error correction), final test always passes."""
-    def __init__(self):
+    """Core unstable above +175 (steps); memory errors above `mem_limit` under the
+    whole-card load (the worker's verified copies), FurMark crashes above
+    `fm_mem_limit`, the final test fails above `final_mem_limit`."""
+    def __init__(self, mem_limit=800, fm_mem_limit=None, final_mem_limit=None):
         self.core = self.mem = 0; self.pwr = 100
-        self.mem_tests = []; self.finals = []
+        self.mem_limit, self.fm_mem_limit, self.final_mem_limit = mem_limit, fm_mem_limit, final_mem_limit
+        self.mem_tests = []; self.finals = []; self.furmarks = []; self.applied = []
     def apply(self, p):
         self.core, self.mem, self.pwr = p.core_offset_mhz, p.mem_offset_mhz, p.power_limit_pct
+        self.applied.append((self.core, self.mem, self.pwr))
     def run(self, d, max_temp, on_tick=None, mode="gemm"):
         r = StressResult(passed=True, avg_temp=65, max_temp=68, avg_voltage_mv=1000,
                          avg_gpu_usage=99, power_capped_pct=100.0)
@@ -35,14 +45,30 @@ class GPU:
             m = self.mem
             self.mem_tests.append(m)
             r.avg_rate_tflops = 0.0
-            r.avg_bw_gbs = 700 + 0.05 * m if m <= 1000 else 750 - 0.3 * (m - 1000)
+            r.avg_bw_gbs = 700 + 0.05 * m
             r.avg_mem_mhz = 11200 + m
+            if m > self.mem_limit:
+                r.passed, r.crash_detected, r.compute_error = False, True, True
+                r.abort_reason = "Rechenfehler unter Last (GPU instabil)"
+                return r
         if d == 120:
             self.finals.append((self.core, self.mem, self.pwr))
+            if self.final_mem_limit is not None and self.mem > self.final_mem_limit:
+                r.passed, r.crash_detected, r.compute_error = False, True, True
+                r.abort_reason = "Rechenfehler unter Last (GPU instabil)"
+                return r
         if self.core > 175:
             r.passed, r.compute_error = False, True
             r.abort_reason = "Rechenfehler unter Last (GPU instabil)"
         return r
+    def furmark(self, path, seconds, width=1920, height=1080, msaa=8, demo="furmark-gl",
+                stop_event=None, on_tick=None, grace_s=90.0):
+        self.furmarks.append((self.mem, seconds, msaa))
+        if self.fm_mem_limit is not None and self.mem > self.fm_mem_limit:
+            return dict(ok=False, score=0, fps_avg=0, exit_code=3221226505, elapsed_s=8.0,
+                        duration_ms=0, error="FurMark endete mit Code 3221226505 (Absturz?)")
+        return dict(ok=True, score=7000, fps_avg=67, exit_code=0, error="",
+                    duration_ms=seconds * 1000, elapsed_s=seconds + 3)
 
 
 class AB:
@@ -60,11 +86,15 @@ class Mon:
     def set_power_limit(self, w): return True
 
 
-def tune(gpu, **cfg):
+def tune(gpu, furmark=False, **cfg):
     NT.StressTester.run = lambda self, d, m, on_tick=None, mode="gemm": gpu.run(d, m, on_tick, mode)
+    FMOD.run_benchmark = gpu.furmark
     tmp = tempfile.mkdtemp(prefix="gop_mem_")
-    t = AutoTuner(Mon(), AB(gpu), NT.ProfileManager(os.path.join(tmp, "p")),
-                  TunerConfig(core_step_mhz=15, core_max_mhz=300, power_min_pct=90, **cfg),
+    conf = dict(core_step_mhz=15, core_max_mhz=300, power_min_pct=90, crash_pause_s=0,
+                furmark_path=r"C:\fake\FurMark_win64\furmark.exe" if furmark else "",
+                mem_curve_start_mhz=500)
+    conf.update(cfg)
+    t = AutoTuner(Mon(), AB(gpu), NT.ProfileManager(os.path.join(tmp, "p")), TunerConfig(**conf),
                   log_dir=os.path.join(tmp, "l"))
     logs = []
     t.on_log(lambda m, l: logs.append(m))
@@ -73,20 +103,41 @@ def tune(gpu, **cfg):
     return t, logs
 
 
-print("OC + UV with the memory stage")
-g = GPU()
-t, logs = tune(g, mode=TuneMode.OC_UV, mem_stage=True, mem_oc_max_mhz=1500,
-               mem_oc_step_mhz=250, mem_min_step_mhz=25)
-check(g.mem_tests[1:] == [250, 500, 750, 1000, 1250, 1125, 1062, 1031, 1037],
-      f"coarse 250-MHz steps, halved after the first drop, ±25 MHz: {g.mem_tests[1:]}")
-check(g.mem_tests[0] == 0, "reference bandwidth at stock memory first")
-check(len(set(g.mem_tests)) == len(g.mem_tests), "no offset tested twice")
+print("OC + UV with the memory stage: the whole card under load")
+g = GPU(mem_limit=800)
+t, logs = tune(g, mode=TuneMode.OC_UV, mem_stage=True, mem_oc_max_mhz=1000)
+check(g.mem_tests == [500, 600, 700, 800, 900], f"+500 first, then 100-MHz steps until a failure: {g.mem_tests}")
 bp = t.best_profile
-check(t.state == TunerState.DONE and bp and bp.mem_offset_mhz == 1000,
-      f"result = bandwidth peak +1000 (not +1031 inside the noise band): {bp.mem_offset_mhz if bp else None}")
-check(g.finals and g.finals[-1][1] == 1000, f"final test ran WITH the memory offset: {g.finals}")
-check(any("Bandbreiten-Maximum" in m for m in logs), "log explains the choice")
-check(any("Fehlerkorrektur" in m for m in logs), "log names the EDC slowdown")
+check(t.state == TunerState.DONE and bp and bp.mem_offset_mhz == 700,
+      f"+800 passed, +900 failed -> +700 (100 MHz safety): {bp.mem_offset_mhz if bp else None}")
+check(g.finals and g.finals[-1][1] == 700, f"final test ran WITH the memory offset: {g.finals}")
+check(any("+800 MHz bestanden, +900 nicht → +700 MHz übernommen" in m for m in logs), "log explains the choice")
+check(not any("Bandbreiten-Maximum" in m for m in logs), "no bandwidth-peak search any more")
+cores = {c for c, m, p in g.applied if m in (500, 600, 700, 800, 900)}
+check(len(cores) == 1 and min(cores) > 0, f"every memory step on the found core offset: {cores}")
+
+print("with FurMark 2: it runs during every memory step")
+g = GPU(mem_limit=5000, fm_mem_limit=650)
+t, logs = tune(g, furmark=True, mode=TuneMode.OC_UV, mem_stage=True, mem_oc_max_mhz=1000)
+check([m for m, s, a in g.furmarks] == [500, 600, 700] and all(a == 8 for m, s, a in g.furmarks),
+      f"FurMark (8x MSAA) with each memory step: {g.furmarks}")
+check(t.best_profile and t.best_profile.mem_offset_mhz == 500,
+      "FurMark crashed at +700 while the copies passed -> +500")
+check(any("Mem+700MHz ✗" in m and "FurMark" in m for m in logs), "the failure names FurMark")
+
+print("the start value fails: down from +500")
+g = GPU(mem_limit=300)
+t, logs = tune(g, mode=TuneMode.OC_ONLY, mem_stage=True, mem_oc_max_mhz=1000)
+check(g.mem_tests == [500, 400, 300] and t.best_profile and t.best_profile.mem_offset_mhz == 200,
+      f"+500 / +400 failed, +300 passed -> +200: {g.mem_tests}")
+
+print("even +0 fails: no profile, back to stock")
+g = GPU(mem_limit=-1)
+t, logs = tune(g, mode=TuneMode.OC_UV, mem_stage=True, mem_oc_max_mhz=1000)
+check(g.mem_tests == [500, 400, 300, 200, 100, 0] and t.state == TunerState.ERROR
+      and t.best_profile is None and any("schon +0 MHz" in m for m in logs),
+      "the core setting fails the whole-card load: error, no profile")
+check(g.applied[-1] == (0, 0, 100) and not g.finals, "card back on stock, no final test")
 
 print("memory stage off")
 g = GPU()
@@ -95,19 +146,23 @@ check(g.mem_tests == [] and t.best_profile and t.best_profile.mem_offset_mhz == 
       "no memory steps, profile memory +0")
 check(any("Stage 4 skipped" in m for m in logs), "log says so")
 
-print("'Mem Max' is respected and tested once")
-g = GPU()
-t, logs = tune(g, mode=TuneMode.OC_ONLY, mem_stage=True, mem_oc_max_mhz=1100,
-               mem_oc_step_mhz=250, mem_min_step_mhz=25)
-check(max(g.mem_tests) == 1100 and g.mem_tests.count(1100) == 1
-      and g.mem_tests[1:] == [250, 500, 750, 1000, 1100, 1075, 1050],
-      f"the limit itself is tested exactly once, never above or right next to it: {g.mem_tests[1:]}")
-check(t.best_profile and t.best_profile.mem_offset_mhz == 1000, "result still the peak")
+print("'Mem Max' is respected")
+g = GPU(mem_limit=5000)
+t, logs = tune(g, mode=TuneMode.OC_ONLY, mem_stage=True, mem_oc_max_mhz=1100)
+check(g.mem_tests == [500, 600, 700, 800, 900, 1000, 1100] and t.best_profile.mem_offset_mhz == 1100,
+      f"up to the limit, tested once, kept without a failure: {g.mem_tests}")
 
-print("old modes unchanged")
-g = GPU()
-t, logs = tune(g, mode=TuneMode.MEM_ONLY, mem_oc_max_mhz=1500, mem_oc_step_mhz=250)
-check(t.best_profile and t.best_profile.mem_offset_mhz == 1000, "MEM_ONLY finds the same peak")
+print("MEM_ONLY uses the same stage")
+g = GPU(mem_limit=800)
+t, logs = tune(g, mode=TuneMode.MEM_ONLY, mem_oc_max_mhz=1000)
+check(t.best_profile and t.best_profile.mem_offset_mhz == 700, "MEM_ONLY: +700 as well")
+
+print("final test fails on memory: one 100-MHz step back")
+g = GPU(mem_limit=5000, final_mem_limit=900)
+t, logs = tune(g, mode=TuneMode.OC_ONLY, mem_stage=True, mem_oc_max_mhz=1000)
+check(t.state == TunerState.DONE and t.best_profile and t.best_profile.mem_offset_mhz == 900
+      and any("Speicher +1000→+900 MHz" in m for m in logs),
+      f"memory +1000 → +900 (was: halved): {t.best_profile.mem_offset_mhz if t.best_profile else None}")
 
 # ── GPU tab ──────────────────────────────────────────────────────────────────
 print("GPU tab")
@@ -147,9 +202,11 @@ check(gpu.v_mem_stage.get() is True, "'OC + UV' switches it back on")
 gpu._start_tune()
 cfg = started[-1] if started else None
 check(cfg is not None and cfg.mem_stage and cfg.mem_oc_max_mhz == gpu.v_mem_max.get()
-      and cfg.mem_oc_step_mhz == 250 and cfg.mem_min_step_mhz == 25 and cfg.mem_offset_mhz == 0,
-      "tuner config: memory stage on, 250-MHz steps to ±25, no fixed offset")
-check(ASKED and f"Speicher: bis +{gpu.v_mem_max.get()}MHz" in ASKED[-1] and "30-45" in ASKED[-1],
+      and cfg.mem_curve_start_mhz == gpu._mem_start() and cfg.mem_curve_step_mhz == 100
+      and cfg.furmark_path == gpu._furmark_v2() and cfg.mem_offset_mhz == 0,
+      "tuner config: whole-card memory stage (cautious start, 100-MHz steps, FurMark), no fixed offset")
+check(ASKED and f"Speicher: +{gpu._mem_start()} bis +{gpu.v_mem_max.get()} MHz in 100er-Schritten, "
+      f"ganze Karte unter Last" in ASKED[-1] and "30-45" in ASKED[-1],
       "start dialog names the memory stage and the longer duration")
 gpu.v_mem_stage.set(False)
 gpu._start_tune()
