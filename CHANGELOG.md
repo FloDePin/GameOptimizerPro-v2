@@ -943,6 +943,13 @@ verifiers (VERIFY_MAP stays 1:1) and full English descriptions.
     app. `logs/` and `profiles/` are never touched. A git checkout is updated
     with `git pull --ff-only` (clean tree only); "no" is remembered per build
     for the automatic check.
+  - **Checked against the real GitHub repository** after the push: a zip
+    install claiming build 13 (temp folder) found build 14, downloaded it
+    (0.4 s), and the real installer replaced the files, removed a stale module,
+    kept logs/ and profiles/ — the files then matched GitHub main. That run
+    showed one waste: `requirements.txt` differing only in line endings (CRLF in
+    a git checkout, LF in the zip) started `pip install`; line endings don't
+    count any more.
   - **Close behaviour:** Settings → "Keep running in the tray when closed"
     (default on); off = the X quits. Without a tray icon (pystray missing) the X
     used to hide the window with no way back — it quits now.
@@ -956,12 +963,13 @@ verifiers (VERIFY_MAP stays 1:1) and full English descriptions.
   - Tests: `tests/test_round14.py` (CPU → platform for 30 CPU names, every
     profile complete, vendor paths, the detector's rules, the updater against a
     fake GitHub incl. zip-slip / wrong build / broken download, the installer on
-    temp folders incl. rollback and the whole script, every update dialog path,
+    temp folders incl. rollback and the whole script, pip only for a real
+    requirements change, every update dialog path,
     tune history, close behaviour); `test_ui_round12` (history view, BIOS page,
     page stack, two-button redraw, settings switches, Afterburner rows);
     `tests/run_hidden_desktop.py` runs the suites that map real windows on a
     never-shown desktop — the whole battery can run while the user plays —
-    826 checks in 22 suites, all green; screenshots of every page at 1400×900
+    828 checks in 22 suites, all green; screenshots of every page at 1400×900
     and 1000×700 checked.
 
 ### 🔎 Reviewed, verified NOT a bug

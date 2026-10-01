@@ -257,6 +257,19 @@ check(rc == 0 and (dst / "core" / "a.py").read_text() == "A3" and "Build 17: OK"
       and not (dst / "logs" / "update").exists(), "apply_update.py: installed, logged, staging removed")
 check(AU.main(["--src", str(Path(TMP) / "nothing"), "--dst", str(dst), "--pid", "0"]) == 2,
       "refuses a folder that isn't GameOptimizerPro")
+pips = []
+real_run = AU.subprocess.run
+AU.subprocess.run = lambda *a, **k: (pips.append(a[0]), subprocess.CompletedProcess(a[0], 0))[1]
+src4 = dst / "logs" / "update" / "new" / "pkg4"
+tree(src4, {"GameOptimizerPro.py": "newest", "tools/apply_update.py": "#", "requirements.txt": "same\n"})
+(dst / "requirements.txt").write_bytes(b"same  \r\n")
+AU.main(["--src", str(src4), "--dst", str(dst), "--pid", "0", "--build", "18"])
+check(not pips, "requirements.txt differing only in line endings: no pip run")
+src5 = dst / "logs" / "update" / "new" / "pkg5"
+tree(src5, {"GameOptimizerPro.py": "newest2", "tools/apply_update.py": "#", "requirements.txt": "same\nnewpkg\n"})
+AU.main(["--src", str(src5), "--dst", str(dst), "--pid", "0", "--build", "19"])
+check(len(pips) == 1 and "-r" in pips[0], "a new requirement: pip install -r requirements.txt")
+AU.subprocess.run = real_run
 
 # ── E: update flow (dialogs) ─────────────────────────────────────────────────
 print("E  update flow: what the user is asked")

@@ -116,6 +116,15 @@ def apply(src: Path, dst: Path, build: int) -> tuple[bool, str]:
                   f"Sicherung: {backup}")
 
 
+def _req(path: Path) -> bytes:
+    """requirements.txt for comparing: line endings / trailing space don't count
+    (a git checkout has CRLF, the GitHub zip LF — that started pip for nothing)."""
+    try:
+        return b"\n".join(line.rstrip() for line in path.read_bytes().splitlines()).strip()
+    except OSError:
+        return b""
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--src", required=True)
@@ -132,10 +141,10 @@ def main(argv=None):
         log(dst, "Update abgebrochen: GameOptimizerPro hat sich nicht beendet")
         return 3
     time.sleep(0.5)
-    old_req = (dst / "requirements.txt").read_bytes() if (dst / "requirements.txt").exists() else b""
+    old_req = _req(dst / "requirements.txt")
     ok, msg = apply(src, dst, a.build)
     log(dst, f"Update auf Build {a.build}: {'OK' if ok else 'FEHLER'} — {msg}")
-    if ok and (dst / "requirements.txt").exists() and (dst / "requirements.txt").read_bytes() != old_req:
+    if ok and (dst / "requirements.txt").exists() and _req(dst / "requirements.txt") != old_req:
         py = Path(sys.executable).with_name("python.exe")
         try:
             r = subprocess.run([str(py if py.exists() else sys.executable), "-m", "pip", "install", "-r",
