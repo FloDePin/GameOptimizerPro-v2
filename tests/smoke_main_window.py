@@ -48,10 +48,8 @@ sl = StartupLoader(tmp, ab, pm, cr)
 print(f"components up in {time.time() - t0:.1f}s — GPU: {hw.gpu_name}, VRAM {hw.gpu_vram_mb} MB, "
       f"RAM {hw.ram_type}, NVMe {hw.has_nvme}")
 
-from core.game_monitor import GameMonitor
-gm = GameMonitor(tmp, ab, pm, cr)          # built like the app does, never started
 t0 = time.time()
-w = GameOptimizerWindow(hw, mon, ab, pm, tuner, runner, startup_loader=sl, game_monitor=gm)
+w = GameOptimizerWindow(hw, mon, ab, pm, tuner, runner, startup_loader=sl)
 w.attributes("-alpha", 0.0)          # invisible on the desktop
 print(f"main window built in {(time.time() - t0) * 1000:.0f} ms, pages at start: {list(w._tab_frames)}")
 tabs = [k for k, *_x in mw.TAB_DEFS]

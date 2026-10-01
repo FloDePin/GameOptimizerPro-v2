@@ -5,7 +5,7 @@ GameOptimizerPro Startup Loader
 - Registriert / entfernt GameOptimizerPro aus Windows Autostart (HKCU Run)
 """
 
-import os, sys, json, subprocess
+import os, subprocess
 try:
     import winreg
 except ImportError:
@@ -51,7 +51,7 @@ class StartupLoader:
                 p = TuneProfile.from_dict(last_stable)
                 p.name = "__crash_recovery__"
                 self.ab.write_and_apply(2, p)
-            except: pass
+            except Exception: pass
 
         if on_crash_detected:
             name = crashed_profile.get("name", "Unknown")
@@ -86,7 +86,7 @@ class StartupLoader:
                 from core.nvtune_core import TuneProfile
                 try:
                     profile = TuneProfile.from_dict(last)
-                except: pass
+                except Exception: pass
 
         if not profile:
             return False, "No startup profile configured"
@@ -108,7 +108,7 @@ class StartupLoader:
     def is_autostart_enabled(self) -> bool:
         try:
             r = subprocess.run(["schtasks", "/Query", "/TN", TASK_NAME],
-                               capture_output=True, text=True, creationflags=_nw_flags())
+                               capture_output=True, text=True, creationflags=_nw_flags(), timeout=30)
             if r.returncode == 0:
                 return True
         except Exception:
@@ -154,7 +154,7 @@ class StartupLoader:
         bad defaults), harden it. Call from a background thread."""
         try:
             r = subprocess.run(["schtasks", "/Query", "/TN", TASK_NAME],
-                               capture_output=True, text=True, creationflags=_nw_flags())
+                               capture_output=True, text=True, creationflags=_nw_flags(), timeout=30)
             if r.returncode != 0:
                 return False
         except Exception:
@@ -171,7 +171,7 @@ class StartupLoader:
                     ["schtasks", "/Create", "/TN", TASK_NAME,
                      "/TR", f'"{exe}" "{script}"',
                      "/SC", "ONLOGON", "/RL", "HIGHEST", "/F"],
-                    capture_output=True, text=True, creationflags=_nw_flags())
+                    capture_output=True, text=True, creationflags=_nw_flags(), timeout=30)
                 self._remove_legacy_run()   # alten Run-Eintrag entfernen
                 if r.returncode != 0:
                     return False
@@ -179,7 +179,7 @@ class StartupLoader:
                 return True
             else:
                 subprocess.run(["schtasks", "/Delete", "/TN", TASK_NAME, "/F"],
-                               capture_output=True, text=True, creationflags=_nw_flags())
+                               capture_output=True, text=True, creationflags=_nw_flags(), timeout=30)
                 self._remove_legacy_run()
                 return True
         except Exception:

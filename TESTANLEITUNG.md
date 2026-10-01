@@ -26,6 +26,31 @@ Profil übernommen (NVML las **288 W** zurück), gleiche Werte gingen ohne Neust
 
 ---
 
+## Jetzt (nach dem Update von Runde 14) — schlanker, BIOS, Updates
+
+App einmal **schließen** (Tray → Beenden) und als **Administrator** neu starten.
+
+1. **Seitenwechsel:** ein paar Mal zwischen den Seiten hin- und herklicken — es sollte sich
+   deutlich flüssiger anfühlen (die Seiten werden nach dem Start im Hintergrund vorgebaut).
+2. **„Spiele & Verlauf“ ist weg**, der **Tune-Verlauf** sitzt jetzt unter **GPU-Tuner → Verlauf**
+   (mit Speicher-Offset). **Diagnose** hat nur noch Health-Report und Remnant-Scan.
+3. **BIOS-Guide:** oben steht deine Plattform („AMD Ryzen 9000X3D … ✓ erkannt“) und dein
+   Board-Hersteller („Gigabyte ✓ erkannt“). Die Menüpfade sind für Gigabyte. In der Liste stehen
+   alle 16 Plattformen zum Nachlesen. Bei dir sollten EXPO, Resizable BAR, Secure Boot und CSM grün
+   sein („4/4 prüfbare Einstellungen bereits gesetzt“).
+4. **Einstellungen → Start:** neu sind „Beim Start auf Updates prüfen“, „Beim Schließen im Tray
+   weiterlaufen“ und „Jetzt auf Updates prüfen“ (darunter steht „Installiert: v2.0, Build 14“).
+   Bei dir ist der Ordner ein Git-Checkout — ein Update käme dort per „git pull“.
+5. **Einstellungen → Afterburner-Einrichtung:** zwei neue Zeilen. Bei dir stehen beide auf ✗:
+   - „AB: startet mit Windows“ → Afterburner → Einstellungen → Allgemein → „Mit Windows starten“
+     (+ „Minimiert starten“)
+   - „AB: Übertaktung beim Systemstart anwenden“ → GPU-Tuner → Profile → dein Profil anwenden,
+     dann im Afterburner-Hauptfenster das Windows-Symbol „Startup“ einschalten
+   Danach muss GameOptimizerPro nach dem Tunen nicht mehr laufen — die Tweaks bleiben ohnehin,
+   und Afterburner setzt dein Profil beim Start selbst. „Setup prüfen“ zeigt dann zweimal ✓.
+
+---
+
 ## Jetzt (nach dem Update von Runde 13) — Rundum-Tuner
 
 Der neue Modus **„Rundum“** misst jeden Spannungspunkt der Kurve einzeln und baut daraus eine

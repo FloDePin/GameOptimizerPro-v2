@@ -4,7 +4,7 @@ Pingt Gateway + öffentliche DNS-Server und misst Latenz, Paketverlust und Jitte
 Rein lesend, keine Systemänderung. Läuft über den Windows `ping`-Befehl.
 """
 
-import subprocess, re, statistics, socket, os
+import subprocess, re, statistics, os
 from dataclasses import dataclass, field
 from typing import Optional
 

@@ -48,7 +48,7 @@ OK, WRN = GREEN, AMBER
 
 PAGE_COLORS = {
     "dashboard": RED, "optimizer": RED, "gpu": CYAN, "stress": AMBER,
-    "compare": VIOLET, "bios": AMBER, "games": GREEN, "diagnose": ACC,
+    "compare": VIOLET, "bios": AMBER, "diagnose": ACC,
     "settings": SLATE,
 }
 
@@ -76,7 +76,7 @@ else:
 
 ICONS = {
     "dashboard": "\uEC4A", "optimizer": "\uE9F5", "gpu": "\uE964", "stress": "\uECAD",
-    "compare": "\uE9D2", "bios": "\uE950", "games": "\uE7FC", "diagnose": "\uE9D9",
+    "compare": "\uE9D2", "bios": "\uE950", "diagnose": "\uE9D9",
     "settings": "\uE713", "startup": "\uE7E8", "services": "\uE90F", "folder": "\uE838",
     "refresh": "\uE72C", "check": "\uE73E", "play": "\uE768", "stop": "\uE71A",
     "save": "\uE74E", "warning": "\uE7BA", "info": "\uE946", "globe": "\uE774",

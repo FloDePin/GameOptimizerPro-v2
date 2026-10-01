@@ -1,692 +1,711 @@
 """
-GameOptimizerPro v2.1 — BIOS Guide Database
-Erkennt CPU/MB/GPU-Generation und gibt spezifische BIOS-Empfehlungen
-plus passende Windows Registry-Tweaks aus.
+GameOptimizerPro v2.0 — BIOS Guide database
 
-Struktur:
-  BiosSetting  — eine einzelne Empfehlung mit Menüpfad, Wert, Erklärung
-  BiosProfile  — alle Settings für eine Hardware-Kombination
-  match()      — findet das beste Profil für erkannte Hardware
+Every desktop platform since Intel's 8th gen / AMD's first Ryzen, each with the
+settings that matter for games, and the menu path on ASUS, MSI, Gigabyte and
+ASRock boards. The hardware detection only PRE-SELECTS the platform and the board
+maker — every profile can be opened.
+
+  BiosSetting  — one recommendation: value, menu path (per board maker), why
+  BiosProfile  — one platform (CPU generation + socket / chipsets)
+  PROFILES     — all platforms, newest first per vendor
+  detect_profile() / vendor_of() — what the hardware detection picks
+
+Menu names differ between BIOS versions — every path is the usual one; the
+BIOS's own search (ASUS F9, MSI Ctrl+F) finds an option by its name.
 """
 
+import re
 from dataclasses import dataclass, field
 from typing import Optional
 
 
 # ── Risk levels ───────────────────────────────────────────────────────────────
-SAFE     = "safe"       # Immer empfohlen, kein Risiko
-MODERATE = "moderate"   # Empfohlen, kleines Risiko
-ADVANCED = "advanced"   # Nur für Erfahrene
+SAFE     = "safe"       # always recommended, no risk
+MODERATE = "moderate"   # recommended, test stability afterwards
+ADVANCED = "advanced"   # for experienced users only
+
+# board makers: key, label
+VENDORS = [("asus", "ASUS"), ("msi", "MSI"), ("gigabyte", "Gigabyte"), ("asrock", "ASRock"),
+           ("other", "Andere / unbekannt")]
+
+
+def vendor_of(manufacturer: str) -> str:
+    """Board maker key from the WMI baseboard manufacturer."""
+    m = (manufacturer or "").upper()
+    if "ASUS" in m:
+        return "asus"
+    if "MICRO-STAR" in m or m.startswith("MSI"):
+        return "msi"
+    if "GIGABYTE" in m:
+        return "gigabyte"
+    if "ASROCK" in m:
+        return "asrock"
+    return "other"
 
 
 @dataclass
 class BiosSetting:
-    category:    str          # z.B. "Memory", "CPU", "GPU", "Power"
-    name:        str          # Einstellungsname
-    recommended: str          # Empfohlener Wert
-    default:     str          # BIOS-Standard
-    path:        str          # Menüpfad im BIOS
-    explanation: str          # Warum diese Einstellung wichtig ist
+    category:    str          # "Memory" | "CPU" | "GPU" | "Power" | "Boot"
+    name:        str
+    recommended: str
+    default:     str
+    path:        str          # generic menu path (any board)
+    explanation: str
     risk:        str = SAFE
-    registry_tweak: Optional[str] = None   # Passender Windows Registry Key
-    registry_value: Optional[str] = None
-    registry_data:  Optional[str] = None
     impact:      str = "medium"   # "low" | "medium" | "high"
-    detect_key:  Optional[str] = None  # Key for BiosDetector (e.g. "expo_xmp", "rebar")
+    detect_key:  Optional[str] = None   # BiosDetector result that shows whether it is set
+    paths:       dict = field(default_factory=dict)   # vendor key -> menu path
+    key:         str = ""     # stable id (tests, de-duplication)
+
+    def path_for(self, vendor: str) -> str:
+        return self.paths.get(vendor) or self.path
 
 
 @dataclass
 class BiosProfile:
-    id:           str
-    name:         str          # z.B. "AMD Ryzen 9000 + X670 + NVIDIA RTX 40xx"
-    cpu_match:    list[str]    # Substrings die in CPU-Name matchen
-    mb_match:     list[str]    # Substrings die in MB-Name matchen (leer = alle)
-    gpu_match:    list[str]    # Substrings die in GPU-Name matchen (leer = alle)
-    settings:     list[BiosSetting] = field(default_factory=list)
-    notes:        str = ""
+    id:        str
+    name:      str
+    cpus:      str            # which CPUs, as shown to the user
+    platform:  str            # socket + chipsets
+    brand:     str            # "amd" | "intel" | "any"
+    settings:  list = field(default_factory=list)
+    notes:     str = ""
 
 
-# ── Gemeinsame AMD-Zusatz-Einstellungen (AM4 + AM5) ──────────────────────────
-# Frische Objekte pro Aufruf, damit sie nicht profilübergreifend geteilt werden.
-def _amd_extra_latency() -> list:
-    return [
-        BiosSetting(
-            category="Boot",
-            name="Launch CSM (Legacy-Modus)",
-            recommended="Disabled",
-            default="Auto / Enabled",
-            path="Boot → CSM Configuration → Launch CSM = Disabled",
-            explanation="CSM ist der alte Legacy-BIOS-Kompatibilitätsmodus. Für Resizable BAR und "
-                        "sauberes UEFI-Booten muss er aus sein. WICHTIG: nur deaktivieren, wenn Windows "
-                        "bereits im UEFI-Modus (GPT-Datenträger) installiert ist — sonst startet das "
-                        "System nicht mehr. Prüfen mit msinfo32 → 'BIOS-Modus: UEFI'.",
-            risk=MODERATE,
-            impact="medium",
-        ),
-        BiosSetting(
-            category="CPU",
-            name="Local APIC Mode = x2APIC",
-            recommended="x2APIC",
-            default="Auto",
-            path="Advanced → AMD CBS → CPU Common Options → Local APIC Mode = x2APIC",
-            explanation="x2APIC ist die moderne, effizientere Interrupt-Verwaltung — besonders bei "
-                        "CPUs mit vielen Threads. Auf 'Auto' wählt das BIOS es meist ohnehin; explizit "
-                        "'x2APIC' ist die saubere Einstellung. Kein Risiko auf aktuellem Windows.",
-            risk=SAFE,
-            impact="low",
-        ),
-        BiosSetting(
-            category="CPU",
-            name="Data Fabric (DF) C-States",
-            recommended="Disabled",
-            default="Auto / Enabled",
-            path="Advanced → AMD Overclocking / CBS → DF C-States = Disabled",
-            explanation="Verhindert, dass der Infinity-Fabric-Interconnect (zwischen CPU-Chiplets und "
-                        "RAM) in Schlafzustände geht. Reduziert Latenz-Spikes — spürbar bei "
-                        "latenzkritischem Gaming. Kostet minimal mehr Idle-Strom. Gilt für AM4 und AM5.",
-            risk=MODERATE,
-            impact="medium",
-        ),
-        _vendor_autoinstall(),
-    ]
+# ═══════════════════════════════════════════════════════════════════════════════
+# Setting builders — fresh objects per profile
+# ═══════════════════════════════════════════════════════════════════════════════
 
-
-def _vendor_autoinstall():
-    """Herstellerübergreifend (ASUS/MSI/Gigabyte/ASRock) — verhindert Mainboard-Bloatware."""
+def _memory_profile(brand: str, ddr: str, target: str, note: str = "") -> BiosSetting:
+    amd = brand == "amd"
+    name = ("EXPO-Profil" if ddr == "DDR5" else "D.O.C.P. / A-XMP-Profil") if amd else "XMP-Profil"
+    paths = ({
+        "asus": "Ai Tweaker → Ai Overclock Tuner → " + ("EXPO I" if ddr == "DDR5" else "D.O.C.P."),
+        "msi": "OC → A-XMP / EXPO → Profile 1 (oder der EXPO-/A-XMP-Schalter im EZ-Mode)",
+        "gigabyte": "Tweaker → Extreme Memory Profile (X.M.P.) / EXPO → Profile1 (auch im Easy Mode)",
+        "asrock": "OC Tweaker → DRAM Profile Configuration → DRAM Profile Setting → EXPO/XMP-Profil 1",
+    } if amd else {
+        "asus": "Ai Tweaker → Ai Overclock Tuner → XMP I",
+        "msi": "OC → Extreme Memory Profile (XMP) → Profile 1 (oder der XMP-Schalter im EZ-Mode)",
+        "gigabyte": "Tweaker → Extreme Memory Profile (X.M.P.) → Profile1 (auch im Easy Mode)",
+        "asrock": "OC Tweaker → DRAM Profile Configuration → XMP-Profil 1",
+    })
     return BiosSetting(
-        category="Boot",
-        name="Auto-Install von Mainboard-Utilities deaktivieren",
-        recommended="Disabled",
+        key="memory_profile", category="Memory", name=name,
+        recommended=f"Profil 1 ({target})", default=f"Aus — JEDEC-Standardtakt",
+        path="OC-/Tweaker-Menü → Speicherprofil (EXPO bzw. XMP/DOCP) → Profil 1",
+        explanation=(f"Ohne Profil läuft der RAM nur mit dem langsamen {ddr}-Standardtakt — der größte "
+                     f"kostenlose Gewinn im BIOS, vor allem für die 1-%-Lows in CPU-lastigen Spielen. "
+                     + note + (" " if note else "")
+                     + "Startet der PC danach nicht oder gibt es Abstürze: Profil 2 oder ein Takt-Schritt "
+                       "niedriger; viele Boards setzen nach 3 Fehlstarts selbst zurück."),
+        risk=SAFE, impact="high", detect_key="expo_xmp", paths=paths)
+
+
+def _rebar(brand: str, note: str = "") -> BiosSetting:
+    return BiosSetting(
+        key="rebar", category="GPU", name="Resizable BAR (+ Above 4G Decoding)",
+        recommended="Above 4G Decoding = Enabled, Re-Size BAR Support = Enabled", default="Disabled",
+        path="PCI-/IO-Einstellungen → Above 4G Decoding = Enabled → Re-Size BAR Support = Enabled",
+        explanation=("Die CPU darf den ganzen Grafikspeicher auf einmal ansprechen statt in 256-MB-Häppchen. "
+                     "NVIDIA nutzt es für die Spiele, für die es im Treiber freigegeben ist; bei AMD-Karten "
+                     "heißt es „Smart Access Memory“ und wirkt fast überall. Voraussetzung: CSM aus "
+                     "(UEFI-Start). " + note).strip(),
+        risk=SAFE, impact="high", detect_key="rebar", paths={
+            "asus": "Advanced → PCI Subsystem Settings → Above 4G Decoding = Enabled → Re-Size BAR Support = Enabled",
+            "msi": "Settings → Advanced → PCIe/PCI Sub-system Settings → Above 4G memory/Crypto Currency mining = "
+                   "Enabled → Re-Size BAR Support = Enabled",
+            "gigabyte": "Settings → IO Ports → Above 4G Decoding = Enabled → Re-Size BAR Support = Auto/Enabled",
+            "asrock": "Advanced → PCI Configuration → Above 4G Decoding = Enabled → Re-Size BAR Support"
+                      + (" (bei AMD-Boards auch „C.A.M.“)" if brand == "amd" else "") + " = Enabled",
+        })
+
+
+def _csm() -> BiosSetting:
+    return BiosSetting(
+        key="csm", category="Boot", name="CSM (Legacy-Start) aus", recommended="Disabled (reiner UEFI-Start)",
+        default="je nach Board Auto / Enabled",
+        path="Boot → CSM (Compatibility Support Module) → Disabled",
+        explanation="Der alte Legacy-BIOS-Modus. Aus = Voraussetzung für Resizable BAR und Secure Boot. "
+                    "WICHTIG: nur ausschalten, wenn Windows im UEFI-Modus installiert ist — prüfen mit "
+                    "msinfo32 → „BIOS-Modus: UEFI“. Steht dort „Legacy“, startet Windows ohne CSM nicht.",
+        risk=MODERATE, impact="medium", detect_key="csm", paths={
+            "asus": "Boot → CSM (Compatibility Support Module) → Launch CSM = Disabled",
+            "msi": "Settings → Advanced → Windows OS Configuration → BIOS UEFI/CSM Mode = UEFI",
+            "gigabyte": "Boot → CSM Support = Disabled",
+            "asrock": "Boot → CSM (Compatibility Support Module) → CSM = Disabled",
+        })
+
+
+def _secure_boot() -> BiosSetting:
+    return BiosSetting(
+        key="secure_boot", category="Boot", name="Secure Boot", recommended="Enabled",
+        default="oft Disabled (bzw. „Other OS“)",
+        path="Boot/Security → Secure Boot = Enabled",
+        explanation="Bringt keine FPS, ist aber für immer mehr Spiele Pflicht: Valorant/Vanguard unter "
+                    "Windows 11, Battlefield 6, Call of Duty und weitere Anti-Cheats starten ohne Secure "
+                    "Boot nicht. Braucht CSM aus. Meldet das BIOS fehlende Schlüssel: „Restore Factory "
+                    "Keys“ bzw. „Install default Secure Boot keys“.",
+        risk=SAFE, impact="medium", detect_key="secure_boot", paths={
+            "asus": "Boot → Secure Boot → OS Type = Windows UEFI mode",
+            "msi": "Settings → Security → Secure Boot → Secure Boot = Enabled",
+            "gigabyte": "Boot → Secure Boot → Secure Boot = Enabled",
+            "asrock": "Security → Secure Boot → Secure Boot = Enabled",
+        })
+
+
+def _bios_update(what: str, risk: str = SAFE, impact: str = "medium") -> BiosSetting:
+    return BiosSetting(
+        key="bios_update", category="Boot", name="BIOS aktuell halten", recommended="neueste Version des Herstellers",
+        default="Auslieferungsstand",
+        path="Flash-Tool im BIOS — Datei von der Support-Seite des Boards auf einen FAT32-USB-Stick",
+        explanation=what + " Vor dem Flashen das EXPO/XMP-Profil notieren (danach ist alles auf Standard) "
+                           "und den PC währenddessen nicht ausschalten.",
+        risk=risk, impact=impact, paths={
+            "asus": "Tool → ASUS EZ Flash 3 Utility (Datei auf USB-Stick)",
+            "msi": "M-FLASH (Startbildschirm, links unten) — Datei auf USB-Stick",
+            "gigabyte": "Q-Flash (Taste F8) — Datei auf USB-Stick",
+            "asrock": "Tool → Instant Flash — Datei auf USB-Stick",
+        })
+
+
+def _autoinstall() -> BiosSetting:
+    return BiosSetting(
+        key="autoinstall", category="Boot", name="Automatische Hersteller-Software aus", recommended="Disabled",
         default="Enabled",
-        path="ASUS: Tool → Auto Install ASUS Utilities = Disabled  |  "
-             "MSI: Settings → Advanced → MSI Driver Utility Installer = Disabled  |  "
-             "Gigabyte: Settings → Gigabyte Utilities Downloader Configuration = Disabled  |  "
-             "ASRock: Tool → Auto Driver Installer = Disabled",
-        explanation="Verhindert, dass das Mainboard beim ersten Windows-Start automatisch "
-                    "Hersteller-Software, Hintergrunddienste und Treiber-Downloader installiert "
-                    "(Armoury Crate, MSI Center, App Center …) — ungefragte Bloatware auf UEFI-Ebene. "
-                    "Treiber bei Bedarf sauber direkt von der Hersteller-Website ziehen.",
-        risk=SAFE,
-        impact="medium",
-    )
+        path="Hersteller-Menü → Auto-Installation der Board-Software = Disabled",
+        explanation="Sonst installiert das Board beim ersten Windows-Start ungefragt Hersteller-Software, "
+                    "Hintergrunddienste und Treiber-Downloader (Armoury Crate, MSI Center, GIGABYTE "
+                    "Control Center …). Treiber bei Bedarf direkt von der Hersteller-Seite laden.",
+        risk=SAFE, impact="low", paths={
+            "asus": "Tool → ASUS Armoury Crate → Download & Install ARMOURY CRATE app = Disabled",
+            "msi": "Settings → Advanced → MSI Driver Utility Installer = Disabled",
+            "gigabyte": "Settings → GIGABYTE Utilities Downloader Configuration → Disabled",
+            "asrock": "Tool → Auto Driver Installer = Disabled",
+        })
+
+
+def _pcie_gpu() -> BiosSetting:
+    return BiosSetting(
+        key="pcie_gpu", category="GPU", name="PCIe-Geschwindigkeit des Grafikkarten-Slots", recommended="Auto",
+        default="Auto",
+        path="PCIe-Einstellungen des GPU-Slots (z. B. „PCIEX16_1 Link Speed“ / „PCI_E1 Gen Switch“) = Auto",
+        explanation="Auf Auto nimmt die Karte die schnellste Stufe, die Slot und Karte können. Nur bei "
+                    "Schwarzbild, Bildaussetzern oder „kein Signal“ nach dem Einbau (vor allem RTX 50 / "
+                    "PCIe 5.0 mit Riser-Kabel) eine Stufe fest einstellen (Gen 4) — kostet in Spielen "
+                    "praktisch nichts.",
+        risk=SAFE, impact="low")
+
+
+# ── AMD ──────────────────────────────────────────────────────────────────────
+
+_AMD_PBO_PATHS = {
+    "asus": "Ai Tweaker → Precision Boost Overdrive (AM4: Advanced → AMD Overclocking → Precision Boost Overdrive)",
+    "msi": "OC → Advanced CPU Configuration → AMD Overclocking → Precision Boost Overdrive",
+    "gigabyte": "Tweaker → Advanced CPU Settings → Precision Boost Overdrive (alternativ Settings → AMD Overclocking)",
+    "asrock": "Advanced → AMD Overclocking → Precision Boost Overdrive",
+}
+_AMD_CO_PATHS = {
+    "asus": "Ai Tweaker → Precision Boost Overdrive → Curve Optimizer → All Cores → Negative",
+    "msi": "OC → Advanced CPU Configuration → AMD Overclocking → Precision Boost Overdrive → Advanced → Curve Optimizer",
+    "gigabyte": "Tweaker → Advanced CPU Settings → Precision Boost Overdrive → Curve Optimizer",
+    "asrock": "Advanced → AMD Overclocking → Precision Boost Overdrive → Curve Optimizer",
+}
+
+
+def _pbo(kind: str) -> BiosSetting:
+    texts = {
+        "zen5": ("Enabled (PBO-Limits: Motherboard)", MODERATE, "medium",
+                 "Lässt die CPU mehr Strom ziehen und länger hoch boosten. In Spielen meist 1–3 %, in "
+                 "Mehrkern-Last mehr — dafür wärmer. Mit einem guten Kühler sinnvoll; zusammen mit dem "
+                 "Curve Optimizer bringt es am meisten."),
+        "zen5_x3d": ("Enabled (+ bis +200 MHz Boost Override)", MODERATE, "medium",
+                     "Die 9000X3D sind — anders als die 7000X3D — offen: PBO mit Curve Optimizer und bis zu "
+                     "+200 MHz Boost Override ist erlaubt. Temperaturen im Blick behalten (der Cache sitzt "
+                     "jetzt unter den Kernen, die Kühlung ist dadurch besser als bei Zen 4)."),
+        "zen4_x3d": ("Advanced → nur Curve Optimizer (Limits: Auto)", MODERATE, "medium",
+                     "Bei den 7000X3D sind Takt und Leistungsgrenzen gesperrt — PBO wirkt nur über den "
+                     "Curve Optimizer (negativ = weniger Spannung → mehr Boost bei gleicher Temperatur)."),
+        "zen4": ("Enabled", MODERATE, "medium",
+                 "Mehr Boost unter Last; in Spielen wenig, in Mehrkern-Last deutlich. Ryzen 7000 wird "
+                 "schnell 95 °C heiß — das ist bei ihnen gewollt, aber mit Curve Optimizer bleibt die "
+                 "CPU kühler."),
+        "zen3": ("Enabled", MODERATE, "medium",
+                 "Mehr Boost unter Last. Zusammen mit einem negativen Curve Optimizer der beste "
+                 "Hebel bei Ryzen 5000."),
+        "zen2": ("Auto / Enabled", MODERATE, "low",
+                 "Bei Ryzen 3000 bringt PBO nur wenig (meist < 2 %) — kann an bleiben, wenn der "
+                 "Kühler reicht."),
+    }
+    rec, risk, impact, expl = texts[kind]
+    return BiosSetting(
+        key="pbo", category="CPU", name="Precision Boost Overdrive (PBO)", recommended=rec, default="Auto (= aus)",
+        path="Advanced → AMD Overclocking → Precision Boost Overdrive", explanation=expl,
+        risk=risk, impact=impact, paths=_AMD_PBO_PATHS)
+
+
+def _curve_optimizer(rec: str, expl: str, risk: str = MODERATE) -> BiosSetting:
+    return BiosSetting(
+        key="curve_optimizer", category="CPU", name="Curve Optimizer (Undervolting)", recommended=rec,
+        default="0 (aus)", path="AMD Overclocking → Precision Boost Overdrive → Curve Optimizer",
+        explanation=expl + " Danach stabil testen (z. B. OCCT oder CoreCycler, auch im Leerlauf — "
+                           "Instabilität zeigt sich oft beim Surfen, nicht unter Last).",
+        risk=risk, impact="medium", paths=_AMD_CO_PATHS)
+
+
+def _fclk(value: str, expl: str) -> BiosSetting:
+    return BiosSetting(
+        key="fclk", category="Memory", name="Infinity Fabric (FCLK)", recommended=value, default="Auto",
+        path="AMD Overclocking → DDR and Infinity Fabric Frequency/Timings → Infinity Fabric Frequency and "
+             "Dividers → FCLK",
+        explanation=expl + " Gibt es danach Abstürze oder USB-Aussetzer: zurück auf Auto.",
+        risk=MODERATE, impact="medium", paths={
+            "asus": "Ai Tweaker → FCLK Frequency",
+            "msi": "OC → FCLK Frequency",
+        })
+
+
+def _mcr() -> BiosSetting:
+    return BiosSetting(
+        key="mcr", category="Memory", name="Memory Context Restore", recommended="Enabled",
+        default="Auto (meist aus)",
+        path="Advanced → AMD CBS → UMC Common Options → DDR Options → DDR Memory Features → Memory Context Restore",
+        explanation="Spart das lange Speichertraining bei jedem Start (DDR5 auf AM5 sonst 20–60 s "
+                    "schwarzer Bildschirm). Neuere BIOS-Versionen machen das stabil; gibt es danach "
+                    "Startprobleme oder Abstürze nach dem Aufwachen: wieder Auto.",
+        risk=MODERATE, impact="low", paths={
+            "asus": "Ai Tweaker → DRAM Timing Control → Memory Context Restore",
+            "msi": "OC → Advanced DRAM Configuration → Memory Context Restore",
+            "gigabyte": "Tweaker → Advanced Memory Settings → Memory Context Restore",
+        })
+
+
+def _cstates_amd() -> BiosSetting:
+    return BiosSetting(
+        key="cstates", category="Power", name="Global C-State Control", recommended="Auto / Enabled lassen",
+        default="Auto",
+        path="Advanced → AMD CBS → CPU Common Options → Global C-state Control",
+        explanation="Oft wird „aus für weniger Latenz“ empfohlen — bei Ryzen bringt das in Spielen "
+                    "praktisch nichts, kostet aber Strom im Leerlauf und kann den Einkern-Boost senken "
+                    "(der höchste Boost braucht schlafende Nachbarkerne). Also an lassen.",
+        risk=SAFE, impact="low", paths={
+            "msi": "OC → Advanced CPU Configuration → Global C-state Control",
+            "gigabyte": "Tweaker → Advanced CPU Settings → Global C-state Control",
+        })
+
+
+def _igpu_off(apu: bool = False) -> BiosSetting:
+    if apu:
+        return BiosSetting(
+            key="igpu", category="GPU", name="Grafikspeicher der iGPU (UMA Frame Buffer)",
+            recommended="ohne Grafikkarte: 2–4 GB  ·  mit Grafikkarte: iGPU aus", default="Auto (oft 512 MB)",
+            path="Advanced → AMD CBS → NBIO Common Options → GFX Configuration → UMA Frame buffer Size",
+            explanation="Spielst du über die integrierte Grafik, gibt ein größerer fester Grafikspeicher "
+                        "vielen Spielen mehr Luft (genug RAM vorausgesetzt — 32 GB empfohlen). Mit "
+                        "dedizierter Grafikkarte die iGPU ausschalten.",
+            risk=SAFE, impact="medium")
+    return BiosSetting(
+        key="igpu", category="GPU", name="Integrierte Grafik (iGPU) aus", recommended="Disabled (nur mit Grafikkarte)",
+        default="Auto / Enabled",
+        path="Advanced → AMD CBS → NBIO Common Options → GFX Configuration → iGPU Configuration = iGPU Disabled",
+        explanation="Ryzen 7000/9000 haben eine kleine iGPU. Mit dedizierter Grafikkarte braucht man sie "
+                    "nicht; aus spart etwas Strom und Arbeitsspeicher und verhindert, dass Programme die "
+                    "falsche GPU wählen. Monitor dann unbedingt an der Grafikkarte anschließen.",
+        risk=MODERATE, impact="low", paths={
+            "asus": "Advanced → NB Configuration → Integrated Graphics = Disabled",
+            "msi": "Settings → Advanced → Integrated Graphics Configuration → Integrated Graphics = Disabled",
+            "gigabyte": "Settings → IO Ports → Integrated Graphics = Disabled",
+        })
+
+
+def _cppc_x3d() -> BiosSetting:
+    return BiosSetting(
+        key="x3d_cppc", category="CPU", name="Kern-Zuteilung bei X3D mit zwei CCDs",
+        recommended="CPPC Dynamic Preferred Cores = Auto (Driver)", default="Auto",
+        path="Advanced → AMD CBS → SMU Common Options → CPPC Dynamic Preferred Cores",
+        explanation="Nur 7900X3D/7950X3D/9900X3D/9950X3D: Spiele sollen auf dem CCD mit dem 3D-Cache "
+                    "laufen. Das übernimmt AMDs Chipsatz-Treiber zusammen mit dem Windows-Spielmodus und "
+                    "der Xbox Game Bar — im BIOS auf Auto lassen, aktuellen Chipsatz-Treiber installieren. "
+                    "Bei 7800X3D/9800X3D (ein CCD) gibt es nichts zu tun.",
+        risk=SAFE, impact="medium")
+
+
+# ── Intel ────────────────────────────────────────────────────────────────────
+
+def _intel_default(gen: str) -> BiosSetting:
+    rec, expl = {
+        "rpl": ("Intel Default Settings = Performance (i9-K: PL1 = PL2 = 253 W, ICCMax 307 A)",
+                "Viele Boards ließen 13./14. Gen ohne Leistungsgrenze laufen — zusammen mit dem "
+                "Vmin-Shift-Fehler führte das zu Abstürzen und dauerhaft geschädigten CPUs. Intels "
+                "Vorgabe „Performance“ (bzw. „Extreme“ nur für i9-K mit sehr gutem Kühler) ist der sichere "
+                "Stand; in Spielen kostet sie praktisch nichts."),
+        "adl": ("PL1 / PL2 nach Intel (z. B. i9-12900K: 125 W / 241 W)",
+                "Board-Standard ist oft „unbegrenzt“ — das bringt in Spielen kaum etwas, macht die CPU "
+                "aber sehr heiß. Intels Werte stehen auf ark.intel.com."),
+        "arl": ("Intel Default Settings = Performance",
+                "Der von Intel empfohlene Stand für Core Ultra 200S; manche Boards starten mit "
+                "„unbegrenzt“."),
+    }[gen]
+    return BiosSetting(
+        key="intel_power", category="Power", name="Leistungsgrenzen (Intel Default Settings)", recommended=rec,
+        default="je nach Board „unbegrenzt“", path="CPU-/OC-Menü → Intel Default Settings bzw. Long/Short "
+                                                 "Duration Power Limit (PL1/PL2)",
+        explanation=expl, risk=SAFE if gen == "rpl" else MODERATE, impact="medium", paths={
+            "asus": "Ai Tweaker → Intel Default Settings (ältere BIOS: Internal CPU Power Management → PL1/PL2)",
+            "msi": "OC → Intel Default Settings (ältere BIOS: Advanced CPU Configuration → Long/Short Duration "
+                   "Power Limit)",
+            "gigabyte": "Tweaker → Intel Default Settings (ältere BIOS: Advanced CPU Settings → Turbo Power Limits)",
+            "asrock": "OC Tweaker → CPU Configuration → Intel Default Settings bzw. Long/Short Duration Power Limit",
+        })
+
+
+def _mce() -> BiosSetting:
+    return BiosSetting(
+        key="mce", category="CPU", name="Multi-Core Enhancement", recommended="Auto (Leistung) — bei Hitze: Disabled",
+        default="Auto / Enabled",
+        path="OC-Menü → Multi-Core Enhancement",
+        explanation="Lässt alle Kerne mit dem Einkern-Turbo laufen (außerhalb von Intels Vorgabe). Ein "
+                    "paar Prozent mehr Leistung, dafür deutlich mehr Wärme — mit schwachem Kühler "
+                    "Disabled wählen.",
+        risk=MODERATE, impact="low", paths={
+            "asus": "Ai Tweaker → ASUS MultiCore Enhancement",
+            "msi": "OC → Enhanced Turbo",
+            "gigabyte": "Tweaker → Advanced CPU Settings → Enhanced Multi-Core Performance",
+            "asrock": "OC Tweaker → CPU Configuration → Multi Core Enhancement",
+        })
+
+
+def _200s_boost() -> BiosSetting:
+    return BiosSetting(
+        key="200s_boost", category="Memory", name="Intel 200S Boost", recommended="Enabled (mit passendem RAM)",
+        default="Disabled",
+        path="OC-Menü → Intel 200S Boost (ab BIOS mit Microcode 0x114)",
+        explanation="Intels offizielle, von der Garantie gedeckte Übertaktung für Core Ultra 200S: "
+                    "schnellere Verbindung zwischen den Kacheln (D2D/NGU) und RAM bis DDR5-8000. Bringt "
+                    "in Spielen einige Prozent — die größte Schwäche von Arrow Lake ist die Speicher-Latenz.",
+        risk=SAFE, impact="medium", paths={
+            "asus": "Ai Tweaker → Intel(R) 200S Boost",
+            "msi": "OC → Intel 200S Boost",
+            "gigabyte": "Tweaker → Intel 200S Boost",
+            "asrock": "OC Tweaker → Intel 200S Boost",
+        })
+
+
+def _ecores() -> BiosSetting:
+    return BiosSetting(
+        key="ecores", category="CPU", name="E-Cores", recommended="Enabled lassen", default="Enabled",
+        path="CPU-Konfiguration → Active Efficient Cores = All",
+        explanation="Früher half das Abschalten der E-Cores manchen Spielen. Mit Windows 11 und dem Thread "
+                    "Director landen Spiele heute auf den P-Cores; abschalten kostet Leistung bei allem "
+                    "anderen. Nur bei einem einzelnen Spiel mit Problemen (alte Anti-Cheats) testen.",
+        risk=SAFE, impact="low")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# BIOS PROFILES DATABASE
+# Profiles
 # ═══════════════════════════════════════════════════════════════════════════════
+
+def _am5_base(x3d: str = "", zen: str = "zen5") -> list:
+    """Shared AM5 settings."""
+    s = [
+        _memory_profile("amd", "DDR5", "DDR5-6000 CL30 ist der Sweet Spot",
+                        "AM5 läuft am besten mit DDR5-6000 bis -6400 im 1:1-Modus (UCLK = MCLK)."),
+        _fclk("2000 MHz (Zen 5 oft auch 2100)" if zen == "zen5" else "2000 MHz",
+              "Die Verbindung zwischen Kernen und Speicher-Controller. Bei DDR5-6000 sind 2000 MHz "
+              "üblich und stabil; Auto lässt oft 1733–1800 MHz liegen."),
+        _mcr(),
+        _cstates_amd(),
+        _rebar("amd"),
+        _pcie_gpu(),
+        _igpu_off(),
+        _csm(),
+        _secure_boot(),
+        _bios_update("Neue AGESA-Versionen bringen bei AM5 spürbar kürzere Startzeiten, besseren "
+                     "RAM-Support und Leistungs-Fixes (Zen 5: „2-Kern-Latenz“-Update)."),
+        _autoinstall(),
+    ]
+    return s
+
 
 PROFILES: list[BiosProfile] = [
-
-    # ── AMD Ryzen 9000 Series (Zen 5) — X670 / B650 ──────────────────────────
+    # ── AMD AM5 ──────────────────────────────────────────────────────────────
     BiosProfile(
-        id="amd_zen5_x670",
-        name="AMD Ryzen 9000 (Zen 5) + X670/B650",
-        cpu_match=["9900X", "9800X3D", "9700X", "9600X", "9500X"],
-        mb_match=[],  # Alle AM5-Boards
-        gpu_match=[],
-        notes="Ryzen 9000 Zen 5 — AM5 Plattform. EXPO für RAM dringend empfohlen.",
-        settings=[
-            BiosSetting(
-                category="Memory",
-                name="EXPO / XMP Profil",
-                recommended="Profil 1 (EXPO)",
-                default="Disabled",
-                path="MIT → Advanced Memory Settings → EXPO/XMP",
-                explanation="Ohne EXPO läuft dein RAM auf 4800 MHz statt dem Nennwert. "
-                            "Bei 6000 MHz RAM bringt EXPO massiven Performance-Unterschied "
-                            "vor allem bei Ryzen durch den Infinity Fabric Link.",
-                risk=SAFE,
-                impact="high",
-                detect_key="expo_xmp"
-            ),
-            BiosSetting(
-                category="Memory",
-                name="FCLK Frequency",
-                recommended="2000 MHz (bei 6000MT/s RAM)",
-                default="Auto",
-                path="MIT → Advanced Memory Settings → FCLK Frequency",
-                explanation="FCLK sollte halb so hoch wie die effektive RAM-Frequenz sein "
-                            "(6000 MT/s = 3000 MHz DDR = 1500 MHz FCLK... aber 2:1 Ratio "
-                            "bei 6000 MT/s = FCLK 2000). Falsche Einstellung = Stabilitätsprobleme.",
-                risk=MODERATE,
-                impact="high",
-            ),
-            BiosSetting(
-                category="CPU",
-                name="Precision Boost Overdrive (PBO)",
-                recommended="Advanced → Scalar 10x",
-                default="Disabled",
-                path="MIT → Advanced CPU Core Settings → AMD Overclocking → PBO",
-                explanation="PBO erlaubt der CPU kurzfristig über das TDP-Limit zu boosten. "
-                            "Bei guter Kühlung bringt PBO 5-15% mehr Single-Core Leistung "
-                            "ohne manuelle Eingriffe. Scalar 10x = maximale Flexibilität.",
-                risk=MODERATE,
-                impact="high",
-                registry_tweak=r"HKLM\SYSTEM\CurrentControlSet\Control\Power\PowerSettings\54533251-82be-4824-96c1-47b60b740d00\be337238-0d82-4146-a960-4f3749d470c7",
-                registry_value="Attributes",
-                registry_data="0",
-                detect_key="pbo"
-            ),
-            BiosSetting(
-                category="CPU",
-                name="CPU Core Performance Boost",
-                recommended="Enabled",
-                default="Enabled",
-                path="MIT → Advanced CPU Core Settings → Core Performance Boost",
-                explanation="Muss aktiviert sein damit Precision Boost und PBO funktionieren. "
-                            "Ohne das läuft die CPU immer auf Basistakt.",
-                risk=SAFE,
-                impact="high",
-                detect_key="pbo"
-            ),
-            BiosSetting(
-                category="CPU",
-                name="Global C-State Control",
-                recommended="Enabled (Gaming: Disabled)",
-                default="Enabled",
-                path="MIT → Advanced CPU Core Settings → Global C-state Control",
-                explanation="C-States sparen Strom wenn die CPU idle ist. Für Gaming kann "
-                            "Disabled latenzärmer sein da kein Aufwachen aus Schlafzuständen. "
-                            "Für normalen Betrieb: Enabled.",
-                risk=MODERATE,
-                impact="medium",
-                detect_key="c_states"
-            ),
-            BiosSetting(
-                category="Power",
-                name="CPU PPT Limit",
-                recommended="142W (Standard) oder Unlimited für PBO",
-                default="142W",
-                path="MIT → Advanced CPU Core Settings → AMD Overclocking → PBO → PPT Limit",
-                explanation="Package Power Tracking — maximale Gesamtleistungsaufnahme. "
-                            "Unlimited = CPU kann so viel nehmen wie nötig. Nur mit guter Kühlung.",
-                risk=MODERATE,
-                impact="high",
-            ),
-            BiosSetting(
-                category="GPU",
-                name="Resizable BAR (ReBAR)",
-                recommended="Enabled",
-                default="Disabled",
-                path="Settings → IO Ports → Above 4G Decoding → Enabled, "
-                     "dann Settings → IO Ports → Re-Size BAR Support → Enabled",
-                explanation="Erlaubt der CPU direkten Zugriff auf den gesamten GPU-VRAM. "
-                            "Pflicht für NVIDIA RTX 30/40xx Smart Access Memory. "
-                            "Bringt bis zu 15% mehr FPS in manchen Spielen.",
-                risk=SAFE,
-                impact="high",
-                registry_tweak=r"HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers",
-                registry_value="HwSchMode",
-                registry_data="2",
-                detect_key="rebar"
-            ),
-            BiosSetting(
-                category="GPU",
-                name="Above 4G Decoding",
-                recommended="Enabled",
-                default="Disabled",
-                path="Settings → IO Ports → Above 4G Decoding",
-                explanation="Voraussetzung für ReBAR. Ermöglicht Speichermapping über 4GB. "
-                            "Ohne das funktioniert ReBAR nicht.",
-                risk=SAFE,
-                impact="medium",
-                detect_key="above_4g"
-            ),
-            BiosSetting(
-                category="Power",
-                name="ErP Ready",
-                recommended="Disabled",
-                default="Disabled",
-                path="Settings → Power → ErP Ready",
-                explanation="ErP drosselt USB und Netzwerk im Standby stark. "
-                            "Für Gaming-PCs deaktivieren — verhindert langsames Aufwachen "
-                            "und Probleme mit USB-Headsets nach Standby.",
-                risk=SAFE,
-                impact="low",
-            ),
-            BiosSetting(
-                category="Boot",
-                name="Fast Boot",
-                recommended="Enabled",
-                default="Enabled",
-                path="Settings → Boot → Fast Boot",
-                explanation="Überspringt POST-Tests für schnelleren Start. "
-                            "Kein Nachteil im normalen Betrieb.",
-                risk=SAFE,
-                impact="low",
-                detect_key="fast_boot"
-            ),
-            BiosSetting(
-                category="GPU",
-                name="Integrierte Grafik (iGPU) deaktivieren",
-                recommended="Disabled (nur mit dedizierter GPU)",
-                default="Auto / Enabled",
-                path="ASUS: Advanced → NB Configuration → Primary Video Device = PCIE, "
-                     "Integrated Graphics = Disabled. Gigabyte: Settings → Miscellaneous → "
-                     "iGPU Configuration = Disabled.",
-                explanation="Alle AM5-Ryzen-Desktop-CPUs haben eine kleine integrierte Grafik "
-                            "(RDNA2). Sie reserviert etwas System-RAM (UMA Frame Buffer, ~0,5–2 GB) "
-                            "und bleibt als Gerät aktiv. Wenn du eine dedizierte Grafikkarte nutzt, "
-                            "kannst du sie abschalten: gibt den reservierten RAM frei und entfernt "
-                            "ein Hintergrundgerät. WICHTIG: danach funktionieren die Bildausgänge "
-                            "des Mainboards nicht mehr (nur noch die der Grafikkarte), und du "
-                            "verlierst die iGPU als Notfall-/Zweitausgabe sowie deren Video-Encoder. "
-                            "Der FPS-Gewinn ist minimal — es ist eher Aufräumen als echter Boost.",
-                risk=MODERATE,
-                impact="low",
-            ),
-            *_amd_extra_latency(),
-        ],
-    ),
-
-    # ── AMD Ryzen 7000 Series (Zen 4) — X670 / B650 ──────────────────────────
+        id="am5_zen5_x3d", name="AMD Ryzen 9000X3D (Zen 5 + 3D V-Cache) — AM5",
+        cpus="Ryzen 7 9800X3D, Ryzen 9 9900X3D, 9950X3D",
+        platform="AM5 — X870E / X870 / B850 / B840 / X670E / X670 / B650 / A620", brand="amd",
+        settings=[_pbo("zen5_x3d"),
+                  _curve_optimizer("All Cores, Negative 15–25",
+                                   "Die meisten 9800X3D vertragen −15 bis −25; weniger Spannung = mehr Boost "
+                                   "bei gleicher Temperatur."),
+                  _cppc_x3d()] + _am5_base(zen="zen5"),
+        notes="Die beste Gaming-CPU-Familie — der 3D-Cache macht den größten Teil der Arbeit. EXPO "
+              "aktivieren ist Pflicht, PBO/Curve Optimizer sind Feinschliff."),
     BiosProfile(
-        id="amd_zen4_x670",
-        name="AMD Ryzen 7000 (Zen 4) + X670/B650",
-        cpu_match=["7900X", "7800X3D", "7700X", "7700", "7600X", "7600", "7950X"],
-        mb_match=[],
-        gpu_match=[],
-        notes="Ryzen 7000 Zen 4 — AM5. Ähnlich wie Zen 5 aber ältere BIOS-Versionen.",
-        settings=[
-            BiosSetting(
-                category="Memory",
-                name="EXPO / XMP Profil",
-                recommended="Profil 1 (EXPO)",
-                default="Disabled",
-                path="MIT → Advanced Memory Settings → EXPO/XMP",
-                explanation="Kritisch für AM5. Ohne EXPO läuft DDR5 auf 4800 MHz statt "
-                            "dem Nennwert. Infinity Fabric profitiert massiv von höherem Takt.",
-                risk=SAFE,
-                impact="high",
-                detect_key="expo_xmp"
-            ),
-            BiosSetting(
-                category="CPU",
-                name="Precision Boost Overdrive (PBO)",
-                recommended="Enabled → Auto",
-                default="Disabled",
-                path="MIT → Advanced CPU Core Settings → AMD Overclocking → PBO",
-                explanation="PBO2 auf Zen 4 sehr ausgereift. Auto-Modus ist für die meisten "
-                            "Nutzer optimal — CPU regelt selbst je nach Temp und Last.",
-                risk=MODERATE,
-                impact="high",
-                detect_key="pbo"
-            ),
-            BiosSetting(
-                category="GPU",
-                name="Resizable BAR",
-                recommended="Enabled",
-                default="Disabled",
-                path="Settings → IO Ports → Above 4G Decoding + Re-Size BAR Support",
-                explanation="Wichtig für NVIDIA und AMD GPUs der aktuellen Generation.",
-                risk=SAFE,
-                impact="high",
-                detect_key="rebar_intel"
-            ),
-            BiosSetting(
-                category="GPU",
-                name="Integrierte Grafik (iGPU) deaktivieren",
-                recommended="Disabled (nur mit dedizierter GPU)",
-                default="Auto / Enabled",
-                path="ASUS: Advanced → NB Configuration → Primary Video Device = PCIE, "
-                     "Integrated Graphics = Disabled. Gigabyte: Settings → Miscellaneous → "
-                     "iGPU Configuration = Disabled.",
-                explanation="Ryzen 7000 Desktop-CPUs haben eine kleine integrierte RDNA2-Grafik, "
-                            "die etwas System-RAM reserviert (UMA Frame Buffer, ~0,5–2 GB) und als "
-                            "Gerät aktiv bleibt. Mit dedizierter Grafikkarte abschaltbar — gibt den "
-                            "RAM frei und entfernt ein Hintergrundgerät. WICHTIG: danach sind die "
-                            "Mainboard-Bildausgänge tot (nur noch die der Grafikkarte), und die iGPU "
-                            "als Notfall-Ausgabe/Video-Encoder entfällt. FPS-Gewinn ist minimal.",
-                risk=MODERATE,
-                impact="low",
-            ),
-            *_amd_extra_latency(),
-        ],
-    ),
-
-    # ── AMD Ryzen 5000 Series (Zen 3) — X570 / B550 ──────────────────────────
+        id="am5_zen5", name="AMD Ryzen 9000 (Zen 5) — AM5",
+        cpus="Ryzen 5 9600(X), Ryzen 7 9700X, Ryzen 9 9900X, 9950X",
+        platform="AM5 — X870E / X870 / B850 / B840 / X670E / X670 / B650 / A620", brand="amd",
+        settings=[_pbo("zen5"),
+                  _curve_optimizer("All Cores, Negative 10–20",
+                                   "Zen 5 verträgt meist −10 bis −20."),
+                  ] + _am5_base(zen="zen5"),
+        notes="9600X/9700X kommen ab Werk mit 65-W-Grenze; PBO (oder der 105-W-Modus mancher BIOS) hebt "
+              "sie an — in Spielen bringt das nur wenig."),
     BiosProfile(
-        id="amd_zen3_x570",
-        name="AMD Ryzen 5000 (Zen 3) + X570/B550",
-        cpu_match=["5900X", "5800X3D", "5800X", "5700X", "5600X", "5600", "5950X"],
-        mb_match=[],
-        gpu_match=[],
-        notes="Ryzen 5000 Zen 3 — AM4. Sehr mature Plattform, gute BIOS-Unterstützung.",
-        settings=[
-            BiosSetting(
-                category="Memory",
-                name="XMP / DOCP Profil",
-                recommended="Profil 1 (XMP/DOCP)",
-                default="Disabled",
-                path="MIT → Advanced Memory Settings → Extreme Memory Profile (X.M.P.)",
-                explanation="AM4 nutzt DDR4. DOCP ist AMDs Bezeichnung für XMP. "
-                            "Für beste Leistung: DDR4-3600 CL16 mit 1:1 Infinity Fabric Ratio.",
-                risk=SAFE,
-                impact="high",
-                detect_key="expo_xmp"
-            ),
-            BiosSetting(
-                category="Memory",
-                name="FCLK Frequency",
-                recommended="1800 MHz (bei DDR4-3600)",
-                default="Auto",
-                path="MIT → Advanced Memory Settings → FCLK Frequency",
-                explanation="1:1 Ratio FCLK=MCLK bei DDR4-3600 = maximale Bandbreite. "
-                            "Bei DDR4-3800+ kann 2:1 Ratio nötig sein.",
-                risk=MODERATE,
-                impact="high",
-            ),
-            BiosSetting(
-                category="CPU",
-                name="Precision Boost Overdrive (PBO)",
-                recommended="Enabled",
-                default="Disabled",
-                path="MIT → Advanced CPU Core Settings → AMD Overclocking → Precision Boost Overdrive",
-                explanation="Auf Zen 3 sehr empfohlen. Bringt messbar mehr Boost-Frequenz "
-                            "bei guter Kühlung. Curve Optimizer für einzelne Kerne optional.",
-                risk=MODERATE,
-                impact="high",
-                detect_key="pbo"
-            ),
-            BiosSetting(
-                category="GPU",
-                name="Above 4G Decoding + ReBAR",
-                recommended="Enabled",
-                default="Disabled",
-                path="Settings → IO Ports → Above 4G Decoding",
-                explanation="X570/B550 unterstützt ReBAR. Wichtig für RTX 30xx+.",
-                risk=SAFE,
-                impact="medium",
-                detect_key="rebar"
-            ),
-            *_amd_extra_latency(),
-        ],
-    ),
-
-    # ── Intel Core 13th/14th Gen (Raptor Lake) — Z790 / Z690 ────────────────
+        id="am5_zen4_x3d", name="AMD Ryzen 7000X3D (Zen 4 + 3D V-Cache) — AM5",
+        cpus="Ryzen 7 7800X3D, Ryzen 9 7900X3D, 7950X3D",
+        platform="AM5 — X870E / X870 / B850 / X670E / X670 / B650 / A620", brand="amd",
+        settings=[_pbo("zen4_x3d"),
+                  _curve_optimizer("All Cores, Negative 15–30",
+                                   "Der einzige Hebel bei den 7000X3D: weniger Spannung lässt sie höher "
+                                   "boosten."),
+                  _cppc_x3d()] + _am5_base(zen="zen4"),
+        notes="Wichtig: BIOS aktuell halten — frühe Versionen ließen zu hohe SoC-Spannungen zu (2023 "
+              "durchgebrannte 7800X3D). Aktuelle BIOS begrenzen die SoC-Spannung auf ≤ 1,3 V."),
     BiosProfile(
-        id="intel_rapterlake_z790",
-        name="Intel Core 13th/14th Gen (Raptor Lake) + Z790/Z690",
-        cpu_match=["13900", "13700", "13600", "14900", "14700", "14600",
-                   "i9-13", "i7-13", "i5-13", "i9-14", "i7-14", "i5-14"],
-        mb_match=["Z790", "Z690", "B760", "B660"],
-        gpu_match=[],
-        notes="Intel Raptor Lake. Wichtig: Intel-typische BIOS-Inflation der Power Limits beachten.",
-        settings=[
-            BiosSetting(
-                category="Memory",
-                name="XMP Profil",
-                recommended="Profil 1 (XMP 3.0)",
-                default="Disabled",
-                path="Tweaker → Extreme Memory Profile (X.M.P.)",
-                explanation="DDR5 läuft ohne XMP auf 4800 MHz. Mit XMP 3.0 "
-                            "auf dem Nennwert (5600-7200 MHz). Großer Gaming-Unterschied.",
-                risk=SAFE,
-                impact="high",
-                detect_key="xmp_intel"
-            ),
-            BiosSetting(
-                category="CPU",
-                name="Power Limits (PL1 / PL2)",
-                recommended="PL1=125W PL2=253W (Intel Spec)",
-                default="Unlimited (Board-Hersteller inflationär)",
-                path="Tweaker → Advanced CPU Settings → CPU Power Limit",
-                explanation="Viele Boards setzen PL1/PL2 auf Unlimited. Das verursacht "
-                            "thermisches Throttling und instabile Boost-Frequenzen. "
-                            "Intel-Spec-Werte = stabileres, vorhersagbares Verhalten.",
-                risk=MODERATE,
-                impact="high",
-            ),
-            BiosSetting(
-                category="CPU",
-                name="Intel Turbo Boost Max Technology 3.0",
-                recommended="Enabled",
-                default="Enabled",
-                path="Tweaker → Advanced CPU Settings → Intel Turbo Boost Max Technology",
-                explanation="Lenkt Last auf die leistungsfähigsten Kerne. "
-                            "Messbar besser für Single-Threaded Gaming.",
-                risk=SAFE,
-                impact="medium",
-            ),
-            BiosSetting(
-                category="CPU",
-                name="Hyper-Threading",
-                recommended="Enabled (Gaming: testen)",
-                default="Enabled",
-                path="Tweaker → Advanced CPU Settings → Hyper-Threading Technology",
-                explanation="Für die meisten Spiele empfohlen. Wenige ältere Titel "
-                            "profitieren von deaktiviertem HT — selten nötig.",
-                risk=SAFE,
-                impact="low",
-            ),
-            BiosSetting(
-                category="GPU",
-                name="Resizable BAR",
-                recommended="Enabled",
-                default="Disabled",
-                path="Settings → IO Ports → Above 4G Decoding → On, "
-                     "dann Peripherals → Re-Size BAR Support → Enabled",
-                explanation="Intel Z790 unterstützt ReBAR vollständig. "
-                            "Pflicht für RTX 40xx maximale Performance.",
-                risk=SAFE,
-                impact="high",
-                detect_key="rebar_intel"
-            ),
-            BiosSetting(
-                category="Power",
-                name="CPU SVID Support",
-                recommended="Enabled",
-                default="Enabled",
-                path="Tweaker → Advanced CPU Settings → CPU SVID Support",
-                explanation="Erlaubt dem VRM die Spannung dynamisch anzupassen. "
-                            "Disabled = feste hohe Spannung = mehr Wärme.",
-                risk=SAFE,
-                impact="medium",
-            ),
-            _vendor_autoinstall(),
-        ],
-    ),
-
-    # ── Intel Core 12th Gen (Alder Lake) — Z690 / B660 ──────────────────────
+        id="am5_zen4", name="AMD Ryzen 7000 (Zen 4) — AM5",
+        cpus="Ryzen 5 7600(X), Ryzen 7 7700(X), Ryzen 9 7900(X), 7950X",
+        platform="AM5 — X870E / X870 / B850 / X670E / X670 / B650 / A620", brand="amd",
+        settings=[_pbo("zen4"),
+                  _curve_optimizer("All Cores, Negative 10–20",
+                                   "Senkt Temperatur und hebt den Boost — bei Ryzen 7000 der beste Hebel.")
+                  ] + _am5_base(zen="zen4")),
     BiosProfile(
-        id="intel_alderlake_z690",
-        name="Intel Core 12th Gen (Alder Lake) + Z690/B660",
-        cpu_match=["12900", "12700", "12600", "12400",
-                   "i9-12", "i7-12", "i5-12"],
-        mb_match=["Z690", "B660", "H670"],
-        gpu_match=[],
-        notes="Erste Generation mit P/E-Core Mix. Windows 11 Scheduler empfohlen.",
+        id="am5_apu", name="AMD Ryzen 8000G / 8000F (Zen 4 APU) — AM5",
+        cpus="Ryzen 5 8500G / 8600G, Ryzen 7 8700G, Ryzen 5 8400F, Ryzen 7 8700F",
+        platform="AM5 — B650 / A620 / X670 / B850", brand="amd",
         settings=[
-            BiosSetting(
-                category="Memory",
-                name="XMP Profil",
-                recommended="Profil 1",
-                default="Disabled",
-                path="Tweaker → Extreme Memory Profile",
-                explanation="Alder Lake unterstützt DDR4 und DDR5. "
-                            "XMP aktivieren für RAM-Nennwert.",
-                risk=SAFE,
-                impact="high",
-                detect_key="xmp_intel"
-            ),
-            BiosSetting(
-                category="CPU",
-                name="Intel Thread Director",
-                recommended="Enabled",
-                default="Enabled",
-                path="Tweaker → Advanced CPU Settings → Intel Thread Director",
-                explanation="Notwendig damit Windows 11 P-Cores für Gaming-Threads "
-                            "und E-Cores für Hintergrundprozesse nutzt.",
-                risk=SAFE,
-                impact="high",
-                registry_tweak=r"HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\kernel",
-                registry_value="GlobalTimerResolutionRequests",
-                registry_data="1",
-            ),
-            BiosSetting(
-                category="GPU",
-                name="Resizable BAR",
-                recommended="Enabled",
-                default="Disabled",
-                path="Settings → IO Ports → Above 4G Decoding + Re-Size BAR",
-                explanation="Z690 mit aktuellem BIOS unterstützt ReBAR vollständig.",
-                risk=SAFE,
-                impact="high",
-                detect_key="rebar_intel"
-            ),
-            _vendor_autoinstall(),
-        ],
-    ),
+            _memory_profile("amd", "DDR5", "DDR5-6000 oder schneller",
+                            "Spielst du über die integrierte Grafik, ist schneller RAM besonders wichtig — "
+                            "die iGPU hat keinen eigenen Speicher."),
+            _igpu_off(apu=True), _pbo("zen4"),
+            _curve_optimizer("All Cores, Negative 10–20", "Senkt Temperatur und hebt den Boost."),
+            _mcr(), _cstates_amd(), _rebar("amd"), _pcie_gpu(), _csm(), _secure_boot(),
+            _bios_update("Neue AGESA-Versionen verbessern RAM-Support und Startzeiten."), _autoinstall()],
+        notes="Die 8000G/8000F haben PCIe 4.0 und — bei 8500G/8400F — weniger Lanes; für eine schnelle "
+              "Grafikkarte ist ein Ryzen 7000/9000 die bessere Wahl."),
 
-    # ── AMD Ryzen 7000/9000 + NVIDIA RTX 40xx spezifisch ────────────────────
+    # ── AMD AM4 ──────────────────────────────────────────────────────────────
     BiosProfile(
-        id="amd_am5_nvidia_rtx40",
-        name="AMD AM5 + NVIDIA RTX 40xx (Zusatz-Einstellungen)",
-        cpu_match=["9800X3D", "9900X", "7800X3D", "7900X", "9700X", "7700X"],
-        mb_match=[],
-        gpu_match=["RTX 40", "RTX 4080", "RTX 4090", "RTX 4070", "RTX 4060"],
-        notes="Kombinations-spezifische Empfehlungen für AM5 + Ada Lovelace.",
+        id="am4_zen3_x3d", name="AMD Ryzen 5000X3D (Zen 3 + 3D V-Cache) — AM4",
+        cpus="Ryzen 5 5600X3D, Ryzen 7 5700X3D, 5800X3D",
+        platform="AM4 — X570 / B550 / X470 / B450 / A520", brand="amd",
         settings=[
-            BiosSetting(
-                category="GPU",
-                name="PCIe Gen 5 x16",
-                recommended="Gen 5 (Auto)",
-                default="Auto",
-                path="Settings → IO Ports → PCIEX16 Slot Configuration → PCIe 5.0",
-                explanation="RTX 40xx nutzt PCIe 4.0 x16 oder PCIe 5.0 x16. "
-                            "In der Praxis kein messbarer Unterschied zwischen Gen4 und Gen5 "
-                            "bei aktuellen GPUs — Auto ist optimal.",
-                risk=SAFE,
-                impact="low",
-            ),
-            BiosSetting(
-                category="GPU",
-                name="NVIDIA G-Sync / VRR Support",
-                recommended="Enabled (wenn Monitor unterstützt)",
-                default="Depends",
-                path="Display → G-Sync oder VRR im Monitor-OSD",
-                explanation="Kein BIOS-Setting direkt, aber ReBAR muss für G-Sync Pulsar "
-                            "(auf RTX 40xx) aktiviert sein. In NVIDIA-Treiber: "
-                            "G-Sync kompatibel aktivieren.",
-                risk=SAFE,
-                impact="medium",
-                detect_key="hags"
-            ),
-            BiosSetting(
-                category="Memory",
-                name="EXPO + RCOMP Optimierung",
-                recommended="EXPO Profil + RCOMP Auto",
-                default="Jedec",
-                path="MIT → Advanced Memory Settings → Memory Subtimings → RCOMP",
-                explanation="Bei Gigabyte X670: RCOMP auf Auto lassen wenn EXPO aktiv. "
-                            "Manuelles RCOMP nur bei Stabilitätsproblemen mit hohem RAM-Takt.",
-                risk=MODERATE,
-                impact="medium",
-            ),
-        ],
-    ),
+            _memory_profile("amd", "DDR4", "DDR4-3600 CL16 ist der Sweet Spot"),
+            _fclk("1800 MHz (bei DDR4-3600)", "1:1 mit dem RAM: DDR4-3600 → FCLK 1800, DDR4-3800 → 1900."),
+            _curve_optimizer("nur wenn angeboten: All Cores, Negative 15–30",
+                             "Die 5000X3D sind gesperrt; neuere BIOS (AGESA 1.2.0.8+) bieten den Curve "
+                             "Optimizer teils an, MSI nennt es „Kombo Strike“ (OC-Menü, Stufe 1–3)."),
+            _rebar("amd", "AM4 braucht dafür ein BIOS von 2021 oder neuer."), _pcie_gpu(), _csm(),
+            _secure_boot(), _bios_update("Für 5000X3D auf älteren Boards ist ein BIOS-Update Pflicht "
+                                         "(AGESA 1.2.0.x)."), _autoinstall()],
+        notes="PBO und Takt-Übertaktung sind bei den 5000X3D gesperrt — EXPO/XMP und FCLK 1:1 sind die "
+              "wichtigsten Punkte."),
+    BiosProfile(
+        id="am4_zen3", name="AMD Ryzen 5000 (Zen 3) — AM4",
+        cpus="Ryzen 5 5500 / 5600(X), Ryzen 7 5700X / 5800X, Ryzen 9 5900X / 5950X",
+        platform="AM4 — X570 / B550 / X470 / B450 / A520", brand="amd",
+        settings=[
+            _memory_profile("amd", "DDR4", "DDR4-3600 CL16 ist der Sweet Spot"),
+            _fclk("1800 MHz (bei DDR4-3600)", "1:1 mit dem RAM: DDR4-3600 → FCLK 1800, DDR4-3800 → 1900 "
+                                              "(nicht jede CPU schafft 1900)."),
+            _pbo("zen3"),
+            _curve_optimizer("All Cores, Negative 10–20 (besser: pro Kern)",
+                             "Zen 3 reagiert stark auf den Curve Optimizer; die besten zwei Kerne "
+                             "vertragen meist weniger."),
+            _rebar("amd", "AM4 braucht dafür ein BIOS von 2021 oder neuer."), _pcie_gpu(), _csm(),
+            _secure_boot(), _bios_update("Auf 400er-Boards ist ein BIOS-Update für Ryzen 5000 Pflicht; "
+                                         "neuere AGESA-Versionen beheben USB-Aussetzer."), _autoinstall()]),
+    BiosProfile(
+        id="am4_apu", name="AMD Ryzen 5000G / 4000G / 3000G / 2000G (APU) — AM4",
+        cpus="Ryzen 3 5300G, Ryzen 5 5600G / 4600G / 3400G / 2400G, Ryzen 7 5700G",
+        platform="AM4 — B550 / A520 / X570 / B450 / A320", brand="amd",
+        settings=[
+            _memory_profile("amd", "DDR4", "DDR4-3600 oder schneller",
+                            "Die iGPU nutzt den Arbeitsspeicher als Grafikspeicher — schneller RAM bringt "
+                            "ihr am meisten."),
+            _igpu_off(apu=True),
+            _fclk("1800–2000 MHz", "Die APUs schaffen oft FCLK 2000 (DDR4-4000 1:1)."),
+            _rebar("amd", "Bei den APUs nur mit 5000G und aktuellem BIOS."), _pcie_gpu(), _csm(),
+            _secure_boot(), _bios_update("Neue AGESA-Versionen verbessern den APU-Support."), _autoinstall()],
+        notes="5600G/5700G haben nur PCIe 3.0 — für eine schnelle Grafikkarte nicht ideal."),
+    BiosProfile(
+        id="am4_zen2", name="AMD Ryzen 3000 (Zen 2) — AM4",
+        cpus="Ryzen 5 3600(X), Ryzen 7 3700X / 3800X, Ryzen 9 3900X / 3950X",
+        platform="AM4 — X570 / B550 / X470 / B450", brand="amd",
+        settings=[
+            _memory_profile("amd", "DDR4", "DDR4-3600 CL16"),
+            _fclk("1800 MHz (bei DDR4-3600)", "Zen 2 schafft fast immer 1800 MHz 1:1, 1866–1900 nur selten."),
+            _pbo("zen2"),
+            _rebar("amd", "Ryzen 3000 unterstützt es seit 2021 auf 400er/500er-Boards — BIOS-Update nötig."),
+            _pcie_gpu(), _csm(), _secure_boot(),
+            _bios_update("Für Resizable BAR und Windows-11-TPM ist ein BIOS ab 2021 nötig."), _autoinstall()]),
+    BiosProfile(
+        id="am4_zen1", name="AMD Ryzen 1000 / 2000 (Zen / Zen+) — AM4",
+        cpus="Ryzen 5 1600 / 2600, Ryzen 7 1700 / 2700X",
+        platform="AM4 — X470 / B450 / X370 / B350", brand="amd",
+        settings=[
+            _memory_profile("amd", "DDR4", "DDR4-3200 (Zen+: oft 3466)",
+                            "Zen/Zen+ sind beim RAM wählerisch — klappt das Profil nicht, den Takt eine "
+                            "Stufe senken."),
+            _pcie_gpu(), _csm(), _secure_boot(),
+            _bios_update("Neuere BIOS-Versionen verbessern die RAM-Kompatibilität deutlich."), _autoinstall()],
+        notes="Resizable BAR gibt es für Ryzen 1000/2000 nicht. Ein Ryzen 5000(X3D) passt meist mit "
+              "BIOS-Update in dasselbe Board — der größte Sprung für wenig Geld."),
 
-    # ── Generisch AMD AM4 ────────────────────────────────────────────────────
+    # ── Intel ────────────────────────────────────────────────────────────────
     BiosProfile(
-        id="amd_am4_generic",
-        name="AMD AM4 (generisch — X370/X470/X570/B450/B550)",
-        cpu_match=["Ryzen 3", "Ryzen 5", "Ryzen 7", "Ryzen 9"],
-        mb_match=["X370", "X470", "X570", "B450", "B550", "A520"],
-        gpu_match=[],
-        notes="Generische AM4-Empfehlungen. Gilt für Ryzen 1000-5000.",
+        id="lga1851_arl", name="Intel Core Ultra 200S (Arrow Lake) — LGA1851",
+        cpus="Core Ultra 5 245K / 225, Core Ultra 7 265K, Core Ultra 9 285K",
+        platform="LGA1851 — Z890 / B860 / H810", brand="intel",
         settings=[
-            BiosSetting(
-                category="Memory",
-                name="XMP / DOCP",
-                recommended="Profil 1",
-                default="Disabled",
-                path="MIT / AI Tweaker → Extreme Memory Profile",
-                explanation="DDR4 XMP/DOCP für korrekten RAM-Takt aktivieren.",
-                risk=SAFE,
-                impact="high",
-            ),
-            BiosSetting(
-                category="CPU",
-                name="Core Performance Boost",
-                recommended="Enabled",
-                default="Enabled",
-                path="MIT → Advanced CPU Settings → Core Performance Boost",
-                explanation="Ermöglicht automatisches Boosten über Basistakt.",
-                risk=SAFE,
-                impact="high",
-            ),
-        ],
-    ),
+            _memory_profile("intel", "DDR5", "DDR5-6400 bis -8000 (CUDIMM)",
+                            "Arrow Lake profitiert stark von schnellem RAM; ab DDR5-8000 lohnen CUDIMM-Module."),
+            _200s_boost(), _intel_default("arl"), _rebar("intel"), _pcie_gpu(), _csm(), _secure_boot(),
+            _bios_update("Pflicht bei Arrow Lake: das BIOS mit Microcode 0x114 (oder neuer) behebt die "
+                         "schwache Spieleleistung zum Start und bringt „200S Boost“.", impact="high"),
+            _autoinstall()],
+        notes="Core Ultra 200S haben kein Hyper-Threading. Windows aktuell halten — die Leistungs-Fixes "
+              "kamen zusammen mit Windows-Updates."),
+    BiosProfile(
+        id="lga1700_rpl", name="Intel Core 13./14. Gen (Raptor Lake) — LGA1700",
+        cpus="Core i5-13400–14600K, Core i7-13700K / 14700K, Core i9-13900K / 14900K",
+        platform="LGA1700 — Z790 / B760 / H770 / Z690 / B660", brand="intel",
+        settings=[
+            _bios_update("SEHR WICHTIG: BIOS mit Microcode 0x12F (oder neuer) — behebt den „Vmin Shift“, "
+                         "der 13./14.-Gen-CPUs (vor allem i7/i9) dauerhaft instabil machen kann. Ältere "
+                         "BIOS-Versionen nicht weiter verwenden.", impact="high"),
+            _intel_default("rpl"),
+            _memory_profile("intel", "DDR5", "DDR5-6000 bis -7200 (DDR4-Boards: DDR4-3600)"),
+            _ecores(), _rebar("intel"), _pcie_gpu(), _csm(), _secure_boot(), _autoinstall()],
+        notes="Abstürze in Spielen („Out of video memory“, Shader-Fehler) sind bei 13./14. Gen ein "
+              "typisches Zeichen für den Vmin-Shift — erst BIOS-Update + Intel Default Settings, dann weiter "
+              "optimieren. Intel hat die Garantie dieser CPUs verlängert."),
+    BiosProfile(
+        id="lga1700_adl", name="Intel Core 12. Gen (Alder Lake) — LGA1700",
+        cpus="Core i3-12100, Core i5-12400 / 12600K, Core i7-12700K, Core i9-12900K",
+        platform="LGA1700 — Z690 / B660 / H670 / H610 (auch Z790/B760)", brand="intel",
+        settings=[
+            _memory_profile("intel", "DDR5", "DDR5-6000 (DDR4-Boards: DDR4-3600 im Gear 1)"),
+            _intel_default("adl"), _ecores(), _rebar("intel"), _pcie_gpu(), _csm(), _secure_boot(),
+            _bios_update("Neuere BIOS-Versionen verbessern den DDR5-Support deutlich."), _autoinstall()],
+        notes="Unter Windows 10 verteilt der Thread Director die Kerne schlechter — Windows 11 holt bei "
+              "12. Gen spürbar mehr heraus."),
+    BiosProfile(
+        id="lga1200", name="Intel Core 10./11. Gen (Comet / Rocket Lake) — LGA1200",
+        cpus="Core i5-10400–11600K, Core i7-10700K / 11700K, Core i9-10900K / 11900K",
+        platform="LGA1200 — Z590 / B560 / H570 / Z490 / B460 / H410", brand="intel",
+        settings=[
+            _memory_profile("intel", "DDR4", "DDR4-3200 bis -3600 (11. Gen: Gear 1)",
+                            "Bei 11. Gen den Speicher-Controller im „Gear 1“ lassen — Gear 2 kostet Latenz."),
+            _mce(),
+            _rebar("intel", "Offiziell ab 11. Gen auf 500er-Boards; viele Z490-Boards haben es per "
+                            "BIOS-Update für 10. Gen nachgereicht."),
+            _pcie_gpu(), _csm(), _secure_boot(),
+            _bios_update("Für Resizable BAR und Windows-11-TPM ist ein BIOS ab 2021 nötig."), _autoinstall()]),
+    BiosProfile(
+        id="lga1151", name="Intel Core 8./9. Gen (Coffee Lake) — LGA1151",
+        cpus="Core i5-8400–9600K, Core i7-8700K / 9700K, Core i9-9900K",
+        platform="LGA1151 v2 — Z390 / Z370 / B365 / B360 / H370", brand="intel",
+        settings=[
+            _memory_profile("intel", "DDR4", "DDR4-3200"),
+            _mce(), _pcie_gpu(), _csm(), _secure_boot(),
+            _bios_update("Neuere BIOS-Versionen enthalten Sicherheits-Microcode und teils Resizable BAR "
+                         "(nur manche Z390-Boards, inoffiziell)."), _autoinstall()],
+        notes="Resizable BAR gibt es offiziell erst ab Intel 10./11. Gen."),
 
-    # ── Generisch Intel LGA1700 ───────────────────────────────────────────────
+    # ── everything else ──────────────────────────────────────────────────────
     BiosProfile(
-        id="intel_lga1700_generic",
-        name="Intel LGA1700 (generisch — Z690/Z790/B660/B760)",
-        cpu_match=["Core i9", "Core i7", "Core i5", "Core i3"],
-        mb_match=["Z790", "Z690", "B760", "B660", "H770", "H670"],
-        gpu_match=[],
-        notes="Generische LGA1700 Intel-Empfehlungen.",
+        id="generic", name="Andere / unbekannte Plattform — Grundlagen",
+        cpus="jede Desktop-CPU", platform="jedes Board", brand="any",
         settings=[
-            BiosSetting(
-                category="Memory",
-                name="XMP Profil",
-                recommended="Profil 1",
-                default="Disabled",
-                path="Tweaker → Extreme Memory Profile (X.M.P.)",
-                explanation="XMP für korrekten DDR4/DDR5-Takt aktivieren.",
-                risk=SAFE,
-                impact="high",
-                detect_key="xmp_intel"
-            ),
-            BiosSetting(
-                category="GPU",
-                name="Resizable BAR",
-                recommended="Enabled",
-                default="Disabled",
-                path="Settings → IO Ports → Above 4G Decoding",
-                explanation="ReBAR für aktuelle NVIDIA/AMD GPUs aktivieren.",
-                risk=SAFE,
-                impact="high",
-                detect_key="rebar_intel"
-            ),
-        ],
-    ),
+            BiosSetting(key="memory_profile", category="Memory", name="XMP / EXPO / DOCP-Profil",
+                        recommended="Profil 1", default="Aus — JEDEC-Standardtakt",
+                        path="OC-/Tweaker-Menü → Speicherprofil → Profil 1",
+                        explanation="Ohne Profil läuft der RAM nur mit dem Standardtakt — der größte "
+                                    "kostenlose Gewinn im BIOS.", risk=SAFE, impact="high", detect_key="expo_xmp"),
+            _rebar("any"), _pcie_gpu(), _csm(), _secure_boot(),
+            _bios_update("Neuere BIOS-Versionen verbessern RAM-Kompatibilität und Sicherheit."), _autoinstall()],
+        notes="Laptops: Die meisten Laptop-BIOS bieten diese Optionen nicht — dort lohnt vor allem der "
+              "Hersteller-Leistungsmodus (z. B. „Turbo“/„Performance“) im Hersteller-Tool."),
 ]
 
+_BY_ID = {p.id: p for p in PROFILES}
 
-# ── Matcher ────────────────────────────────────────────────────────────────────
 
-def match_profiles(cpu_name: str, mb_manufacturer: str, mb_product: str,
-                   gpu_name: str) -> list[BiosProfile]:
-    """
-    Returns all matching profiles sorted by specificity.
-    Most specific first (kombinations-Profile vor generischen).
-    """
-    cpu_str = cpu_name.upper()
-    mb_str  = f"{mb_manufacturer} {mb_product}".upper()
-    gpu_str = gpu_name.upper()
+def get_profile(pid: str) -> Optional[BiosProfile]:
+    return _BY_ID.get(pid)
 
-    matched = []
-    for profile in PROFILES:
-        cpu_match = any(s.upper() in cpu_str for s in profile.cpu_match)
-        mb_match  = (not profile.mb_match or
-                     any(s.upper() in mb_str for s in profile.mb_match))
-        gpu_match = (not profile.gpu_match or
-                     any(s.upper() in gpu_str for s in profile.gpu_match))
 
-        if cpu_match and mb_match and gpu_match:
-            # Score: more specific = higher score
-            score = (len(profile.cpu_match) * 2
-                     + len(profile.mb_match) * 3
-                     + len(profile.gpu_match) * 3)
-            matched.append((score, profile))
+# ── Matching ─────────────────────────────────────────────────────────────────
 
-    matched.sort(key=lambda x: x[0], reverse=True)
-    return [p for _, p in matched]
+_RYZEN_RE = re.compile(r"RYZEN\s+(?:THREADRIPPER\s+)?(?:\d\s+)?(?:PRO\s+)?(\d{4})(X3D|XT|X|GE|G|F|E)?\b")
+_INTEL_CORE_RE = re.compile(r"\bI[3579]-(\d{4,5})([A-Z]{0,2})\b")
+_INTEL_ULTRA_RE = re.compile(r"ULTRA\s+[3579]\s+(\d{3})([A-Z]{0,2})\b")
+_MOBILE = ("H", "HS", "HX", "U", "P", "Y", "HK", "G7", "V")
+
+
+def detect_profile(cpu_name: str) -> str:
+    """Profile id for a CPU name (Win32_Processor.Name); "generic" when unknown
+    (laptops, Threadripper, server CPUs)."""
+    c = " ".join((cpu_name or "").upper().replace("(TM)", " ").replace("(R)", " ").split())
+    m = _RYZEN_RE.search(c)
+    if m and "THREADRIPPER" not in c:
+        # mobile Ryzen ("7840HS", "5600H") never matches: no word boundary after the digits
+        num, suf = int(m.group(1)), (m.group(2) or "")
+        series = num // 1000
+        if series == 9:
+            return "am5_zen5_x3d" if suf == "X3D" else "am5_zen5"
+        if series == 8:
+            return "am5_apu"
+        if series == 7:
+            return "am5_zen4_x3d" if suf == "X3D" else "am5_zen4"
+        if series == 5:
+            if suf == "X3D":
+                return "am4_zen3_x3d"
+            return "am4_apu" if suf in ("G", "GE") else "am4_zen3"
+        if series == 4:
+            return "am4_apu" if suf in ("G", "GE") else "generic"
+        if series == 3:
+            return "am4_apu" if suf in ("G", "GE") else "am4_zen2"
+        if series in (1, 2):
+            return "am4_apu" if suf in ("G", "GE") else "am4_zen1"
+        return "generic"
+    m = _INTEL_ULTRA_RE.search(c)
+    if m:
+        num, suf = int(m.group(1)), m.group(2)
+        if 200 <= num < 300 and suf in ("", "K", "KF", "F", "T"):
+            return "lga1851_arl"
+        return "generic"                              # Core Ultra mobile (1xxH/U, 2xxV/H)
+    m = _INTEL_CORE_RE.search(c)
+    if m:
+        digits, suf = m.group(1), m.group(2)
+        if suf in _MOBILE or suf.startswith("H"):
+            return "generic"
+        gen = int(digits[:2]) if len(digits) == 5 else int(digits[0])
+        if gen in (13, 14):
+            return "lga1700_rpl"
+        if gen == 12:
+            return "lga1700_adl"
+        if gen in (10, 11):
+            return "lga1200"
+        if gen in (8, 9):
+            return "lga1151"
+    return "generic"
+
+
+def match_profiles(cpu_name: str, mb_manufacturer: str = "", mb_product: str = "",
+                   gpu_name: str = "") -> list[BiosProfile]:
+    """All profiles, the one for this CPU first (the BIOS guide lists every
+    platform; the hardware detection only pre-selects)."""
+    pid = detect_profile(cpu_name)
+    first = _BY_ID[pid]
+    return [first] + [p for p in PROFILES if p is not first]
 
 
 def get_impact_color(impact: str) -> str:
     return {"high": "#ef4444", "medium": "#f59e0b", "low": "#22c55e"}.get(impact, "#6b7280")
+
 
 def get_risk_color(risk: str) -> str:
     return {"safe": "#22c55e", "moderate": "#f59e0b", "advanced": "#ef4444"}.get(risk, "#6b7280")

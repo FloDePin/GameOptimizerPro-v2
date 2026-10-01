@@ -56,12 +56,40 @@ class SettingsTab(Page):
             variable=self.v_load_startup, font=ctk_font(13), progress_color=ACC,
             command=lambda: app_settings.set("load_startup_profile", bool(self.v_load_startup.get())))
         self.sw_load_startup.pack(anchor="w", pady=4)
+
+        self.v_check_updates = tk.BooleanVar(value=bool(app_settings.get("check_updates", True)))
+        self.sw_check_updates = ctk.CTkSwitch(
+            st.body, text=tr("Beim Start auf Updates prüfen (neue Versionen von GitHub laden)",
+                             "Check for updates at start-up (download new versions from GitHub)"),
+            variable=self.v_check_updates, font=ctk_font(13), progress_color=ACC,
+            command=lambda: app_settings.set("check_updates", bool(self.v_check_updates.get())))
+        self.sw_check_updates.pack(anchor="w", pady=4)
+
+        self.v_close_to_tray = tk.BooleanVar(value=bool(app_settings.get("close_to_tray", True)))
+        self.sw_close_to_tray = ctk.CTkSwitch(
+            st.body, text=tr("Beim Schließen im Infobereich (Tray) weiterlaufen — aus: das X beendet die App",
+                             "Keep running in the tray when closed — off: the X quits the app"),
+            variable=self.v_close_to_tray, font=ctk_font(13), progress_color=ACC,
+            command=lambda: app_settings.set("close_to_tray", bool(self.v_close_to_tray.get())))
+        self.sw_close_to_tray.pack(anchor="w", pady=4)
         row = tk.Frame(st.body, bg=CARD_BG)
         row.pack(fill="x", pady=(8, 0))
         button(row, tr("Startup-Profil jetzt laden", "Load startup profile now"), self._load_startup_now,
                height=30, image=icon_image("refresh", TEXT, 14), compound="left").pack(side="left")
+        from core import updater
+        self.btn_update = button(row, tr("Jetzt auf Updates prüfen", "Check for updates now"),
+                                 self._check_updates_now, height=30,
+                                 image=icon_image("refresh", TEXT, 14), compound="left")
+        self.btn_update.pack(side="left", padx=(8, 0))
+        lb = updater.local_build()
+        self.lbl_update = WrapLabel(
+            st.body, text=(tr(f"Installiert: v2.0, Build {lb.build}", f"Installed: v2.0, build {lb.build}")
+                           + (f" ({lb.date})" if lb.date else "")) if lb.build else
+            tr("Installiert: v2.0 (ohne Build-Nummer)", "Installed: v2.0 (no build number)"),
+            font=F_S, fg=DIM, bg=CARD_BG)
+        self.lbl_update.pack(fill="x", pady=(6, 0))
         self.lbl_startup_result = WrapLabel(st.body, text="", font=F_MONO, fg=DIM, bg=CARD_BG)
-        self.lbl_startup_result.pack(fill="x", pady=(6, 0))
+        self.lbl_startup_result.pack(fill="x", pady=(2, 0))
 
         # ── Afterburner setup ─────────────────────────────────────────────────
         abc = Card(b, tr("Afterburner-Einrichtung", "Afterburner setup"),
@@ -187,6 +215,22 @@ class SettingsTab(Page):
                     "Stelle sicher, dass GameOptimizerPro als Administrator läuft.")
                 self.v_autostart.set(not want)
         run_async(self, lambda: self.startup_loader.set_autostart(want), done)
+
+    def _check_updates_now(self):
+        """Same flow as at start-up, but it also says "up to date" / "offline"."""
+        from ui.update_flow import UpdateFlow
+        top = self.winfo_toplevel()
+        flow = getattr(top, "update_flow", None)
+        if flow is None:
+            flow = top.update_flow = UpdateFlow(top)
+        colors = {"info": DIM, "success": GREEN, "warning": AMBER, "error": ERR}
+
+        def status(text, kind="info"):
+            try:
+                self.lbl_update.config(text=text, fg=colors.get(kind, DIM))
+            except tk.TclError:
+                pass
+        flow.start(manual=True, on_status=status)
 
     def _load_startup_now(self):
         if not self.startup_loader:
@@ -337,7 +381,10 @@ class SettingsTab(Page):
             "Afterburner starten und im Tray lassen"
         ))
 
-        ab_cfg = self.ab.check_ab_setup() if self.ab.available else {}
+        try:
+            ab_cfg = self.ab.check_ab_setup() if self.ab.available else {}
+        except Exception:
+            ab_cfg = {}
         no_cfg = "Afterburner einmal starten (legt Profiles\\MSIAfterburner.cfg an)"
         checks.append((
             "AB: Unlock Voltage Control",
@@ -363,6 +410,30 @@ class SettingsTab(Page):
             volt,
             "✓ Spannung wird geliefert" if volt else
             "AB → Einstellungen → Überwachung → Haken bei 'GPU-Spannung' (für V/F-Tuning)"
+        ))
+
+        # Without these two, a reboot starts the card at stock clocks unless
+        # GameOptimizerPro itself starts with Windows (it then loads the profile).
+        checks.append((
+            "AB: startet mit Windows",
+            ab_cfg.get("start_with_windows", False),
+            "✓ (dann kann GameOptimizerPro nach dem Tunen geschlossen bleiben)"
+            if ab_cfg.get("start_with_windows") else
+            (no_cfg if not ab_cfg.get("cfg_found") else
+             "AB → Einstellungen → Allgemein → „Mit Windows starten“ (+ „Minimiert starten“) — sonst "
+             "läuft die Karte nach einem Neustart auf Standard, bis du GameOptimizerPro öffnest")
+        ))
+        try:
+            apply_on = self.ab.startup_apply_enabled() if self.ab.available else None
+        except Exception:
+            apply_on = None
+        checks.append((
+            "AB: Übertaktung beim Systemstart anwenden",
+            bool(apply_on),
+            "✓ Afterburner setzt dein Profil beim Start selbst" if apply_on else
+            ("Profildatei der Karte nicht gefunden" if apply_on is None else
+             "Profil laden (GPU-Tuner → Profile → Anwenden), dann im Afterburner-Hauptfenster das "
+             "Windows-Symbol „Startup“ einschalten")
         ))
 
         if self.ab.available:

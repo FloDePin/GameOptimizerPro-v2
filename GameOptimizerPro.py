@@ -25,9 +25,7 @@ from core.nvtune_tuner   import AutoTuner, TunerConfig
 from core.tweak_runner   import TweakRunner
 from core.crash_recovery import CrashRecovery
 from core.startup_loader import StartupLoader
-from core.game_monitor   import GameMonitor
 from core.temp_monitor   import TempMonitor
-from core.update_checker import UpdateChecker
 from core                import i18n
 from core.app_launch     import gui_python, owns_console
 try:
@@ -64,7 +62,7 @@ def restart_app():
 def is_admin() -> bool:
     try:
         return bool(ctypes.windll.shell32.IsUserAnAdmin())
-    except:
+    except Exception:
         return False
 
 
@@ -123,7 +121,7 @@ def make_icon():
         try:
             from PIL import Image
             return Image.new("RGB", (64, 64), (0, 217, 255))
-        except:
+        except Exception:
             return None
 
 
@@ -167,9 +165,7 @@ class GameOptimizerApp:
         self._visible  = False
 
         # New feature components
-        self.game_monitor = GameMonitor(str(BASE), self.ab, self.pm, self.cr)
         self.temp_monitor = TempMonitor(self.monitor, limit_c=90)
-        self.update_checker = UpdateChecker()
 
         # Cached tray stats (written by stats thread, read by tray thread)
         self._temp  = 0
@@ -185,7 +181,7 @@ class GameOptimizerApp:
         if self._window:
             try:
                 self._window.after(0, self._show_window)
-            except:
+            except Exception:
                 pass
 
     def _show_window(self):
@@ -199,7 +195,7 @@ class GameOptimizerApp:
         if self._window:
             try:
                 self._window.withdraw()
-            except:
+            except Exception:
                 pass
 
     def _reset_gpu(self, icon=None, item=None):
@@ -222,45 +218,44 @@ class GameOptimizerApp:
         except Exception:
             pass
 
-    def _on_update_result(self, available: bool, version: str, url: str):
-        """Show update notification in title bar via after()."""
-        if available and self._window:
-            def _show():
-                try:
-                    if messagebox.askyesno(
-                        "Update verfügbar",
-                        f"Neue Version {version} verfügbar!\n\nJetzt herunterladen?",
-                        parent=self._window
-                    ):
-                        import webbrowser
-                        webbrowser.open(url)
-                except: pass
-            self._window.after(2000, _show)
+    def _on_close(self):
+        """Window X: into the tray (setting "close_to_tray", default on) — or quit.
+        Without a tray icon (pystray missing) hiding left the app running
+        invisibly with no way back, so it quits then."""
+        from core import app_settings
+        if self._tray is not None and app_settings.get("close_to_tray", True):
+            self._hide()
+        else:
+            self._exit()
 
-    def _exit(self, icon=None, item=None):
+    def _exit(self, icon=None, item=None, relaunch=False):
         self._running = False
         self._abort_tuning_if_running()      # GPU back to stock BEFORE we die
-        try: self.game_monitor.stop()
-        except: pass
         try: self.temp_monitor.stop()
-        except: pass
+        except Exception: pass
         try:
             self.monitor.close()
-        except:
+        except Exception:
             pass
         # Destroy tkinter safely from main thread
         if self._window:
             try:
                 self._window.after(0, self._window.destroy)
-            except:
+            except Exception:
                 pass
         def _stop():
             if self._tray:
                 try:
                     self._tray.stop()
-                except:
+                except Exception:
                     pass
             time.sleep(0.3)
+            if relaunch:                      # after a git-pull update
+                try:
+                    import subprocess
+                    subprocess.Popen([gui_python(), str(BASE / "GameOptimizerPro.py")], cwd=str(BASE))
+                except Exception:
+                    pass
             os._exit(0)
         threading.Thread(target=_stop, daemon=True).start()
 
@@ -275,7 +270,7 @@ class GameOptimizerApp:
                         message, parent=self._window
                     )
                 )
-            except:
+            except Exception:
                 ctypes.windll.user32.MessageBoxW(
                     0, message,
                     "GameOptimizerPro — Crash erkannt", 0x40030
@@ -293,7 +288,7 @@ class GameOptimizerApp:
         try:
             import pystray
             from pystray import MenuItem as MI, Menu
-        except:
+        except Exception:
             return None
 
         profiles = [p for p in self.pm.list_all()
@@ -360,9 +355,9 @@ class GameOptimizerApp:
                             f"{volt_s} | {s.gpu_power_w:.0f}W"
                         )
                         self._tray.title = title[:120]
-                    except:
+                    except Exception:
                         pass
-            except:
+            except Exception:
                 pass
             time.sleep(4)
 
@@ -375,7 +370,7 @@ class GameOptimizerApp:
                 try:
                     self._tray.menu = self._build_menu()
                     self._tray.update_menu()
-                except:
+                except Exception:
                     pass
 
     def _startup_bg(self):
@@ -402,19 +397,23 @@ class GameOptimizerApp:
         threading.Thread(target=self._startup_bg,        daemon=True).start()
         threading.Thread(target=self._stats_loop,        daemon=True).start()
         threading.Thread(target=self._menu_refresh_loop, daemon=True).start()
-        self.game_monitor.start()
         self.temp_monitor.start()
-        self.update_checker.on_result(self._on_update_result)
-        self.update_checker.check_async()
 
         # 2. Tkinter window created DIRECTLY in main thread
         self._window = GameOptimizerWindow(
             self.hw, self.monitor, self.ab, self.pm,
             self.tuner, self.runner,
             startup_loader=self.sl,
-            game_monitor=self.game_monitor,
         )
-        self._window.protocol("WM_DELETE_WINDOW", self._hide)
+        self._window.protocol("WM_DELETE_WINDOW", self._on_close)
+        self._window.request_exit = lambda relaunch=False: self._exit(relaunch=relaunch)
+        # Updates from GitHub (setting "check_updates", default on) — a few
+        # seconds after the start, in the background.
+        from core import app_settings
+        from ui.update_flow import UpdateFlow
+        self._window.update_flow = UpdateFlow(self._window)
+        if app_settings.get("check_updates", True):
+            self._window.after(8000, self._window.update_flow.start)
 
         # 3. Tray icon in its own background thread
         try:
@@ -458,6 +457,16 @@ def main():
 
     if not ensure_ui_package():
         sys.exit(1)
+    # An update downloaded earlier ("install at the next start"): installed now,
+    # before anything else runs — the installer waits for this process to end
+    # and starts the app again.
+    try:
+        from core import updater
+        info = updater.pending()
+        if info and updater.launch_apply(info, relaunch=True):
+            sys.exit(0)
+    except Exception:
+        pass
     GameOptimizerApp().run()
 
 
@@ -477,9 +486,12 @@ def ensure_ui_package() -> bool:
         return False
     import importlib
     import subprocess
-    r = subprocess.run([sys.executable, "-m", "pip", "install", "customtkinter>=5.2"],
-                       capture_output=True, text=True, errors="replace",
-                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    try:
+        r = subprocess.run([sys.executable, "-m", "pip", "install", "customtkinter>=5.2"],
+                           capture_output=True, text=True, errors="replace", timeout=600,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except (OSError, subprocess.SubprocessError) as e:
+        r = subprocess.CompletedProcess([], 1, "", str(e))
     importlib.invalidate_caches()
     try:
         from ui.main_window import GameOptimizerWindow as _W

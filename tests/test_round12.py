@@ -165,8 +165,8 @@ check(mw._short_gpu("NVIDIA GeForce RTX 4080") == "RTX 4080", "GPU name shortene
 check(mw._short_cpu("AMD Ryzen 7 7800X3D 8-Core Processor") == "AMD Ryzen 7 7800X3D", "CPU name shortened")
 check(mw._short_cpu("Intel(R) Core(TM) i7-14700K") == "Intel Core i7-14700K", "Intel CPU name shortened")
 keys = [k for k, *_x in mw.TAB_DEFS]
-check(len(keys) == len(set(keys)) == 11 and "startup" in keys and "services" in keys,
-      "11 pages incl. Autostart + Dienste")
+check(len(keys) == len(set(keys)) == 10 and "startup" in keys and "services" in keys and "games" not in keys,
+      "10 pages incl. Autostart + Dienste (the games page is gone)")
 src = open(os.path.join(ROOT, "ui", "main_window.py"), encoding="utf-8").read()
 check(all(f'"{k}": self._make_' in src for k in keys), "every page has a factory")
 check(all(mw.TAB_COLORS.get(k) for k in keys), "every page has a colour")

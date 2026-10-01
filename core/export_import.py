@@ -8,10 +8,9 @@ Exportiert und importiert:
 Format: JSON mit Versionierung und Metadaten.
 """
 
-import json, os, shutil
+import json, os
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 
 EXPORT_VERSION = "1.0"
@@ -54,7 +53,7 @@ class ExportImport:
                 try:
                     with open(f, encoding="utf-8") as fh:
                         profiles.append(json.load(fh))
-                except:
+                except Exception:
                     pass
             data["gpu_profiles"] = profiles
 
@@ -169,6 +168,6 @@ class ExportImport:
                 with open(dest, "w", encoding="utf-8") as f:
                     json.dump(pd, f, indent=2)
                 imported += 1
-            except:
+            except Exception:
                 skipped += 1
         return imported, skipped

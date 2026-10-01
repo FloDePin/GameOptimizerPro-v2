@@ -185,7 +185,7 @@ class StressTester:
                 threading.Thread(target=self._read_worker,
                                  args=(self._proc, self._metrics, self._t0),
                                  daemon=True).start()
-            except:
+            except Exception:
                 pass
 
     @staticmethod
@@ -221,7 +221,7 @@ class StressTester:
             try:
                 self._proc.terminate()
                 self._proc.wait(timeout=5)
-            except:
+            except Exception:
                 pass
             self._proc = None
 
@@ -277,7 +277,7 @@ class StressTester:
             if on_tick:
                 try:
                     on_tick(elapsed, duration_s, stats)
-                except:
+                except Exception:
                     pass
 
             if stats.temp >= max_temp:
@@ -968,7 +968,7 @@ class AutoTuner:
             try:
                 gpu_name   = self.monitor.read().name
                 vf_builder = get_builder_for_gpu(gpu_name)
-            except:
+            except Exception:
                 vf_builder = VFCurveBuilder("Ada")
 
             # Determine target frequency from Stage 1 result
@@ -1170,7 +1170,7 @@ class AutoTuner:
 
         try:
             gpu_name = self.monitor.read().name
-        except:
+        except Exception:
             gpu_name = "Unknown"
 
         if final.passed:

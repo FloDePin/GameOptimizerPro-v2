@@ -5,7 +5,7 @@ Schreibt "last_stable" Profil vor jedem Tuning-Schritt.
 Beim nächsten Start: prüft ob letzter Run gecrasht ist → lädt letztes stabiles Profil.
 """
 
-import os, json, time, subprocess
+import os, json, subprocess
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
@@ -48,7 +48,7 @@ class CrashRecovery:
         try:
             data = json.loads(self._crash_flag.read_text(encoding="utf-8"))
             return data.get("profile")
-        except:
+        except Exception:
             return None
 
     # ── Stable profile tracking ───────────────────────────────────────────────
@@ -63,7 +63,7 @@ class CrashRecovery:
             return None
         try:
             return json.loads(self._last_stable.read_text(encoding="utf-8"))
-        except:
+        except Exception:
             return None
 
     def save_last_applied(self, profile_dict: dict):
@@ -76,7 +76,7 @@ class CrashRecovery:
             return None
         try:
             return json.loads(self._last_applied.read_text(encoding="utf-8"))
-        except:
+        except Exception:
             return None
 
     # ── TDR detection via Windows Event Log ──────────────────────────────────
@@ -113,7 +113,7 @@ class CrashRecovery:
                 creationflags=subprocess.CREATE_NO_WINDOW
             )
             return "TDR_FOUND" in result.stdout
-        except:
+        except Exception:
             return False
 
     def get_tdr_count_since(self, seconds_back: int = 300) -> int:
@@ -136,5 +136,5 @@ class CrashRecovery:
             )
             txt = result.stdout.strip()
             return int(txt) if txt.isdigit() else 0
-        except:
+        except Exception:
             return 0

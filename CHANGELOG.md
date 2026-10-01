@@ -889,6 +889,81 @@ verifiers (VERIFY_MAP stays 1:1) and full English descriptions.
     Tk window has its real size and is not among the user's desktop windows);
     `run_all_tests.py` uses it for those suites.
 
+- **Round 14 — leaner, every BIOS platform, updates from GitHub** (the user:
+  "the games thing is unnecessary, remove it, the FPS thing too; the BIOS guide
+  should list MANY boards and show the matching one; a tick box in the settings
+  to check for updates that downloads them from GitHub; switching tabs feels a
+  bit laggy — remove the stuff, look at the code to make it more robust, then
+  test everything"):
+  - **Removed:** the per-game profiles with the background process watcher
+    (`core/game_monitor.py`), CPU pinning (`cpu_pinning.py`, `cpu_topology.py`),
+    the FPS/frametime capture (`fps_capture.py`, Diagnose tab) and the old
+    release checker (`update_checker.py` — the version stays "2.0", so it could
+    never find anything). The **tune history** moved into the GPU tuner (view
+    "History", now with the memory offset; logs are read when the view opens;
+    odd file names sort by their time).
+  - **Page switches 2–3× faster** (measured on the visible desktop: revisits
+    37–129 ms → 12–47 ms): pages stay placed and stacked in the content area and
+    a switch only raises one (packing a page in and out re-mapped every widget);
+    only the two sidebar buttons that change are redrawn (all 11 were, ~8 ms);
+    the pages are built in the background after the start — only while there was
+    no click / key for 1.5 s (a first visit cost up to 465 ms).
+  - **BIOS guide for every platform** (`core/bios_guide.py` rewritten): 16
+    platforms from Intel 8th gen / Ryzen 1000 to Ryzen 9000X3D / Core Ultra 200S
+    plus the basics for anything else (158 settings); the hardware detection only
+    pre-selects the platform (CPU name → platform, laptops → basics) and the board
+    maker; every setting has the **menu path for ASUS / MSI / Gigabyte / ASRock**
+    (generic otherwise, with the BIOS search hint). Content fixed where the old
+    guide was wrong or vague: C-states stay on (the "Gaming: Disabled" advice
+    lowers single-core boost on Ryzen), 7000X3D only via the Curve Optimizer,
+    the 13th/14th-gen microcode 0x12F (Vmin shift) first, Intel Default Settings,
+    200S Boost, X3D core parking, Secure Boot for anti-cheats; the "G-Sync in
+    the BIOS" setting and the unrelated registry "tips" (HAGS as ReBAR, timer
+    resolution as Thread Director) are gone.
+  - **Honest BIOS detection** (`core/bios_detector.py` rewritten, 0.3 s instead
+    of several seconds): RAM profile from the configured speed vs. the JEDEC
+    ceiling of its DDR type (the old "> 3200 MHz" called every DDR5 at stock
+    "active"), **Resizable BAR from NVIDIA's BAR1 aperture** (16 GB = on, 256 MB =
+    off; the old check combined HAGS with a WMI value that never exceeds 4 GB),
+    Secure Boot from the UEFI state (no admin needed), CSM only where certain
+    (Legacy boot = on, Secure Boot on = off). PBO, C-states, fast boot: no
+    reliable signal from Windows — grey instead of a guess. The status is shown
+    for the detected platform only.
+  - **Updates from GitHub** (`core/updater.py`, `tools/apply_update.py`,
+    `ui/update_flow.py`, `build.json`): Settings → "Check for updates at
+    start-up" (default on, 8 s after the start) and "Check for updates now".
+    A release is identified by the build number in `build.json` (raised with
+    every release). Zip install: download, safe unpack (no zip-slip), check
+    (build and files), then "restart now?" — "no" installs it at the next start
+    (before anything else runs), never during a tune; the installer (from the
+    NEW version) waits for the app's process, backs up every file it replaces
+    or removes (`logs/update_backup_<build>/`), copies, removes app code the new
+    version no longer has, puts the old state back if a copy fails, runs pip
+    when `requirements.txt` changed, logs to `logs/update.log` and restarts the
+    app. `logs/` and `profiles/` are never touched. A git checkout is updated
+    with `git pull --ff-only` (clean tree only); "no" is remembered per build
+    for the automatic check.
+  - **Close behaviour:** Settings → "Keep running in the tray when closed"
+    (default on); off = the X quits. Without a tray icon (pystray missing) the X
+    used to hide the window with no way back — it quits now.
+  - **Afterburner setup checks** "starts with Windows" and "applies the
+    overclock at system startup" (the `[Startup]` section of the card's profile):
+    without them a reboot starts the card at stock unless GameOptimizerPro runs —
+    on the user's PC both were off.
+  - **Robustness:** 52 bare `except:` → `except Exception:` (Ctrl+C / exit pass
+    through), timeouts for every `schtasks` call (30 s) and the pip install
+    (600 s), 20 unused imports removed, the setup check survives a failing row.
+  - Tests: `tests/test_round14.py` (CPU → platform for 30 CPU names, every
+    profile complete, vendor paths, the detector's rules, the updater against a
+    fake GitHub incl. zip-slip / wrong build / broken download, the installer on
+    temp folders incl. rollback and the whole script, every update dialog path,
+    tune history, close behaviour); `test_ui_round12` (history view, BIOS page,
+    page stack, two-button redraw, settings switches, Afterburner rows);
+    `tests/run_hidden_desktop.py` runs the suites that map real windows on a
+    never-shown desktop — the whole battery can run while the user plays —
+    826 checks in 22 suites, all green; screenshots of every page at 1400×900
+    and 1000×700 checked.
+
 ### 🔎 Reviewed, verified NOT a bug
 
 Some reported items were checked against the actual code and left unchanged

@@ -37,7 +37,6 @@ from core.nvtune_tuner import AutoTuner, TunerConfig
 from core.tweak_runner import TweakRunner
 from core.crash_recovery import CrashRecovery
 from core.startup_loader import StartupLoader
-from core.game_monitor import GameMonitor
 import ui.main_window as mw
 from PIL import ImageGrab
 
@@ -54,11 +53,10 @@ except Exception:
     pass
 runner._save_state = lambda: None
 sl = StartupLoader(tmp, ab, pm, cr)
-gm = GameMonitor(tmp, ab, pm, cr)
 
 W = int(sys.argv[1]) if len(sys.argv) > 1 else 1400
 H = int(sys.argv[2]) if len(sys.argv) > 2 else 900
-w = mw.GameOptimizerWindow(hw, mon, ab, pm, tuner, runner, startup_loader=sl, game_monitor=gm)
+w = mw.GameOptimizerWindow(hw, mon, ab, pm, tuner, runner, startup_loader=sl)
 w.geometry(f"{W}x{H}+40+40")
 w.attributes("-topmost", True)
 w.unbind_all("<MouseWheel>")          # a wheel turned over the window must not scroll the shots
@@ -67,8 +65,8 @@ suffix = f"_{W}"
 PLAN = [
     ("dashboard", None, 5500), ("optimizer", None, 1200), ("optimizer", "windows", 2500),
     ("optimizer", "verify", 600), ("optimizer", "exim", 600), ("gpu", None, 1200),
-    ("gpu", "curve", 900), ("gpu", "profiles", 600), ("gpu", "manual", 600), ("stress", None, 1500), ("compare", None, 800),
-    ("bios", None, 4000), ("games", None, 800), ("games", "history", 600), ("diagnose", None, 800),
+    ("gpu", "curve", 900), ("gpu", "profiles", 600), ("gpu", "manual", 600), ("gpu", "history", 800), ("stress", None, 1500), ("compare", None, 800),
+    ("bios", None, 4000), ("diagnose", None, 800),
     ("startup", None, 2500), ("services", None, 4000), ("settings", None, 2500),
 ]
 if os.environ.get("GOP_SHOTS"):                     # e.g. GOP_SHOTS=gpu,stress — only these pages

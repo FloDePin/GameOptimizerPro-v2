@@ -1,11 +1,15 @@
 """
 GameOptimizerPro v2.0 — Main Window (CustomTkinter)
 Sidebar navigation on the left, the page on the right, status bar at the
-bottom. Pages are built the first time they are opened (the optimizer and the
-GPU tuner shortly after start-up in the background), so the window is up at once.
+bottom. Only the dashboard is built at start-up, so the window is up at once;
+the other pages are built in the background while the user doesn't click or
+type, and stay stacked in the content area — switching raises one (packing a
+page in and out re-mapped every widget: 35–90 ms per click, a first visit up
+to 450 ms).
 """
 
 import threading
+import time
 import tkinter as tk
 import traceback
 from datetime import datetime
@@ -37,14 +41,14 @@ TAB_DEFS = [
     ("stress",    "Stresstest",         "Stress Test"),
     ("compare",   "Profilvergleich",    "Compare"),
     ("bios",      "BIOS-Guide",         "BIOS Guide"),
-    ("games",     "Spiele & Verlauf",   "Games & History"),
     ("diagnose",  "Diagnose",           "Diagnose"),
     ("startup",   "Autostart",          "Startup Apps"),
     ("services",  "Dienste",            "Services"),
     ("settings",  "Einstellungen",      "Settings"),
 ]
 TAB_COLORS = dict(PAGE_COLORS, startup=ACC, services=AMBER)
-PREBUILD = ("optimizer", "gpu")          # built in the background after start-up
+PREBUILD = ("optimizer", "gpu")          # built first in the background, then the rest
+PREBUILD_IDLE_S = 1.5                    # ... only when there was no click / key for this long
 
 
 def _short_gpu(name: str) -> str:
@@ -75,7 +79,6 @@ class GameOptimizerWindow(ctk.CTk):
         tuner:   AutoTuner,
         runner:  TweakRunner,
         startup_loader=None,
-        game_monitor=None,
     ):
         super().__init__()
         self.hw             = hw
@@ -85,7 +88,6 @@ class GameOptimizerWindow(ctk.CTk):
         self.tuner          = tuner
         self.runner         = runner
         self.startup_loader = startup_loader
-        self.game_monitor   = game_monitor
 
         self._active_tab    = ""
         self._tab_frames:   dict[str, tk.Widget] = {}
@@ -104,8 +106,10 @@ class GameOptimizerWindow(ctk.CTk):
         self._start_updater()
         # v1: did a Windows update undo tweaks applied earlier? (after start-up)
         self.after(4000, self._start_drift_check)
-        for i, key in enumerate(PREBUILD):
-            self.after(1500 + 1500 * i, lambda k=key: self._ensure_page(k))
+        self._last_input = time.monotonic()
+        for seq in ("<ButtonPress>", "<KeyPress>", "<MouseWheel>"):
+            self.bind_all(seq, self._note_input, add="+")
+        self._prebuild_id = self.after(1500, self._prebuild_next)
 
     # ── Window ────────────────────────────────────────────────────────────────
 
@@ -230,8 +234,13 @@ class GameOptimizerWindow(ctk.CTk):
             self._tab_btns[key] = btn
             self._tab_bars[key] = bar
 
-    def _style_nav(self):
-        for key, btn in self._tab_btns.items():
+    def _style_nav(self, prev: str | None = None):
+        """Highlight the active page's button. With `prev` only the two buttons
+        that change are redrawn (each CTkButton redraw costs ~0.8 ms)."""
+        keys = [k for k in (prev, self._active_tab) if k in self._tab_btns] if prev is not None \
+            else list(self._tab_btns)
+        for key in keys:
+            btn = self._tab_btns[key]
             color = TAB_COLORS.get(key, ACC)
             active = key == self._active_tab
             btn.configure(fg_color=tint(color, SIDEBAR_BG, 0.16) if active else "transparent",
@@ -310,7 +319,7 @@ class GameOptimizerWindow(ctk.CTk):
         self._page_factories = {
             "dashboard": self._make_dashboard, "optimizer": self._make_optimizer,
             "gpu": self._make_gpu, "stress": self._make_stress, "compare": self._make_compare,
-            "bios": self._make_bios, "games": self._make_games, "diagnose": self._make_diagnose,
+            "bios": self._make_bios, "diagnose": self._make_diagnose,
             "startup": self._make_startup, "services": self._make_services,
             "settings": self._make_settings,
         }
@@ -340,10 +349,6 @@ class GameOptimizerWindow(ctk.CTk):
         from ui.tab_bios import BiosGuideTab
         return BiosGuideTab(parent, self.hw)
 
-    def _make_games(self, parent):
-        from ui.tab_games import GamesTab
-        return GamesTab(parent, self.game_monitor, self.pm, str(BASE / "logs"))
-
     def _make_diagnose(self, parent):
         from ui.tab_diagnose import DiagnoseTab
         return DiagnoseTab(parent)
@@ -360,6 +365,26 @@ class GameOptimizerWindow(ctk.CTk):
         from ui.tab_settings import SettingsTab
         return SettingsTab(parent, self.ab, self.monitor, self.startup_loader)
 
+    def _note_input(self, _e=None):
+        self._last_input = time.monotonic()
+
+    def _prebuild_next(self):
+        """Build the next page in the background — never while the user is
+        clicking or typing (a build blocks the window for 0.1–0.4 s)."""
+        self._prebuild_id = None
+        order = list(PREBUILD) + [k for k, *_x in TAB_DEFS if k not in PREBUILD]
+        todo = [k for k in order if k not in self._tab_frames]
+        if not todo:
+            return
+        try:
+            if time.monotonic() - self._last_input < PREBUILD_IDLE_S:
+                self._prebuild_id = self.after(700, self._prebuild_next)
+                return
+            self._ensure_page(todo[0])
+            self._prebuild_id = self.after(500, self._prebuild_next)
+        except tk.TclError:
+            pass                              # window closed
+
     def _ensure_page(self, key: str):
         page = self._tab_frames.get(key)
         if page is not None:
@@ -374,29 +399,36 @@ class GameOptimizerWindow(ctk.CTk):
                      font=("Segoe UI Semibold", 12), fg=ERR, bg=APP_BG).pack(anchor="w", padx=24, pady=(24, 6))
             WrapLabel(page, text=traceback.format_exc()[-1500:], font=F_MONO, fg=TEXT2,
                       bg=APP_BG).pack(fill="x", padx=24)
+        # every page stays placed, stacked; _show_tab raises the active one
+        page.place(x=0, y=0, relwidth=1, relheight=1)
+        if key != self._active_tab:
+            page.lower()
         self._tab_frames[key] = page
         return page
 
     def _show_tab(self, key: str):
         if key not in self._page_factories:
             return
+        prev = self._active_tab
+        self._active_tab = key                # before the build: a new page isn't lowered
         page = self._ensure_page(key)
-        old = self._tab_frames.get(self._active_tab)
-        if old is not None and old is not page:
-            old.pack_forget()
-            if hasattr(old, "on_hide"):
-                try:
-                    old.on_hide()
-                except Exception:
-                    pass
-        self._active_tab = key
-        page.pack(fill="both", expand=True)
+        old = self._tab_frames.get(prev)
+        if old is not None and old is not page and hasattr(old, "on_hide"):
+            try:
+                old.on_hide()
+            except Exception:
+                pass
+        page.tkraise()
+        try:
+            page.focus_set()                  # keys must not go to an entry on a hidden page
+        except tk.TclError:
+            pass
         if hasattr(page, "on_show"):
             try:
                 page.on_show()
             except Exception:
                 pass
-        self._style_nav()
+        self._style_nav(prev)
 
     # ── Status bar ────────────────────────────────────────────────────────────
 

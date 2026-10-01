@@ -5,7 +5,6 @@ Preserves all original GameOptimizerPro tweaks + new additions.
 """
 
 from dataclasses import dataclass, field
-from typing import Callable, Optional
 
 
 @dataclass

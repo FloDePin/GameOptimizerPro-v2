@@ -4,7 +4,7 @@ Combined NVML + MAHM telemetry, Afterburner profile controller,
 setup validator (checks AB unlock settings + profile locks).
 """
 
-import subprocess, os, time, json, struct, threading
+import subprocess, os, time, json, threading
 try:
     import winreg
 except ImportError:
@@ -152,7 +152,7 @@ class ProfileManager:
             try:
                 with open(f, encoding="utf-8") as fp:
                     result.append(TuneProfile.from_dict(json.load(fp)))
-            except:
+            except Exception:
                 pass
         return result
 
@@ -203,46 +203,46 @@ class NvmlMonitor:
         try:
             n = nv.nvmlDeviceGetName(h)
             stats.name = n.decode() if isinstance(n, bytes) else n
-        except: pass
+        except Exception: pass
         try:
             d = nv.nvmlSystemGetDriverVersion()
             stats.driver_version = d.decode() if isinstance(d, bytes) else d
-        except: pass
+        except Exception: pass
         try:
             stats.temp = nv.nvmlDeviceGetTemperature(h, nv.NVML_TEMPERATURE_GPU)
-        except: pass
+        except Exception: pass
         try:
             # Real thermal slowdown point (e.g. 94 °C on an RTX 4080) — used as
             # the temperature gauge's scale. It used to come from Afterburner's
             # "Temp limit" source, which is only a 0/1 limiter flag.
             stats.temp_limit_c = float(nv.nvmlDeviceGetTemperatureThreshold(
                 h, nv.NVML_TEMPERATURE_THRESHOLD_SLOWDOWN))
-        except: pass
+        except Exception: pass
         try:
             stats.core_mhz = float(nv.nvmlDeviceGetClockInfo(h, nv.NVML_CLOCK_GRAPHICS))
-        except: pass
+        except Exception: pass
         try:
             stats.mem_mhz = float(nv.nvmlDeviceGetClockInfo(h, nv.NVML_CLOCK_MEM))
-        except: pass
+        except Exception: pass
         try:
             u = nv.nvmlDeviceGetUtilizationRates(h)
             stats.gpu_usage = float(u.gpu)
             stats.mem_usage = float(u.memory)
-        except: pass
+        except Exception: pass
         try:
             m = nv.nvmlDeviceGetMemoryInfo(h)
             stats.vram_used_mb  = m.used  // (1024**2)
             stats.vram_total_mb = m.total // (1024**2)
-        except: pass
+        except Exception: pass
         try:
             stats.power_w       = nv.nvmlDeviceGetPowerUsage(h)  / 1000.0
             stats.power_limit_w = nv.nvmlDeviceGetPowerManagementLimit(h) / 1000.0
-        except: pass
+        except Exception: pass
         try:
             mn, mx = nv.nvmlDeviceGetPowerManagementLimitConstraints(h)
             stats.power_min_w = mn / 1000.0
             stats.power_max_w = mx / 1000.0
-        except: pass
+        except Exception: pass
         try:
             # The old table was shifted by one bit: 0x04 (the normal power limit)
             # was labelled "Thermal", 0x02 (application clocks) "Power", … — and
@@ -253,10 +253,10 @@ class NvmlMonitor:
             stats.throttle_protective = bool(reasons & THR_PROTECTIVE)
             active = [v for k, v in _THR_LABELS.items() if reasons & k]
             stats.throttle = ", ".join(active) if active else "None"
-        except: pass
+        except Exception: pass
         try:
             stats.fan_pct = float(nv.nvmlDeviceGetFanSpeed(h))
-        except: pass
+        except Exception: pass
         stats.nvml_ok = True
 
     def set_power_limit(self, watts: float) -> bool:
@@ -265,7 +265,7 @@ class NvmlMonitor:
         try:
             self._nv.nvmlDeviceSetPowerManagementLimit(self._handle, int(watts * 1000))
             return True
-        except:
+        except Exception:
             return False
 
     def get_default_power_limit(self) -> float:
@@ -300,13 +300,13 @@ class NvmlMonitor:
             cur = self._nv.nvmlDeviceGetPowerManagementLimit(self._handle) / 1000.0
             mn, mx = self._nv.nvmlDeviceGetPowerManagementLimitConstraints(self._handle)
             return (round(cur, 1), round(mn / 1000.0, 1), round(mx / 1000.0, 1))
-        except:
+        except Exception:
             return (0, 0, 0)
 
     def close(self):
         if self._ok:
             try: self._nv.nvmlShutdown()
-            except: pass
+            except Exception: pass
 
 
 # ── Afterburner Controller ────────────────────────────────────────────────────
@@ -427,7 +427,8 @@ class AfterburnerController:
         from core.ab_profile import ProfileFile, decode_cfg
         result = {"cfg_found": False, "voltage_control": False,
                   "voltage_monitoring": False, "profiles_locked": False,
-                  "start_minimized": False, "voltage_graph": None}
+                  "start_minimized": False, "voltage_graph": None,
+                  "start_with_windows": False}
         path = self.settings_path()
         if not path:
             return result
@@ -448,6 +449,7 @@ class AfterburnerController:
         result["voltage_monitoring"] = on("UnlockVoltageMonitoring")
         result["profiles_locked"]    = on("LockProfiles")
         result["start_minimized"]    = on("StartMinimized")
+        result["start_with_windows"] = on("StartWithWindows")
         # Older versions list the graphs as "Sources=+GPU temperature,-Core clock,…"
         # (+ = enabled). Afterburner 4.6.6 doesn't write that list until the
         # monitoring page is changed -> None = unknown; the live monitoring data
@@ -457,6 +459,22 @@ class AfterburnerController:
             result["voltage_graph"] = any(s.startswith("+") and "voltage" in s
                                           for s in sources)
         return result
+
+    def startup_apply_enabled(self) -> Optional[bool]:
+        """Afterburner's "Apply overclocking at system startup": it keeps the
+        settings to apply in the [Startup] section of the card's profile file
+        (empty values = off). None = no profile file found."""
+        from core.ab_profile import ProfileFile, decode_cfg
+        path, _why = self.find_gpu_profile()
+        if not path:
+            return None
+        try:
+            with open(path, "rb") as f:
+                text, _enc = decode_cfg(f.read())
+        except OSError:
+            return None
+        st = ProfileFile(text).items("Startup")
+        return any((st.get(k) or "").strip() for k in ("coreclkboost", "vfcurve", "memclkboost", "powerlimit"))
 
     # ── process control ───────────────────────────────────────────────────────
 

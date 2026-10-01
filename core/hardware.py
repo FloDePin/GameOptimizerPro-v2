@@ -3,9 +3,8 @@ GameOptimizerPro Hardware Detection
 CPU, GPU, RAM, Mainboard, OS — via wmi (Windows) with fallbacks.
 """
 
-import os, platform, subprocess
-from dataclasses import dataclass, field
-from typing import Optional
+import platform, subprocess
+from dataclasses import dataclass
 try:
     import winreg
 except ImportError:
@@ -133,7 +132,7 @@ def detect() -> HardwareInfo:
                 if "intel" in n:   info.cpu_vendor = "Intel"
                 elif "amd" in n:   info.cpu_vendor = "AMD"
                 elif "ryzen" in n: info.cpu_vendor = "AMD"
-        except: pass
+        except Exception: pass
 
         # GPU
         try:
@@ -167,7 +166,7 @@ def detect() -> HardwareInfo:
                     info.is_amd_gpu = True
                 elif "intel" in n:
                     info.gpu_vendor = "Intel"
-        except: pass
+        except Exception: pass
 
         # RAM
         try:
@@ -187,7 +186,7 @@ def detect() -> HardwareInfo:
                 mt = int(sticks[0].MemoryType or 0)
                 info.ram_type = (mem_types.get(smt) or mem_types.get(mt) or
                                  ("DDR5" if info.ram_speed_mhz >= 4800 else ""))
-        except: pass
+        except Exception: pass
 
         # Mainboard
         try:
@@ -195,7 +194,7 @@ def detect() -> HardwareInfo:
             if boards:
                 info.mb_manufacturer = (boards[0].Manufacturer or "").strip()
                 info.mb_product      = (boards[0].Product or "").strip()
-        except: pass
+        except Exception: pass
 
         # OS
         try:
@@ -204,7 +203,7 @@ def detect() -> HardwareInfo:
             info.os_build = int(os_info.BuildNumber or 0)
             info.is_win11 = info.os_build >= 22000
             info.is_win10 = 10240 <= info.os_build < 22000
-        except: pass
+        except Exception: pass
 
         # NVMe — the model name rarely says so ("Samsung SSD 980 PRO 1TB",
         # InterfaceType "SCSI"), so ask the storage stack for the bus type
@@ -256,7 +255,7 @@ def detect() -> HardwareInfo:
                     info.cpu_cores    = int(cores) if cores.isdigit() else 0
                     info.cpu_threads  = int(threads) if threads.isdigit() else info.cpu_threads
                     break
-        except: pass
+        except Exception: pass
 
     except Exception as e:
         info.cpu_name = f"Detection error: {e}"

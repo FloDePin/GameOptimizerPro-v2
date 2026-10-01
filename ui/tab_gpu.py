@@ -93,7 +93,7 @@ class GpuTunerTab(Page):
         bar.pack(fill="x", pady=(0, 10))
         self._views = {}
         self._view_keys = {"Auto-Tune": "auto", tr("Profile", "Profiles"): "profiles",
-                           tr("Manuell", "Manual"): "manual"}
+                           tr("Manuell", "Manual"): "manual", tr("Verlauf", "History"): "history"}
         self.seg = ctk.CTkSegmentedButton(bar, values=list(self._view_keys), height=32,
                                           font=ctk_font(12), selected_color=mix(CARD_BG2, CYAN, 0.62),
                                           selected_hover_color=mix(CARD_BG2, CYAN, 0.75),
@@ -105,7 +105,7 @@ class GpuTunerTab(Page):
         holder = tk.Frame(b, bg=APP_BG)
         holder.pack(fill="both", expand=True)
         for key, builder in (("auto", self._build_autotune), ("profiles", self._build_profiles),
-                             ("manual", self._build_manual)):
+                             ("manual", self._build_manual), ("history", self._build_history)):
             f = tk.Frame(holder, bg=APP_BG)
             self._views[key] = f
             builder(f)
@@ -118,6 +118,14 @@ class GpuTunerTab(Page):
         self._views[key].pack(fill="both", expand=True)
         label = next(lbl for lbl, k in self._view_keys.items() if k == key)
         self.seg.set(label)
+        if key == "history":
+            self.history.ensure_loaded()
+
+    def _build_history(self, p):
+        """All Auto-Tune runs (was a part of the removed "Games & history" page)."""
+        from ui.tune_history_view import TuneHistoryView
+        self.history = TuneHistoryView(p, getattr(self.tuner, "_log_dir", "logs"))
+        self.history.pack(fill="both", expand=True)
 
     # ── Auto-Tune ─────────────────────────────────────────────────────────────
 
@@ -662,6 +670,8 @@ class GpuTunerTab(Page):
             self.btn_abort.configure(state="disabled" if state in done else "normal")
             if state == TunerState.DONE:
                 self._refresh_profiles()
+            if state in done and state != TunerState.IDLE and self.history._loaded:
+                self.history.refresh()
             rep = getattr(self.tuner, "last_report_path", "") or ""
             self.btn_report.configure(state="normal" if (state in done and rep and os.path.exists(rep))
                                       else "disabled")

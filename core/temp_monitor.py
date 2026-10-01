@@ -54,7 +54,7 @@ class TempMonitor:
                         self._send_toast(temp)
                         if self._on_warn:
                             self._on_warn(temp, self._limit)
-            except:
+            except Exception:
                 pass
             time.sleep(self.CHECK_INTERVAL)
 
@@ -86,5 +86,5 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($template)
                 capture_output=True, timeout=5,
                 creationflags=flags, startupinfo=si
             )
-        except:
+        except Exception:
             pass

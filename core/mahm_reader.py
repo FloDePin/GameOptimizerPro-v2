@@ -43,7 +43,7 @@ import struct
 import threading
 import time
 from ctypes import wintypes
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 # ── Win32: open an EXISTING named section read-only (never create one) ───────

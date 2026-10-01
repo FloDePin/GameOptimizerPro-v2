@@ -118,7 +118,6 @@ STRINGS = {
     "tray_exit":          {"de": "Beenden",                 "en": "Exit"},
     "tray_no_profiles":   {"de": "Keine Profile vorhanden", "en": "No profiles saved"},
     # ── Game Profiles ─────────────────────────────────────────────────────────
-    "lbl_game_profiles":  {"de": "Per-Game Profile",        "en": "Per-Game Profiles"},
     "lbl_game_add":       {"de": "+ Spiel hinzufügen",      "en": "+ Add Game"},
     "lbl_game_exe":       {"de": "Prozessname (.exe)",      "en": "Process name (.exe)"},
     "lbl_game_profile":   {"de": "GPU-Profil beim Start",   "en": "GPU profile on launch"},

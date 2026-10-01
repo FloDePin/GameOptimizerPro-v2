@@ -35,7 +35,7 @@ class TweakRunner:
             try:
                 with open(self._state_file, encoding="utf-8") as f:
                     return json.load(f)
-            except: pass
+            except Exception: pass
         return {}
 
     def _normalize(self) -> list[str]:

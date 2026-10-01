@@ -3,7 +3,7 @@ GameOptimizerPro v2.1 — Tune History
 Liest alle .log Dateien aus dem logs/ Ordner und parst die Tune-Runs.
 """
 
-import os, re
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -15,6 +15,7 @@ class TuneRun:
     date:        str
     mode:        str   # OC / UV / OC+UV
     core_offset: int   = 0
+    mem_offset:  int   = 0
     power_pct:   int   = 100
     avg_volt_mv: int   = 0
     max_temp:    float = 0.0
@@ -58,7 +59,18 @@ class TuneHistory:
             return runs
         self._prune_empty()
 
-        for log_file in sorted(self.logs_dir.glob("tune_*.log"), reverse=True):
+        def when(f):
+            # tune_YYYYMMDD_HHMMSS.log sorts by its name; anything else by its time stamp
+            stem = f.name[5:-4]
+            if len(stem) == 15 and stem[8] == "_" and (stem[:8] + stem[9:]).isdigit():
+                return stem
+            try:
+                import time as _t
+                return _t.strftime("%Y%m%d_%H%M%S", _t.localtime(f.stat().st_mtime))
+            except OSError:
+                return ""
+
+        for log_file in sorted(self.logs_dir.glob("tune_*.log"), key=when, reverse=True):
             run = self._parse_log(log_file)
             if run:
                 runs.append(run)
@@ -67,7 +79,7 @@ class TuneHistory:
     def _parse_log(self, path: Path) -> Optional[TuneRun]:
         try:
             lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
-        except:
+        except OSError:
             return None
 
         if not lines:
@@ -83,8 +95,9 @@ class TuneHistory:
         # Format date nicely: 20260524_193045 → 24.05.2026 19:30:45
         try:
             d = run.date
-            run.date = f"{d[6:8]}.{d[4:6]}.{d[0:4]} {d[9:11]}:{d[11:13]}:{d[13:15]}"
-        except:
+            if len(d) == 15 and d[8] == "_" and (d[:8] + d[9:]).isdigit():
+                run.date = f"{d[6:8]}.{d[4:6]}.{d[0:4]} {d[9:11]}:{d[11:13]}:{d[13:15]}"
+        except Exception:
             pass
 
         for line in lines:
@@ -101,6 +114,10 @@ class TuneHistory:
             if "Core offset:" in line or "Core offset" in line:
                 m2 = re.search(r'\+(\d+)MHz', line)
                 if m2: run.core_offset = int(m2.group(1))
+
+            if "Memory offset:" in line:
+                m2 = re.search(r'\+(\d+)MHz', line)
+                if m2: run.mem_offset = int(m2.group(1))
 
             if "Power limit:" in line:
                 m2 = re.search(r'(\d+)%', line)

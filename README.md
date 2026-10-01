@@ -11,7 +11,7 @@
 
 🇬🇧 **English** | 🇩🇪 [Deutsch](README.de.md)
 
-*All-in-one PC optimization tool — GPU Auto-Tuner, Audio Optimization, Windows Tweaks, BIOS Guide, Per-Game Profiles and more.*
+*All-in-one PC optimization tool — GPU Auto-Tuner, Audio Optimization, Windows Tweaks, BIOS Guide and more.*
 
 </div>
 
@@ -95,44 +95,38 @@
 - Tooltips (hover `?`) on every single tweak
 
 ### 🖥 BIOS Guide
-- Hardware-aware recommendations (auto-detects CPU, GPU, Motherboard)
-- Live system state detection — shows what's already active (green ●) vs still needed (red ●)
-- Covers: AMD Zen 3/4/5, Intel 12th/13th/14th Gen, X670/B650/Z790/Z690
-- Settings include exact BIOS menu paths + Windows Registry equivalents
+- **Every desktop platform since Intel 8th gen / Ryzen 1000** — 16 platforms: Ryzen 9000X3D / 9000 / 7000X3D / 7000 / 8000G (AM5), Ryzen 5000X3D / 5000 / APUs / 3000 / 1000–2000 (AM4), Core Ultra 200S, Core 12th / 13th–14th gen, 10th–11th gen, 8th–9th gen, plus the basics for anything else (laptops, workstations)
+- The hardware detection only **pre-selects** your platform and your board maker (ASUS / MSI / Gigabyte / ASRock) — every platform can be opened
+- Each setting with the **menu path for your board maker**, the default, the recommended value, risk and impact — and the things that matter on that platform (EXPO 6000 + FCLK 2000 on AM5, Curve Optimizer, the 13th/14th-gen microcode 0x12F fix, Intel Default Settings, 200S Boost, X3D core parking, Secure Boot for anti-cheats …)
+- **Live status only where Windows really knows it** (green = set, red = still to do, grey = can't tell): RAM profile (configured speed vs. the JEDEC ceiling of its DDR type), Resizable BAR (NVIDIA's BAR1 aperture from the driver), Secure Boot and CSM (UEFI state). The old guesses (ReBAR from HAGS, XMP from "> 3200 MHz", PBO from the max clock) are gone
 
-### 🎮 Per-Game Profiles
-- Background process monitor (psutil, ~3s interval, resource-light)
-- Auto-loads GPU profile when a game starts, restores default when it closes
-- **Per-Game CPU Pinning (CPU Sets)** — optionally steer a game onto specific cores: the **X3D cache chiplet** on dual-CCD AMD, or the **P-cores** on Intel Hybrid. Soft scheduler hint (never starves the game); honestly disabled on single-chiplet CPUs where it wouldn't help
-- 15 pre-configured games (CS2, Cyberpunk 2077, Apex Legends, Valorant, Fortnite...)
-- Add any `.exe` process manually
-
-### 🩺 Diagnose & Measure
-- **FPS / Frametime capture** — measure the *real* effect of your tweaks: **average FPS, 1% and 0.1% lows, stutters**, and a measured **CPU-vs-GPU bottleneck** verdict. Live via [PresentMon](https://github.com/GameTechDev/PresentMon) (optional, drop it in `tools/`) or analyze any existing PresentMon / CapFrameX / OCAT CSV — no binary needed for CSV analysis
+### 🩺 Diagnose
 - **Health Report** — read-only summary of what Windows already recorded in the last 30 days: WHEA hardware errors, bluescreens, unexpected shutdowns, GPU driver timeouts (TDR), disk errors, app crashes — with severity and last occurrence
 - **Remnant Scan** — read-only detection of leftovers from *other* tweak tools (WinRing0 / inpout drivers, ISLC, TimerResolution autostarts, third-party power plans, Razer Cortex). Reports only — removes nothing
 
 ### 📊 Profile Compare
 - Compare up to **4 saved GPU profiles side-by-side** (core/memory offset, power limit, voltage lock, stability score) to pick the best one at a glance
 
-### 📋 Tune History
-- Logs every Auto-Tune run (date, mode, core offset, power, voltage, score)
-- Click any run to view the full log
+### 📋 Tune History (GPU Tuner → History)
+- Every Auto-Tune run (date, mode, core and memory offset, power, voltage, temperature, result)
+- Click any run to view its log
 
 ### 🌡 Temperature Warning
 - Windows Toast Notification when GPU hits 90°C
 - 5-minute cooldown between warnings, configurable limit
 
-### 🔄 Update Checker
-- Checks GitHub Releases on startup (non-blocking background thread)
-- Shows download link when a new version is available
+### 🔄 Updates from GitHub
+- **Settings → "Check for updates at start-up"** (on by default) and **"Check for updates now"**
+- A release is identified by the build number in `build.json`. A newer one is downloaded in the background, checked and installed after a short question ("restart now?" — "no" installs it at the next start; never during a tune): `tools/apply_update.py` waits until the app has exited, **backs up every replaced file** (`logs/update_backup_<build>/`), copies the new files, puts the old state back if anything fails, and starts the app again. `logs/` and `profiles/` are never touched
+- A git checkout is updated with `git pull --ff-only` (only without local changes)
 
 ### 🌐 Language Support
 - **English** (default) and **German** — toggle with `EN/DE` button in the title bar
 - Instant switch, no restart required
 
 ### 🔽 System Tray
-- Minimizes to the tray instead of closing; the tray tooltip shows **live GPU temp / clock / voltage / power**
+- Closing the window keeps the app in the tray (Settings → "Keep running in the tray when closed" — off: the X quits); the tray tooltip shows **live GPU temp / clock / voltage / power**
+- **The app doesn't have to run after tweaking / tuning:** the tweaks are Windows settings, the GPU profile is in Afterburner — enable Afterburner's "Start with Windows" and "Apply overclocking at system startup" (Settings → Afterburner setup checks both). While the app is closed there is no 90 °C warning and no tray menu
 - Quick-apply any saved GPU profile, reset the GPU to stock, or open/exit — all from the tray menu
 
 ### ⚙ Services Manager
@@ -239,7 +233,8 @@ GameOptimizerPro **2.0** is the finalized release: the complete feature set belo
 - 🔥 **FurMark 1/2 + 3DMark** with recording of temperature, clocks, power and driver resets during the test; FurMark location remembered
 - 🔊 **Audio tweaks work on Windows 11 26H2** — through the Windows audio API instead of locked registry keys
 - 🎯 **All-round tuner** — own V/F curve measured point by point every 25 mV (HYDRA-style), memory tested with the whole card under load (now in every mode), goal switch Max / Balanced / Efficiency, 5-min FurMark final test and a before/after report, live values through the whole tune; GPU table with RTX 50 and cautious start values; AMD/Intel get a clear "not supported"
-- 🧪 746 automated checks in 21 test suites (in `tests/`), incl. a PowerShell parse check of every command, the whole UI under a real main loop and the All-round tuner against a simulated card
+- 🧹 **Round 14 — leaner:** per-game profiles, CPU pinning and the FPS capture removed (the background process watcher with them); the tune history moved into the GPU tuner; page switches **2–3× faster** (pages stay stacked and are built in the background); a **BIOS guide for every platform** with menu paths per board maker and honest live status; **updates from GitHub**; "close to tray" switch; Afterburner setup checks "start with Windows" / "apply at start-up"
+- 🧪 826 automated checks in 22 test suites (in `tests/`), incl. a PowerShell parse check of every command, the whole UI under a real main loop (on a hidden desktop, so it can run while you game), the All-round tuner against a simulated card and the updater against temporary folders
 
 See [CHANGELOG.md](CHANGELOG.md) for the full detail.
 
@@ -286,17 +281,13 @@ GameOptimizerPro/
 │   ├── tweak_verifier.py     ← Registry verification (100% coverage)
 │   ├── tweak_presets.py      ← 10 built-in presets
 │   ├── tweak_i18n.py         ← Multilingual tweak descriptions (EN/DE)
-│   ├── bios_guide.py         ← BIOS recommendations database
-│   ├── bios_detector.py      ← Live BIOS state detection
-│   ├── game_monitor.py       ← Per-game profile monitor (psutil, thread-safe)
-│   ├── cpu_topology.py       ← CPU topology (CCDs, P/E cores, X3D cache die)
-│   ├── cpu_pinning.py        ← Per-game CPU pinning via CPU Sets API
-│   ├── fps_capture.py        ← FPS/frametime metrics (PresentMon + CSV)
+│   ├── bios_guide.py         ← BIOS guide: 16 platforms, menu paths per board maker
+│   ├── bios_detector.py      ← What Windows can tell (RAM profile, ReBAR, Secure Boot, CSM)
 │   ├── health_report.py      ← 30-day Windows event/health report
 │   ├── remnant_detector.py   ← leftover tweak-tool detection
 │   ├── crash_recovery.py     ← TDR detection, crash flag system
 │   ├── temp_monitor.py       ← GPU temp toast notifications
-│   ├── update_checker.py     ← GitHub releases API
+│   ├── updater.py            ← Updates from GitHub (build.json, download, git pull)
 │   ├── export_import.py      ← .nextune export/import
 │   ├── tune_history.py       ← Tune log parser
 │   ├── startup_loader.py     ← Autostart + startup profile loader
@@ -318,8 +309,9 @@ GameOptimizerPro/
     ├── tab_stress.py         ← Stress test, FurMark 1/2 + 3DMark, recording during external tests
     ├── tab_compare.py        ← Profile comparison
     ├── tab_bios.py           ← BIOS guide with live detection
-    ├── tab_games.py          ← Per-game profiles + tune history
-    ├── tab_diagnose.py       ← FPS capture + health report + remnant scan
+    ├── tune_history_view.py  ← Tune history (a view of the GPU tuner)
+    ├── update_flow.py        ← Update check / question (start-up + settings)
+    ├── tab_diagnose.py       ← Health report + remnant scan
     ├── tab_settings.py       ← Autostart, setup checker, about
     ├── live_graph.py         ← Rolling voltage/clock/temp graph
     ├── startup_manager.py    ← Startup manager page
@@ -327,7 +319,9 @@ GameOptimizerPro/
     └── drift_dialog.py       ← "Tweaks no longer active" dialog (one tick box per tweak)
 tests/                        ← Windows test battery: python tests\run_all_tests.py
 tools/
-    └── ab_selftest.py        ← Afterburner self-test (info / dryrun / live / restore)
+    ├── ab_selftest.py        ← Afterburner self-test (info / dryrun / live / restore)
+    └── apply_update.py       ← Installs a downloaded update (backup, rollback, restart)
+build.json                    ← Build number of this release (the updater compares it)
 ```
 
 ---

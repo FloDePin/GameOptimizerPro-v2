@@ -58,6 +58,7 @@ class FakeAB:
     def find_gpu_profile(self): return r"C:\fake\VEN_10DE.cfg", ""
     def write_and_apply(self, slot, p): return True, ""
     def reset_to_stock(self, slot=2): return True, ""
+    def startup_apply_enabled(self): return False
 class FakeSL:
     auto, calls, fail = False, [], False
     def is_autostart_enabled(self): return self.auto
@@ -65,24 +66,6 @@ class FakeSL:
         self.calls.append(on)
         return not self.fail
     def load_startup_profile(self): return True, "Profil 'Test' geladen"
-from core.game_monitor import GameEntry
-class FakeGM:
-    topology, is_running, active_game = None, False, None
-    def __init__(self):
-        self.games = [GameEntry("Game1.exe", "Game One", ""), GameEntry("Game2.exe", "Game Two", "P1")]
-    def on_game_start(self, cb): pass
-    def on_game_stop(self, cb): pass
-    def on_cpu_pin(self, cb): pass
-    def get_games(self): return list(self.games)
-    def cpu_pin_targets(self): return []
-    def add_game(self, exe, name, prof): self.games.append(GameEntry(exe, name, prof))
-    def update_game(self, exe, prof, enabled=True, restore="__tray_default__", cpu_target=None):
-        for g in self.games:
-            if g.exe == exe:
-                g.profile_name, g.enabled = prof, enabled
-    def remove_game(self, exe): self.games = [g for g in self.games if g.exe != exe]
-    def set_cpu_target(self, exe, t): pass
-
 from core.hardware import HardwareInfo
 hw = HardwareInfo(cpu_name="AMD Ryzen 7 7800X3D 8-Core Processor", cpu_cores=8, cpu_threads=16,
                   gpu_name="NVIDIA GeForce RTX 4080", gpu_vram_mb=16376, gpu_vendor="NVIDIA", is_nvidia=True,
@@ -107,9 +90,9 @@ sc.list_entries = lambda: [StartupEntry("Discord", r"C:\Users\x\Discord\Update.e
                                         "HKLM\\Run"),
                            StartupEntry("OldTool", r"C:\Tools\old.exe", "HKCU\\Run", enabled=False)]
 from core.bios_detector import BiosDetector, DetectResult
-BiosDetector.detect_all = lambda self: {"expo_xmp": DetectResult("expo_xmp", True, "6000 MT/s"),
-                                        "hags": DetectResult("hags", False, "", note="aus"),
-                                        "pbo": DetectResult("pbo", False, "", note="unbekannt")}
+BiosDetector.detect_all = lambda self: {"expo_xmp": DetectResult("expo_xmp", True, "DDR5-6000"),
+                                        "rebar": DetectResult("rebar", False, "BAR1 256 MB", note="aus"),
+                                        "secure_boot": DetectResult("secure_boot", True, "an")}
 from core import furmark, threedmark
 fmdir = Path(tmp) / "FurMark_win64"; fmdir.mkdir()
 (fmdir / "furmark.exe").write_bytes(b"MZ"); (fmdir / "FurMark_GUI.exe").write_bytes(b"MZ")
@@ -123,16 +106,22 @@ runner = TweakRunner(log_dir=tmp)
 runner.backup_registry = lambda label: None
 runner._run_ps = lambda cmd, timeout=60: (True, "ok")
 from core.nvtune_tuner import AutoTuner, TunerConfig
+with open(os.path.join(tmp, "tune_20261001_114809.log"), "w", encoding="utf-8") as _f:
+    _f.write("2026-10-01 11:48:09,636 [INFO]   GameOptimizerPro Auto-Tune [CURVE]\n"
+             "2026-10-01 12:25:49,248 [INFO] Profile saved: GOP_CURVE_BAL_1001_1225\n"
+             "2026-10-01 12:25:49,248 [INFO]   Core offset:  +135MHz (Kurve, oberster Punkt)\n"
+             "2026-10-01 12:25:49,248 [INFO]   Memory offset:+1000MHz\n"
+             "2026-10-01 12:25:49,248 [INFO]   Max temp:     65°C\n")
 pm = ProfileManager(os.path.join(tmp, "profiles"))
 pm.save(TuneProfile(name="P1", core_offset_mhz=120, mem_offset_mhz=800, power_limit_pct=90, stability_score=95))
 pm.save(TuneProfile(name="P2", core_offset_mhz=90, mem_offset_mhz=500, power_limit_pct=80, stability_score=88))
-mon, ab, sl, gm = FakeMon(), FakeAB(), FakeSL(), FakeGM()
+mon, ab, sl = FakeMon(), FakeAB(), FakeSL()
 tuner = AutoTuner(mon, ab, pm, TunerConfig(), log_dir=tmp)
 
 import customtkinter as ctk
 import ui.main_window as mw
 t0 = time.perf_counter()
-w = mw.GameOptimizerWindow(hw, mon, ab, pm, tuner, runner, startup_loader=sl, game_monitor=gm)
+w = mw.GameOptimizerWindow(hw, mon, ab, pm, tuner, runner, startup_loader=sl)
 build_ms = (time.perf_counter() - t0) * 1000
 w.attributes("-alpha", 0.0)
 
@@ -173,7 +162,8 @@ def s_prebuild():
     for key, *_x in mw.TAB_DEFS:
         w._show_tab(key)
     w.update()
-    check(len(w._tab_frames) == 11 and not ERRORS, f"all 11 pages open without errors ({len(ERRORS)})")
+    check(len(w._tab_frames) == len(mw.TAB_DEFS) == 10 and not ERRORS,
+          f"all 10 pages open without errors ({len(ERRORS)})")
 
 # ── building blocks ───────────────────────────────────────────────────────────
 @step(200)
@@ -378,6 +368,21 @@ def s_settings():
           "autostart state read in the background")
     st.sw_load_startup.toggle()
     check(app_settings.get("load_startup_profile") is False, "'load startup profile' is saved (was a dead checkbox)")
+    check(st.v_check_updates.get() is True and st.v_close_to_tray.get() is True,
+          "update check and close-to-tray on by default")
+    st.sw_check_updates.toggle(); st.sw_close_to_tray.toggle()
+    check(app_settings.get("check_updates") is False and app_settings.get("close_to_tray") is False,
+          "both switches are saved")
+    check("build 14" in st.lbl_update.cget("text").lower(), f"installed build shown: {st.lbl_update.cget('text')!r}")
+    class FakeFlow:
+        def start(self, manual=False, on_status=None):
+            self.manual = manual
+            on_status("Aktuell — Build 14.", "success")
+    w.update_flow = FakeFlow()
+    st._check_updates_now()
+    check(w.update_flow.manual and st.lbl_update.cget("text") == "Aktuell — Build 14." and
+          st.lbl_update.cget("fg") == "#22c55e", "'check now' runs the update flow and shows its result")
+    del w.update_flow
     st.sw_autostart.toggle()
 
 @step(400)
@@ -400,55 +405,66 @@ def s_settings3():
             walk(c)
     walk(st.setup_frame)
     check(any("AB: Unlock Voltage Control" in t for t in texts), "Afterburner setup rows")
+    check(any("AB: startet mit Windows" in t for t in texts)
+          and any("Übertaktung beim Systemstart" in t for t in texts),
+          "setup rows: Afterburner starts with Windows / applies the overclock at start-up")
 
-# ── games ─────────────────────────────────────────────────────────────────────
+# ── tune history (moved from the removed games page into the GPU tuner) ──────
 @step(100)
-def s_games():
-    print("games")
-    import ui.tab_games as tg
-    gt = w._tab_frames["games"]
-    check(set(gt.game_tree.get_children()) == {"Game1.exe", "Game2.exe"}, "games listed")
-    class AutoChoice(tg.ChoiceDialog):
-        def __init__(self, *a, **k):
-            super().__init__(*a, **k)
-            self.attributes("-alpha", 0.0)            # never visible on the desktop
-            self.after(250, lambda: (self._var.set("P2"), self._ok()))
-    tg.ChoiceDialog, real = AutoChoice, tg.ChoiceDialog
-    gt.game_tree.selection_set("Game1.exe")
-    gt._assign_profile()                      # blocks in wait_window until AutoChoice answers
-    tg.ChoiceDialog = real
-    check(gm.games[0].profile_name == "P2" and gt.game_tree.set("Game1.exe", "profile") == "P2",
-          "profile picked in the dialog is assigned")
-    class Inputs:
-        answers = ["NewGame", ""]
-        def __init__(self, **k): pass
-        def get_input(self): return Inputs.answers.pop(0)
-    real_in = ctk.CTkInputDialog
-    ctk.CTkInputDialog = Inputs
-    gt._add_game()
-    ctk.CTkInputDialog = real_in
-    check(gm.games[-1].exe == "NewGame.exe" and gm.games[-1].display_name == "NewGame",
-          "add game: '.exe' appended, empty name -> file name")
-    gt._show_view("history")
-    check(gt._views["history"].winfo_manager() and gt.hist_tree.get_children(), "tune history view")
+def s_history():
+    print("tune history in the GPU tuner")
+    g = w._tab_frames["gpu"]
+    check(list(g._view_keys.values()) == ["auto", "profiles", "manual", "history"], "GPU tuner views")
+    check(not g.history._loaded, "the logs are read only when the view is opened")
+    g._show_view("history")
+    rows = g.history.tree.get_children()
+    check(g._views["history"].winfo_manager() and rows == ("tune_20261001_114809.log",), f"one run listed: {rows}")
+    vals = g.history.tree.item(rows[0], "values")
+    check(vals[1] in ("Rundum", "All-round") and vals[2] == "+135" and vals[3] == "+1000" and "OK" in vals[-1],
+          f"mode, core, memory, result: {vals}")
+    g.history.tree.selection_set(rows[0]); g.history._on_select(); g.history.log._drain()
+    check("Profile saved" in g.history.log.txt.get("1.0", "end"), "selecting a run shows its log")
+    g._show_view("auto")
+    check("games" not in w._page_factories and not any(k == "games" for k, *_x in mw.TAB_DEFS),
+          "the games page is gone")
 
 # ── BIOS, compare, startup, diagnose ──────────────────────────────────────────
 @step(1500)
 def s_bios():
     print("BIOS / compare / startup / diagnose")
     b = w._tab_frames["bios"]
-    names = b.profile_combo.cget("values")
-    check(len(names) >= 1 and b.profile_var.get() == names[0], f"BIOS profiles for the board: {names}")
-    pick = next(p.name for p in b._profiles if any(s.detect_key == "expo_xmp" for s in p.settings))
-    b.profile_var.set(pick); b._on_profile_change()
+    names = list(b.profile_combo.cget("values"))
+    check(len(names) == 16 and "7000X3D" in names[0] and ("erkannt" in names[0] or "detected" in names[0])
+          and b._profile.id == "am5_zen4_x3d", f"every platform listed, the detected one first: {names[0]!r}")
+    check(b.vendor_var.get().startswith("ASUS") and b._vendor == "asus", "board maker detected: ASUS")
+    w.update()
+    def texts():
+        out = []
+        def walk(x):
+            for c in x.winfo_children():
+                try: out.append(str(c.cget("text")))
+                except tk.TclError: pass
+                walk(c)
+        walk(b._inner)
+        return out
     cards = lambda: sum(len(g._items) for g in b._inner.winfo_children() if hasattr(g, "_items"))
+    check(any(x.startswith("📍 ASUS: Ai Tweaker") for x in texts()), "menu paths for ASUS boards")
     n_all = cards()
     b._only_todo.set(True); b._refresh_view()
     n_todo = cards()
-    check(n_all > 0 and n_todo < n_all, f"'only what is left' hides active settings ({n_all} -> {n_todo})")
-    b._only_todo.set(False); b._refresh_view()
-    check("bereits aktiv" in b.lbl_detect_status.cget("text") or "already active" in b.lbl_detect_status.cget("text"),
-          "detection summary")
+    check(n_all > 0 and n_todo == n_all - 2, f"'only what is left' hides EXPO + Secure Boot ({n_all} -> {n_todo})")
+    b._only_todo.set(False)
+    b.vendor_var.set(next(v for v in b._vendor_labels if b._vendor_labels[v] == "msi")); b._on_vendor_change()
+    check(any(x.startswith("📍 MSI: OC") for x in texts()), "board maker switch: MSI paths")
+    check("bereits gesetzt" in b.lbl_detect_status.cget("text") or "already set" in b.lbl_detect_status.cget("text"),
+          f"detection summary: {b.lbl_detect_status.cget('text')!r}")
+    other = next(v for v in b._profile_labels if b._profile_labels[v] == "lga1700_rpl")
+    b.profile_var.set(other); b._on_profile_change()
+    check("Nicht deine" in b.lbl_profile_info.cget("text") or "Not your" in b.lbl_profile_info.cget("text"),
+          "another platform can be opened (marked as not detected)")
+    check(any("Microcode 0x12F" in x for x in texts()) and not b.lbl_detect_status.cget("text"),
+          "Raptor Lake: microcode warning; no status for a platform that isn't this PC")
+    b.profile_var.set(names[0]); b._on_profile_change()
 
     c = w._tab_frames["compare"]
     c._sel_vars[0].set("P1"); c._on_select(0)
@@ -465,7 +481,28 @@ def s_bios():
 
     d = w._tab_frames["diagnose"]
     d._show_view("health")
-    check(d._views["health"].winfo_manager() and not d._views["fps"].winfo_manager(), "diagnose sub-pages")
+    check(set(d._views) == {"health", "remn"} and d._views["health"].winfo_manager(),
+          "diagnose sub-pages (the FPS capture is gone)")
+
+@step(300)
+def s_pages():
+    print("page stack")
+    keys = [k for k, *_x in mw.TAB_DEFS]
+    check(all(k in w._tab_frames for k in keys), f"every page built in the background: {sorted(w._tab_frames)}")
+    check(all(w._tab_frames[k].winfo_manager() == "place" for k in keys), "pages stay placed (stacked)")
+    for k in ("bios", "settings", "dashboard"):
+        w._show_tab(k)
+        w.update()
+        top = [c for c in w._content.winfo_children() if c.winfo_manager() == "place"][-1]
+        check(top is w._tab_frames[k], f"{k}: raised on top of the stack")
+    drawn = []
+    real = w._tab_btns["gpu"].configure
+    for kk, btn in w._tab_btns.items():
+        btn.configure = (lambda kk=kk, f=btn.configure: lambda **kw: (drawn.append(kk), f(**kw)))()
+    w._show_tab("gpu")
+    for kk, btn in w._tab_btns.items():
+        del btn.configure
+    check(sorted(drawn) == ["dashboard", "gpu"], f"a switch redraws only the two changed buttons: {drawn}")
 
 @step(300)
 def s_close():

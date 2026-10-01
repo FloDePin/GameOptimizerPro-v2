@@ -47,7 +47,6 @@ from core.nvtune_tuner import AutoTuner, TunerConfig
 from core.tweak_runner import TweakRunner
 from core.crash_recovery import CrashRecovery
 from core.startup_loader import StartupLoader
-from core.game_monitor import GameMonitor
 import ui.main_window as mw
 from PIL import ImageGrab
 
@@ -57,8 +56,7 @@ ab = AfterburnerController(mon.nvml.get_pci_identity())
 pm = ProfileManager(os.path.join(ROOT, "profiles"))
 cr = CrashRecovery(tmp)
 w = mw.GameOptimizerWindow(hw, mon, ab, pm, AutoTuner(mon, ab, pm, TunerConfig(), log_dir=tmp),
-                           TweakRunner(log_dir=tmp), startup_loader=StartupLoader(tmp, ab, pm, cr),
-                           game_monitor=GameMonitor(tmp, ab, pm, cr))
+                           TweakRunner(log_dir=tmp), startup_loader=StartupLoader(tmp, ab, pm, cr))
 w.geometry("1400x900+40+40")
 w.unbind_all("<MouseWheel>")
 OUT = os.path.join(ROOT, "logs", "shots")
