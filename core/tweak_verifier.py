@@ -486,7 +486,11 @@ VERIFY_MAP: dict[str, str] = {
         '$v=(Get-ItemProperty \'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\FileSystem\' -Name \'LongPathsEnabled\' -EA SilentlyContinue).\'LongPathsEnabled\'; if($v -eq 1){"1"}else{"0"}'
     ),
     'numlock_on_startup': (
-        '$v=(Get-ItemProperty \'HKCU:\\Control Panel\\Keyboard\' -Name \'InitialKeyboardIndicators\' -EA SilentlyContinue).\'InitialKeyboardIndicators\'; if($v -eq \'2147483650\'){"1"}else{"0"}'
+        # Windows rewrites HKCU's value at sign-out from the live keyboard state:
+        # "2147483650" (what the tweak writes) becomes "2" — both mean NumLock on.
+        # Checked as the NumLock bit: the exact-string check reported the tweak
+        # "not active any more" after every restart.
+        '$v=(Get-ItemProperty \'HKCU:\\Control Panel\\Keyboard\' -Name \'InitialKeyboardIndicators\' -EA SilentlyContinue).\'InitialKeyboardIndicators\'; $n=[uint64]0; if([uint64]::TryParse([string]$v,[ref]$n) -and ($n -band 2)){"1"}else{"0"}'
     ),
     'disable_lock_screen': (
         '$v=(Get-ItemProperty \'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Personalization\' -Name \'NoLockScreen\' -EA SilentlyContinue).\'NoLockScreen\'; if($v -eq 1){"1"}else{"0"}'

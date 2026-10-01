@@ -93,6 +93,9 @@ class TuneHistory:
             if m:
                 raw_mode = m.group(1).strip().replace("_", " ")
                 run.mode = self._MODE_LABEL.get(raw_mode, raw_mode)
+                if raw_mode == "CURVE":
+                    from core.i18n import current_lang
+                    run.mode = "Rundum" if current_lang() == "de" else "All-round"
 
             # Extract results
             if "Core offset:" in line or "Core offset" in line:

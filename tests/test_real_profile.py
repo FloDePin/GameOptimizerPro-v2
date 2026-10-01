@@ -58,9 +58,12 @@ check(slot_equivalent(new, apply_slot(new, 2, SlotSettings(core_mhz=15, power_pc
 flat, notes = apply_slot(text, 2, SlotSettings(lock_mv=950, lock_mhz=2535))
 fc = VFCurve.from_hex(ProfileFile(flat).get("Profile2", "VFCurve"))
 eff = [(p.voltage_mv, p.effective_mhz) for p in fc.points()]
-check(all(f <= 2535 for v, f in eff) and all(abs(f - 2535) < 1 for v, f in eff if v >= 950),
-      "flat curve on the real points: 2535 MHz from 950 mV up, never above")
-check(all(b2 >= a2 - 0.01 for (_, a2), (_, b2) in zip(eff, eff[1:])), "effective curve monotonic")
+at = [f for v, f in eff if abs(v - 950) < 0.01]
+check(all(f <= 2535 for v, f in eff) and at and abs(at[0] - 2535) < 1
+      and all(f <= 2535 - 99 for v, f in eff if v > 950),
+      "real points: 950 mV runs 2535 MHz, every point above it 100 MHz lower, never above")
+low = [(v, f) for v, f in eff if v <= 950]
+check(all(b2 >= a2 - 0.01 for (_, a2), (_, b2) in zip(low, low[1:])), "effective curve monotonic up to 950 mV")
 check(ProfileFile(flat).get("Profile2", "CoreClkBoost") == str(CORE_CURVE_MARKER), "curve marker")
 print("   notes:", notes)
 print("\n%d failure(s)" % len(FAILS))

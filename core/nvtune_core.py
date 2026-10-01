@@ -87,6 +87,10 @@ class TuneProfile:
     # V/F curve locking (Afterburner curve editor values)
     lock_voltage_mv:    int   = 0         # 0 = no lock
     lock_freq_mhz:      int   = 0
+    # Own curve (Rundum-Tuner): measured points [[voltage_mv, mhz], ...] and the
+    # voltage from which it is flat (0 = from the highest point)
+    curve_points:       list  = field(default_factory=list)
+    curve_cap_mv:       int   = 0
     # Stability metadata
     is_stable:          bool  = False
     stability_score:    int   = 0
@@ -667,6 +671,10 @@ class AfterburnerController:
             power_pct=_clamp(profile.power_limit_pct, *self.POWER_RANGE, default=100),
             lock_mv=_clamp(profile.lock_voltage_mv, 0, 1300),
             lock_mhz=_clamp(profile.lock_freq_mhz, 0, 4000),
+            curve=tuple((_clamp(mv, 300, 1300), _clamp(mhz, 100, 4000))
+                        for mv, mhz in (profile.curve_points or [])
+                        if isinstance(mv, (int, float)) and isinstance(mhz, (int, float))),
+            cap_mv=_clamp(getattr(profile, "curve_cap_mv", 0), 0, 1300),
         )
 
     def write_and_apply(self, slot: int, profile: TuneProfile) -> tuple[bool, str]:
@@ -719,6 +727,24 @@ class AfterburnerController:
                 self.start()
                 return False, f"Schreiben fehlgeschlagen: {e}"
             return self.start(slot)
+
+    def base_curve(self, slot: int = 2):
+        """The V/F curve apply_slot() takes the base frequencies from for this
+        slot — voltage points and their stock clocks. Read-only.
+        -> (VFCurve, source section) or (None, reason)."""
+        from core.ab_profile import ProfileFile, pick_curve
+        path, why = self.find_gpu_profile()
+        if not path:
+            return None, why
+        try:
+            text, _enc = self._read(path)
+        except OSError as e:
+            return None, f"Afterburner-Profil nicht lesbar: {e}"
+        curve, src = pick_curve(ProfileFile(text), f"Profile{int(slot)}")
+        if curve is None:
+            return None, ("Das Afterburner-Profil enthält noch keine V/F-Kurve — in Afterburner "
+                          "einmal unten auf 'Speichern' und dann auf einen Slot klicken.")
+        return curve, src
 
     def reset_to_stock(self, slot: int = 2) -> tuple[bool, str]:
         """Stock clocks, stock power limit, flat stock curve — written into OUR

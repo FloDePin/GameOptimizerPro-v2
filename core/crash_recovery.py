@@ -81,20 +81,29 @@ class CrashRecovery:
 
     # ── TDR detection via Windows Event Log ──────────────────────────────────
 
+    # Display driver reset (Display 4101) and the NVIDIA driver's error reports
+    # nvlddmkm 13 (graphics exception) / 14. The live Rundum run on an RTX 4080
+    # (memory +1500) logged a burst of nvlddmkm 13 + 14 when FurMark's picture
+    # got green speckles, the screens went black and FurMark died — no 4101, so
+    # a 4101-only check missed that crash. NOT nvlddmkm 153: the driver logs it
+    # at the end of EVERY stress step (the worker is stopped mid-kernel) — 17x
+    # in a run without any problem; counting it stopped a tune at stock clocks.
+    GPU_ERROR_EVENTS = "4101,13,14"
+
     def check_tdr_since(self, seconds_back: int = 120) -> bool:
         """
-        Check Windows Event Log for TDR events in last N seconds.
-        Event ID 4101 in System log = display driver stopped responding (TDR).
-        Returns True if a TDR was detected.
+        Check Windows Event Log for a driver reset / NVIDIA GPU error in the
+        last N seconds. Returns True if one was found.
         """
         if os.name != "nt":
             return False
         try:
             ps_cmd = (
-                f"$cutoff = (Get-Date).AddSeconds(-{seconds_back}); "
+                f"$cutoff = (Get-Date).AddSeconds(-{int(seconds_back)}); "
                 f"$events = Get-WinEvent -FilterHashtable "
-                f"@{{LogName='System'; Id=4101; StartTime=$cutoff}} "
-                f"-ErrorAction SilentlyContinue; "
+                f"@{{LogName='System'; Id={self.GPU_ERROR_EVENTS}; StartTime=$cutoff}} "
+                f"-ErrorAction SilentlyContinue | "
+                f"Where-Object {{ $_.Id -eq 4101 -or $_.ProviderName -eq 'nvlddmkm' }}; "
                 f"if ($events) {{ 'TDR_FOUND' }} else {{ 'NO_TDR' }}"
             )
             result = subprocess.run(

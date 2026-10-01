@@ -46,7 +46,8 @@ check("--msaa" not in furmark.build_args(str(fm2 / "furmark.exe"), 1920, 1080, 6
       "invalid MSAA value ignored")
 st = furmark.parse_stats('[ Demo Quick Stats ]\n- frames               : 9707\n- duration             : 60005 ms\n- FPS (min/avg/max)    : 157 / 162 / 163\n- GPU 0: NVIDIA GeForce RTX 4080 [10DE-2704]\n  .max temperature: 58°C\n  .max usage: 45%\n  .max core clock: 2956 MHz\n  .min core clock: 2610 MHz\n')
 check(st == {"fps_min": 157, "fps_avg": 162, "fps_max": 163, "frames": 9707, "max_temp": 58,
-             "max_usage": 45, "clock_max": 2956, "clock_min": 2610}, f"FurMark's own stats parsed: {st}")
+             "max_usage": 45, "clock_max": 2956, "clock_min": 2610, "duration_ms": 60005},
+      f"FurMark's own stats parsed: {st}")
 check(furmark.parse_stats("") == {} and furmark.parse_stats(None) == {}, "no output -> no stats")
 check(furmark.build_args(str(fm2 / "furmark.exe"), 1920, 1080, 60, "bogus")[2] == "furmark-gl",
       "unknown demo -> furmark-gl")

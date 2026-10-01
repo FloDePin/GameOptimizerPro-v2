@@ -3,6 +3,9 @@ GameOptimizerPro Auto-Tuner v2.1
 Stage 1: Max stable core offset
 Stage 2: Min stable power limit (indirect undervolt)
 Final:   2-min verification
+Rundum-Tuner (TuneMode.CURVE): own V/F curve measured point by point, the
+         curve cap chosen by FurMark benchmark for the goal (max / balanced /
+         efficiency), 5-min FurMark + compute-checked final test, report
 Features: TuneMode selector, crash recovery, TDR detection, per-step flag writing
 """
 
@@ -13,6 +16,7 @@ from typing import Callable, Optional
 from datetime import datetime
 from pathlib import Path
 
+from core import curve_tune as CT
 from core.nvtune_core import GpuMonitor, AfterburnerController, TuneProfile, ProfileManager
 from core.vf_curve    import VFCurveBuilder, get_builder_for_gpu
 
@@ -28,6 +32,7 @@ class TuneMode(Enum):
     FULL      = "full"        # Stages 1+2+3+4: OC + V/F curve UV + Memory OC
     VF_ONLY   = "vf_only"    # Stage 3 only: V/F curve undervolt, no OC
     MEM_ONLY  = "mem_only"   # Stage 4 only: memory overclock
+    CURVE     = "curve"      # Rundum-Tuner: own curve per voltage point + goal + benchmark
 
 
 class TunerState(Enum):
@@ -37,6 +42,8 @@ class TunerState(Enum):
     STAGE2     = auto()    # Power limit UV (indirect)
     STAGE3     = auto()    # V/F curve UV (precise, via Afterburner)
     STAGE4     = auto()    # Memory OC
+    CURVE      = auto()    # Rundum-Tuner: measuring the voltage points
+    BENCH      = auto()    # Rundum-Tuner: FurMark benchmark (stock / candidates)
     FINAL_TEST = auto()
     BACKOFF    = auto()
     SAVING     = auto()
@@ -67,6 +74,10 @@ class StressResult:
     avg_mem_mhz:    float = 0.0
     max_core_mhz:   float = 0.0    # highest clock seen (boost phases: top of the curve)
     power_capped_pct: float = 0.0  # share of samples at the power limit (normal)
+    steady_voltage_mv: float = 0.0  # median voltage after the ramp-up (the point the GPU ran)
+    avg_power_w:    float = 0.0    # board power after the ramp-up
+    throttle_note:  str   = ""     # which slowdown (NVML reason names) made throttle_hit
+    last_voltage_mv: float = 0.0   # voltage just before the end / the failure (loaded)
 
     def perf(self, ref: "StressResult") -> float:
         """Performance relative to `ref` (1.0 = same). Work rate when both runs
@@ -113,11 +124,39 @@ class TunerConfig:
     # overclock past the limit LOSES bandwidth. Stop when it drops by more than this.
     # (45 s windows of the bandwidth load varied by 0.8 % on an RTX 4080.)
     mem_bw_drop_pct: float = 2.0
+    # Rundum-Tuner (TuneMode.CURVE) — see core/curve_tune.py. The points are
+    # tested with step_test_s each, the compute-checked final run is final_test_s.
+    goal:                str = "balanced"   # "max" | "balanced" | "efficiency"
+    curve_step_mhz:      int = 15      # search step per voltage point, halved on a failure ...
+    curve_min_step_mhz:  int = 5       # ... down to this precision
+    curve_coarse_step_mhz: int = 30    # first point without a known start value
+    curve_down_mhz:      int = 30      # start value failed: down in these steps
+    curve_safety_mhz:    int = 30      # taken off every point (HYDRA: workload + cold boost)
+    curve_recovery_mhz:  int = 60      # ... where the search caused a driver reset
+    curve_anchor_step_mv: int = 50     # measured points: every 50 mV from the top ...
+    curve_min_mv:        int = 850     # ... down to this voltage
+    curve_cap_step_mv:   int = 25      # benchmarked curve caps: every 25 mV below the top
+    curve_check_s:       int = 30      # FurMark on the new curve (memory +0) before the memory stage
+    mem_curve_start_mhz: int = 500     # memory stage (whole card under load): first offset ...
+    mem_curve_step_mhz:  int = 100     # ... then these steps up to mem_oc_max_mhz; also the margin
+    crash_pause_s:       int = 20      # after a crash: give the driver time before the next run
+    curve_prior_mhz:     int = 0       # start offset of the first point (e.g. last tune's core offset)
+    curve_probe_s:       int = 20      # stock boost-load run: highest voltage the card reaches
+    bench_s:             int = 60      # FurMark benchmark per candidate (and the stock run)
+    final_bench_s:       int = 300     # FurMark part of the final test (5 min)
+    furmark_path:        str = ""      # FurMark 2 console exe; empty = internal benchmark
+    bench_width:         int = 1920
+    bench_height:        int = 1080
+    bench_msaa:          int = 8       # 8x: GPU-bound even under a driver FPS cap / VSync
 
 
 class StressTester:
     RAMP_S = 3            # ignore the worker's start-up for averages
     EXIT_COMPUTE_ERROR = 3  # _stress_worker.py: wrong result / CUDA error under load
+    # A slowdown only counts when it lasts: NVIDIA sets "SW thermal" for about a
+    # second whenever a load ends or Afterburner applies a profile (seen live at
+    # 46-53 °C) — counted at once, that failed a good step as "throttling".
+    THROTTLE_SAMPLES = 3
 
     def __init__(self, monitor: GpuMonitor, crash_recovery=None,
                  stop_event: Optional[threading.Event] = None):
@@ -201,7 +240,9 @@ class StressTester:
     ) -> StressResult:
         result = StressResult()
         temps, voltages, clocks, usages, mem_clocks = [], [], [], [], []
-        samples = capped = 0
+        steady_volts, powers = [], []
+        recent_v: list = []                 # last few voltages (the loaded state before a crash)
+        samples = capped = prot_run = 0
 
         self.start(mode)
         start = time.time()
@@ -225,12 +266,19 @@ class StressTester:
             temps.append(stats.temp)
             if stats.voltage_mv > 0:
                 voltages.append(stats.voltage_mv)
+                recent_v = (recent_v + [stats.voltage_mv])[-3:]
+                result.last_voltage_mv = max(recent_v)
             if elapsed >= self.RAMP_S:            # skip the worker's ramp-up
                 clocks.append(stats.core_mhz)
                 mem_clocks.append(float(getattr(stats, "mem_mhz", 0.0) or 0.0))
                 usages.append(float(stats.gpu_usage or 0.0))
                 samples += 1
                 capped += bool(getattr(stats, "power_capped", False))
+                if stats.voltage_mv > 0:
+                    steady_volts.append(stats.voltage_mv)
+                pw = float(getattr(stats, "gpu_power_w", 0.0) or 0.0)
+                if pw > 0:
+                    powers.append(pw)
 
             if on_tick:
                 try:
@@ -248,9 +296,15 @@ class StressTester:
             # Only thermal / hardware slowdowns count. Running into the power
             # limit is normal GPU Boost behaviour under full load — counting it
             # (as before, with mislabelled bits) failed OC steps for no reason and
-            # made the power-limit stage unable to lower anything.
-            if getattr(stats, "throttle_protective", False):
-                result.throttle_hit = True
+            # made the power-limit stage unable to lower anything. And only a
+            # lasting one after the ramp-up (THROTTLE_SAMPLES).
+            if elapsed >= self.RAMP_S and getattr(stats, "throttle_protective", False):
+                prot_run += 1
+                if prot_run >= self.THROTTLE_SAMPLES and not result.throttle_hit:
+                    result.throttle_hit = True
+                    result.throttle_note = str(getattr(stats, "throttle", "") or "")
+            else:
+                prot_run = 0
 
             # Worker gone = GPU instability (exit 3: it saw a wrong result)
             if self._proc and self._proc.poll() is not None:
@@ -283,6 +337,10 @@ class StressTester:
         result.power_capped_pct = round(100.0 * capped / samples, 1) if samples else 0.0
         result.avg_rate_tflops = self._avg("RATE")
         result.avg_bw_gbs   = self._avg("BW")
+        if steady_volts:
+            sv = sorted(steady_volts)
+            result.steady_voltage_mv = sv[len(sv) // 2]
+        result.avg_power_w  = round(sum(powers) / len(powers), 1) if powers else 0.0
         if voltages:
             result.min_voltage_mv = min(voltages)
             result.max_voltage_mv = max(voltages)
@@ -402,6 +460,9 @@ class AutoTuner:
         _apply()/_apply_vf() sees the flag and does nothing, so nothing can
         overwrite the reset any more."""
         self._stop.set()
+        # Into the run's log file while it is still open (the tuner thread
+        # closes it as soon as it sees the stop flag).
+        self._log("Abbruch angefordert — GPU wird auf Standard zurückgesetzt …", "warning")
         with self._ab_lock:
             self._safe_reset()
             if self.cr:
@@ -482,7 +543,8 @@ class AutoTuner:
         if r.abort_reason:
             return r.abort_reason
         if r.throttle_hit:
-            return "Thermische/Hardware-Drosselung"
+            return ("Thermische/Hardware-Drosselung"
+                    + (f" ({r.throttle_note})" if getattr(r, "throttle_note", "") else ""))
         return "Crash" if r.crash_detected else "Unstable"
 
     # A failed final test is not the end: take one step back and run the final
@@ -559,6 +621,132 @@ class AutoTuner:
             # Same rule as _apply(): an unapplied curve step must not be tested.
             raise TunerApplyError(f"V/F-Kurve: {err}")
         return ok
+
+    def _mem_stage(self, stress: "StressTester", apply_mem: Callable[[int], object],
+                   start_mem: int, prog_base: int = 86, prog_span: int = 8) -> Optional[int]:
+        """Stage 4: the memory offset with the highest MEASURED bandwidth.
+        apply_mem(offset) applies the current core settings with that memory
+        offset. -> the best offset, or None when the tune was aborted."""
+        cfg = self.config
+        best_mem_offset = start_mem
+        self._set_state(TunerState.STAGE4)
+        self._log("Stage 4: Memory overclock — memory load, bandwidth must keep rising "
+                  "(GDDR6X corrects errors by retrying: past its limit it gets SLOWER, "
+                  "it doesn't crash)...")
+        self._progress(prog_base, "Stage 4: Memory clock optimization")
+
+        # Reference bandwidth at the current memory offset.
+        apply_mem(best_mem_offset)
+        time.sleep(2)
+        mref = stress.run(min(cfg.step_test_s, 30), cfg.max_temp_c, mode="mem",
+                          on_tick=lambda e, d, s: (
+                              self._progress(prog_base, f"Stage 4: Referenz-Bandbreite {e}/{d}s"),
+                              self._cb_tick(s) if self._cb_tick else None))
+        if self._stop.is_set():
+            return None
+        best_bw = mref.avg_bw_gbs if mref.passed else 0.0
+        if best_bw > 0:
+            self._log(f"  Referenz: {best_bw:.0f} GB/s @ {mref.avg_mem_mhz:.0f} MHz "
+                      f"(Mem+{best_mem_offset}MHz)")
+        else:
+            self._log("  Bandbreite nicht messbar (cupy fehlt?) — Speicher-OC nur mit "
+                      "Absturz-/Fehlererkennung", "warning")
+
+        # Measured bandwidth per accepted offset. The stepping only stops once
+        # bandwidth falls OUT of the noise band — by then it has crept past the
+        # peak into the range where GDDR6X already corrects errors. The result
+        # is therefore the offset with the highest measured bandwidth.
+        bw_at = {best_mem_offset: best_bw} if best_bw > 0 else {}
+
+        # Adaptive stepping for Memory OC
+        MIN_MEM_STEP = max(1, cfg.mem_min_step_mhz)   # MHz
+        cur_mem      = best_mem_offset
+        cur_mem_step = cfg.mem_oc_step_mhz
+        mem_step_n   = 0
+        est_mem_steps = max(cfg.mem_oc_max_mhz // cfg.mem_oc_step_mhz, 1) + 6
+        # Highest offset still worth testing: 'Mem Max', then just below
+        # every offset that failed (a coarse step must not re-test it).
+        upper = cfg.mem_oc_max_mhz
+
+        while not self._stop.is_set():
+            candidate_mem = min(cur_mem + cur_mem_step, upper)
+            if candidate_mem <= cur_mem:
+                if upper == cfg.mem_oc_max_mhz:
+                    self._log(f"Stage 4: Memory limit +{cfg.mem_oc_max_mhz}MHz reached")
+                break
+
+            apply_mem(candidate_mem)
+            time.sleep(2)
+
+            sn_cap = mem_step_n
+            def _tick4(e, d, s, cm=candidate_mem, sn=sn_cap):
+                self._progress(
+                    prog_base + int(min(sn / est_mem_steps, 1.0) * prog_span),
+                    f"Stage 4: Mem+{cm}MHz (step {cur_mem_step}MHz) | "
+                    f"{e}/{d}s | {s.temp}°C | {s.mem_mhz:.0f}MHz"
+                )
+                if self._cb_tick: self._cb_tick(s)
+
+            result = stress.run(cfg.step_test_s, cfg.max_temp_c, on_tick=_tick4,
+                                mode="mem")
+            if self._stop.is_set():   # aborted mid-step: don't act on it
+                return None
+            mem_step_n += 1
+
+            bw = result.avg_bw_gbs
+            bw_drop = (best_bw > 0 and bw > 0 and
+                       bw < best_bw * (1.0 - cfg.mem_bw_drop_pct / 100.0))
+            bw_note = f"  {bw:.0f} GB/s @ {result.avg_mem_mhz:.0f} MHz" if bw > 0 else ""
+            if result.passed and not result.crash_detected and not bw_drop:
+                best_mem_offset = candidate_mem
+                cur_mem         = candidate_mem
+                best_bw         = max(best_bw, bw)
+                if bw > 0:
+                    bw_at[candidate_mem] = bw
+                self._log(
+                    f"  Mem+{candidate_mem}MHz ✓  step={cur_mem_step}MHz  "
+                    f"avg={result.avg_temp:.1f}°C{bw_note}"
+                )
+            else:
+                upper     = candidate_mem - MIN_MEM_STEP   # never re-test next to a failure
+                tdr_note  = " [TDR!]" if result.tdr_detected else ""
+                reason    = (f"Bandbreite {bw:.0f} < {best_bw:.0f} GB/s — Fehlerkorrektur "
+                             f"(EDC) bremst" if bw_drop and result.passed
+                             else self._fail_reason(result))
+                new_step  = max(MIN_MEM_STEP, cur_mem_step // 2)
+                if new_step < cur_mem_step:
+                    self._log(
+                        f"  Mem+{candidate_mem}MHz ✗{tdr_note}  {reason} "
+                        f"— halving step: {cur_mem_step}→{new_step}MHz", "warning"
+                    )
+                    self._set_state(TunerState.BACKOFF)
+                    apply_mem(best_mem_offset)
+                    time.sleep(1)
+                    cur_mem_step = new_step
+                    cur_mem      = best_mem_offset
+                else:
+                    self._log(
+                        f"  Mem+{candidate_mem}MHz ✗{tdr_note}  {reason} "
+                        f"— at min step ({MIN_MEM_STEP}MHz), stopping", "warning"
+                    )
+                    self._set_state(TunerState.BACKOFF)
+                    apply_mem(best_mem_offset)
+                    time.sleep(1)
+                    break
+
+        if len(bw_at) > 1 and not self._stop.is_set():
+            peak = max(bw_at, key=lambda o: (bw_at[o], -o))   # tie -> lower offset
+            if peak < best_mem_offset:
+                self._log(f"  Bandbreiten-Maximum bei Mem+{peak}MHz ({bw_at[peak]:.0f} GB/s) — "
+                          f"darüber (bis +{best_mem_offset}MHz) kein Gewinn mehr, der Speicher "
+                          f"korrigiert dort schon Fehler → +{peak}MHz übernommen")
+                best_mem_offset = peak
+                apply_mem(best_mem_offset)
+        if self._stop.is_set():
+            return None
+        self._log(f"Stage 4 done: best memory = +{best_mem_offset}MHz "
+                  f"(precision ±{MIN_MEM_STEP}MHz)")
+        return best_mem_offset
 
     def _run_safe(self):
         self._open_run_log()
@@ -653,6 +841,10 @@ class AutoTuner:
         self._save_stable(0, 0, 100)
 
         if self._stop.is_set(): return
+
+        if mode == TuneMode.CURVE:
+            self._run_curve(stress, base)
+            return
 
         # ── Stage 1: Core Clock Offset ─────────────────────────────────────────
         best_core = cfg.core_start_mhz
@@ -983,141 +1175,14 @@ class AutoTuner:
         )
 
         if run_mem:
-            self._set_state(TunerState.STAGE4)
-            self._log("Stage 4: Memory overclock — memory load, bandwidth must keep rising "
-                      "(GDDR6X corrects errors by retrying: past its limit it gets SLOWER, "
-                      "it doesn't crash)...")
-            self._progress(86, "Stage 4: Memory clock optimization")
-
-            # Reference bandwidth at the current memory offset.
-            if best_volt_mv > 0:
-                self._apply_vf(best_core, best_volt_mv, target_freq if run_vf else 0,
-                               best_mem_offset)
-            else:
-                self._apply(best_core, best_mem_offset, best_pwr)
-            time.sleep(2)
-            mref = stress.run(min(cfg.step_test_s, 30), cfg.max_temp_c, mode="mem",
-                              on_tick=lambda e, d, s: (
-                                  self._progress(86, f"Stage 4: Referenz-Bandbreite {e}/{d}s"),
-                                  self._cb_tick(s) if self._cb_tick else None))
-            if self._stop.is_set():
-                return
-            best_bw = mref.avg_bw_gbs if mref.passed else 0.0
-            if best_bw > 0:
-                self._log(f"  Referenz: {best_bw:.0f} GB/s @ {mref.avg_mem_mhz:.0f} MHz "
-                          f"(Mem+{best_mem_offset}MHz)")
-            else:
-                self._log("  Bandbreite nicht messbar (cupy fehlt?) — Speicher-OC nur mit "
-                          "Absturz-/Fehlererkennung", "warning")
-
-            # Measured bandwidth per accepted offset. The stepping only stops once
-            # bandwidth falls OUT of the noise band — by then it has crept past the
-            # peak into the range where GDDR6X already corrects errors. The result
-            # is therefore the offset with the highest measured bandwidth.
-            bw_at = {best_mem_offset: best_bw} if best_bw > 0 else {}
-
-            # Adaptive stepping for Memory OC
-            MIN_MEM_STEP = max(1, cfg.mem_min_step_mhz)   # MHz
-            cur_mem      = best_mem_offset
-            cur_mem_step = cfg.mem_oc_step_mhz
-            mem_step_n   = 0
-            est_mem_steps = max(cfg.mem_oc_max_mhz // cfg.mem_oc_step_mhz, 1) + 6
-            # Highest offset still worth testing: 'Mem Max', then just below
-            # every offset that failed (a coarse step must not re-test it).
-            upper = cfg.mem_oc_max_mhz
-
-            while not self._stop.is_set():
-                candidate_mem = min(cur_mem + cur_mem_step, upper)
-                if candidate_mem <= cur_mem:
-                    if upper == cfg.mem_oc_max_mhz:
-                        self._log(f"Stage 4: Memory limit +{cfg.mem_oc_max_mhz}MHz reached")
-                    break
-
+            def apply_mem(m):
                 if best_volt_mv > 0:
-                    self._apply_vf(best_core, best_volt_mv,
-                                   target_freq if run_vf else 0, candidate_mem)
+                    self._apply_vf(best_core, best_volt_mv, target_freq if run_vf else 0, m)
                 else:
-                    self._apply(best_core, candidate_mem, best_pwr)
-                time.sleep(2)
-
-                sn_cap = mem_step_n
-                def _tick4(e, d, s, cm=candidate_mem, sn=sn_cap):
-                    self._progress(
-                        86 + int(min(sn / est_mem_steps, 1.0) * 8),
-                        f"Stage 4: Mem+{cm}MHz (step {cur_mem_step}MHz) | "
-                        f"{e}/{d}s | {s.temp}°C | {s.mem_mhz:.0f}MHz"
-                    )
-                    if self._cb_tick: self._cb_tick(s)
-
-                result = stress.run(cfg.step_test_s, cfg.max_temp_c, on_tick=_tick4,
-                                    mode="mem")
-                if self._stop.is_set():   # aborted mid-step: don't act on it
-                    return
-                mem_step_n += 1
-
-                bw = result.avg_bw_gbs
-                bw_drop = (best_bw > 0 and bw > 0 and
-                           bw < best_bw * (1.0 - cfg.mem_bw_drop_pct / 100.0))
-                bw_note = f"  {bw:.0f} GB/s @ {result.avg_mem_mhz:.0f} MHz" if bw > 0 else ""
-                if result.passed and not result.crash_detected and not bw_drop:
-                    best_mem_offset = candidate_mem
-                    cur_mem         = candidate_mem
-                    best_bw         = max(best_bw, bw)
-                    if bw > 0:
-                        bw_at[candidate_mem] = bw
-                    self._log(
-                        f"  Mem+{candidate_mem}MHz ✓  step={cur_mem_step}MHz  "
-                        f"avg={result.avg_temp:.1f}°C{bw_note}"
-                    )
-                else:
-                    upper     = candidate_mem - MIN_MEM_STEP   # never re-test next to a failure
-                    tdr_note  = " [TDR!]" if result.tdr_detected else ""
-                    reason    = (f"Bandbreite {bw:.0f} < {best_bw:.0f} GB/s — Fehlerkorrektur "
-                                 f"(EDC) bremst" if bw_drop and result.passed
-                                 else self._fail_reason(result))
-                    new_step  = max(MIN_MEM_STEP, cur_mem_step // 2)
-                    if new_step < cur_mem_step:
-                        self._log(
-                            f"  Mem+{candidate_mem}MHz ✗{tdr_note}  {reason} "
-                            f"— halving step: {cur_mem_step}→{new_step}MHz", "warning"
-                        )
-                        self._set_state(TunerState.BACKOFF)
-                        if best_volt_mv > 0:
-                            self._apply_vf(best_core, best_volt_mv,
-                                           target_freq if run_vf else 0, best_mem_offset)
-                        else:
-                            self._apply(best_core, best_mem_offset, best_pwr)
-                        time.sleep(1)
-                        cur_mem_step = new_step
-                        cur_mem      = best_mem_offset
-                    else:
-                        self._log(
-                            f"  Mem+{candidate_mem}MHz ✗{tdr_note}  {reason} "
-                            f"— at min step ({MIN_MEM_STEP}MHz), stopping", "warning"
-                        )
-                        self._set_state(TunerState.BACKOFF)
-                        if best_volt_mv > 0:
-                            self._apply_vf(best_core, best_volt_mv,
-                                           target_freq if run_vf else 0, best_mem_offset)
-                        else:
-                            self._apply(best_core, best_mem_offset, best_pwr)
-                        time.sleep(1)
-                        break
-
-            if len(bw_at) > 1 and not self._stop.is_set():
-                peak = max(bw_at, key=lambda o: (bw_at[o], -o))   # tie -> lower offset
-                if peak < best_mem_offset:
-                    self._log(f"  Bandbreiten-Maximum bei Mem+{peak}MHz ({bw_at[peak]:.0f} GB/s) — "
-                              f"darüber (bis +{best_mem_offset}MHz) kein Gewinn mehr, der Speicher "
-                              f"korrigiert dort schon Fehler → +{peak}MHz übernommen")
-                    best_mem_offset = peak
-                    if best_volt_mv > 0:
-                        self._apply_vf(best_core, best_volt_mv,
-                                       target_freq if run_vf else 0, best_mem_offset)
-                    else:
-                        self._apply(best_core, best_mem_offset, best_pwr)
-            self._log(f"Stage 4 done: best memory = +{best_mem_offset}MHz "
-                      f"(precision ±{MIN_MEM_STEP}MHz)")
+                    self._apply(best_core, m, best_pwr)
+            best_mem_offset = self._mem_stage(stress, apply_mem, best_mem_offset)
+            if best_mem_offset is None:          # aborted
+                return
         else:
             self._log("Stage 4 skipped (mode doesn't include Memory OC)")
 
@@ -1260,6 +1325,784 @@ class AutoTuner:
         if self.cr:
             self.cr.clear_tuning_flag()
 
+        self._log("═══════════════════════════════════════")
+        self._log("        Auto-Tune Complete")
+        self._log("═══════════════════════════════════════")
+        self._set_state(TunerState.DONE)
+
+    # ── Rundum-Tuner (TuneMode.CURVE) ─────────────────────────────────────────
+
+    def _apply_curve(self, anchors, cap_mv: int = 0, mem: int = 0, pwr_pct: int = 100) -> bool:
+        """Own V/F curve from the measured points (+ memory offset, power limit)
+        via Afterburner. Same rules as _apply(): nothing is written after an
+        abort, and a step that could not be applied raises TunerApplyError."""
+        p = TuneProfile(name="__curve_tuning__", mem_offset_mhz=int(mem),
+                        power_limit_pct=int(pwr_pct),
+                        curve_points=[[int(mv), int(f)] for mv, f in anchors],
+                        curve_cap_mv=int(cap_mv or 0))
+        with self._ab_lock:
+            if self._stop.is_set():
+                return False
+            if self.cr:
+                self.cr.set_tuning_active(p.to_dict())
+            if not self.ab.available:
+                raise TunerApplyError("MSI Afterburner nicht gefunden — für die V/F-Kurve nötig")
+            ok, err = self.ab.write_and_apply(self.config.ab_slot, p)
+            if not ok:
+                raise TunerApplyError(f"V/F-Kurve: {err}")
+            watts = self.monitor.power_pct_to_watts(pwr_pct)
+            if watts > 0:
+                self.monitor.set_power_limit(watts)
+            return True
+
+    def _max_power_pct(self) -> int:
+        """Highest power limit the card allows, in % of its stock limit."""
+        try:
+            _cur, _mn, mx = self.monitor.get_power_constraints()
+            base = self.monitor.get_default_power_limit()
+        except Exception:
+            return 100
+        if mx > 0 and base > 0:
+            return max(100, min(AfterburnerController.POWER_RANGE[1], int(mx / base * 100 + 1e-6)))
+        return 100
+
+    def _bench(self, stress: "StressTester", seconds: int, label: str, prog: int,
+               prog_span: int = 0, plausible: bool = True) -> Optional["CT.Candidate"]:
+        """One benchmark run with the settings applied right now -> Candidate
+        (score, average power and clock while loaded, highest temperature,
+        voltage right before the end), or None when the tune was aborted.
+        FurMark 2's own score when it is set up (cfg.furmark_path), else the
+        stress worker's measured work rate (TFLOPS) under full load. Too hot ends
+        the run (thermal); FurMark dying, hanging, printing no score or a driver
+        reset / GPU error counts as unstable — then the driver gets
+        cfg.crash_pause_s to recover. A run that ended far too early or scored
+        far below stock is `invalid`: after a crash in the live run FurMark ran
+        ~10 of 60 s and printed 398 instead of ~7200 points."""
+        cfg = self.config
+        c = CT.Candidate("")
+        if not cfg.furmark_path:
+            def _tick(e, d, s):
+                self._progress(prog + int(min(e / max(d, 1), 1.0) * prog_span),
+                               f"{label}: {e}/{d}s | {s.temp}°C | {s.gpu_power_w:.0f} W | "
+                               f"{s.core_mhz:.0f} MHz")
+                if self._cb_tick:
+                    self._cb_tick(s)
+            r = stress.run(seconds, cfg.max_temp_c, on_tick=_tick, mode="gemm")
+            if self._stop.is_set():
+                return None
+            c.score, c.power_w, c.clock_mhz = r.avg_rate_tflops, r.avg_power_w, r.avg_core_mhz
+            c.temp_c, c.power_capped_pct = float(r.max_temp), r.power_capped_pct
+            c.last_mv = r.last_voltage_mv
+            c.unstable = bool(r.crash_detected or r.tdr_detected or r.compute_error)
+            c.thermal = not c.unstable and (r.throttle_hit or r.max_temp >= cfg.max_temp_c)
+            c.passed = r.passed and not r.throttle_hit and c.score > 0
+            if not c.passed:
+                c.note = (self._fail_reason(r) if not r.passed or r.throttle_hit
+                          else CT.T("keine Messwerte (cupy fehlt?)", "no readings (cupy missing?)"))
+            if c.unstable:
+                self._crash_pause()
+            return c
+
+        from core import furmark
+        ev = threading.Event()
+        samples, hot = [], []
+        t0 = time.time()
+
+        def tick(el):
+            if self._stop.is_set():
+                ev.set()
+                return
+            try:
+                s = self.monitor.read()
+            except Exception:
+                return
+            samples.append(s)
+            if s.temp >= cfg.max_temp_c:
+                hot.append(s.temp)
+                ev.set()
+            self._progress(prog + int(min(el / max(seconds, 1), 1.0) * prog_span),
+                           f"{label}: {el:.0f}/{seconds}s | {s.temp}°C | "
+                           f"{s.gpu_power_w:.0f} W | {s.core_mhz:.0f} MHz")
+            if self._cb_tick:
+                self._cb_tick(s)
+
+        res = furmark.run_benchmark(cfg.furmark_path, seconds, cfg.bench_width, cfg.bench_height,
+                                    cfg.bench_msaa, stop_event=ev, on_tick=tick)
+        if self._stop.is_set():
+            return None
+        loaded = [s for s in samples if (s.gpu_usage or 0) >= 90] or samples
+        powers = [s.gpu_power_w for s in loaded if s.gpu_power_w > 0]
+        clocks = [s.core_mhz for s in loaded if s.core_mhz > 0]
+        volts = [s.voltage_mv for s in samples if (s.voltage_mv or 0) > 0]
+        c.score = float(res.get("score") or 0)
+        c.power_w = round(sum(powers) / len(powers), 1) if powers else 0.0
+        c.clock_mhz = round(sum(clocks) / len(clocks), 1) if clocks else 0.0
+        c.temp_c = float(max([s.temp for s in samples] + [res.get("max_temp") or 0]))
+        c.last_mv = float(max(volts[-3:])) if volts else 0.0
+        c.power_capped_pct = (round(100.0 * sum(bool(getattr(s, "power_capped", False))
+                                                for s in loaded) / len(loaded), 1)
+                              if loaded else 0.0)
+        # Only this run's window: a reset from the step before (an AB restart + a few s
+        # earlier) must not be blamed on this benchmark.
+        tdr = bool(self.cr and self.cr.check_tdr_since(int(time.time() - t0) + 3))
+        if hot:
+            c.thermal = True
+            c.note = CT.T(f"Temperatur {max(hot)} °C ≥ Limit {cfg.max_temp_c} °C",
+                          f"temperature {max(hot)} °C ≥ limit {cfg.max_temp_c} °C")
+        elif tdr:
+            c.unstable = True
+            c.note = CT.T("Treiber-Reset / GPU-Fehler (Ereignisprotokoll)",
+                          "driver reset / GPU error (event log)")
+        elif not res.get("ok"):
+            c.unstable = True
+            c.note = res.get("error") or "FurMark"
+        c.passed = bool(res.get("ok")) and not hot and not tdr
+        if c.passed and plausible:
+            ran = (res.get("duration_ms") or 0) / 1000.0 or float(res.get("elapsed_s") or 0)
+            stock_rate = getattr(self, "_stock_rate", 0.0)
+            if ran and seconds >= 20 and ran < seconds * 0.9:
+                c.invalid = True
+                c.note = CT.T(f"FurMark lief nur {ran:.0f} von {seconds} s",
+                              f"FurMark ran only {ran:.0f} of {seconds} s")
+            elif stock_rate and c.score / max(seconds, 1) < stock_rate * 0.5:
+                c.invalid = True
+                c.note = CT.T(f"nur {c.score:.0f} Punkte — weniger als halb so viel wie Standard",
+                              f"only {c.score:.0f} points — less than half of stock")
+            if c.invalid:
+                c.passed, c.unstable = False, True
+        if c.unstable and not c.invalid:
+            self._crash_pause()
+        return c
+
+    def _crash_pause(self):
+        """After a crash the driver needs a moment: right after the live crash
+        the next FurMark runs ended early with nonsense scores."""
+        pause = int(getattr(self.config, "crash_pause_s", 0) or 0)
+        if pause > 0 and not self._stop.is_set():
+            self._log(CT.T(f"  Pause {pause} s — der Treiber erholt sich nach dem Absturz",
+                           f"  {pause} s pause — the driver recovers from the crash"))
+            self._stop.wait(pause)
+
+    def _test_point(self, stress: "StressTester", mv: int, mhz: int, base_mhz: float,
+                    label: str, prog: int) -> "CT.PointTest":
+        """One search step: the curve flat from `mv` at `mhz` (the GPU can't go
+        past that point), then the boost load — light enough to stay below the
+        power limit, so the GPU sits exactly on that point — with every result
+        checked. Passed only counts when the GPU really ran at the point."""
+        cfg = self.config
+        self._apply_vf(0, mv, mhz, 0)
+        time.sleep(2)
+        off = mhz - base_mhz
+
+        def tick(e, d, s):
+            self._progress(prog, f"{label}: {mv} mV → {mhz} MHz ({off:+.0f}) | {e}/{d}s | "
+                                 f"{s.temp}°C | {s.voltage_mv:.0f} mV | {s.core_mhz:.0f} MHz")
+            if self._cb_tick:
+                self._cb_tick(s)
+
+        r = stress.run(cfg.step_test_s, cfg.max_temp_c, on_tick=tick, mode="boost")
+        if self._stop.is_set():
+            return CT.PointTest(False, reason="abgebrochen")
+        passed = r.passed and not r.throttle_hit
+        reached = True
+        if passed:
+            # At the point = the median voltage within 2 points of Ada's 5-mV grid.
+            # Below it means the power limit pushed the GPU down the curve: the
+            # step tested a LOWER point and proves nothing for this one.
+            # Both ways: ABOVE it means the live curve put a faster point higher
+            # up (seen live: 875 mV under test, the card ran 920 mV).
+            if r.steady_voltage_mv > 0:
+                reached = abs(r.steady_voltage_mv - mv) <= 10
+            elif r.max_core_mhz > 0:          # no voltage readings: only this point runs that fast
+                reached = r.max_core_mhz >= mhz - 60
+        seen = (f"{r.steady_voltage_mv:.0f} mV" if r.steady_voltage_mv > 0 else "? mV")
+        if passed and reached:
+            self._log(f"    {mhz} MHz ({off:+.0f}) ✓  {seen}, {r.avg_core_mhz:.0f} MHz, "
+                      f"{r.avg_temp:.0f}°C{self._perf_note(r)}")
+        elif passed:
+            self._log(CT.T(f"    {mhz} MHz ({off:+.0f}) — Punkt nicht erreicht (lief bei {seen}, "
+                           f"{r.avg_core_mhz:.0f} MHz)",
+                           f"    {mhz} MHz ({off:+.0f}) — point not reached (ran at {seen}, "
+                           f"{r.avg_core_mhz:.0f} MHz)"), "warning")
+        else:
+            tdr_note = " [TDR!]" if r.tdr_detected else ""
+            self._log(f"    {mhz} MHz ({off:+.0f}) ✗{tdr_note}  {self._fail_reason(r)}", "warning")
+            time.sleep(5 if (r.tdr_detected or r.crash_detected) else 1)   # let the driver settle
+        return CT.PointTest(passed, reached, r.tdr_detected,
+                            "" if passed else self._fail_reason(r),
+                            r.steady_voltage_mv, r.avg_core_mhz)
+
+    # Rundum-Tuner safety limits (after the first live run, see _mem_stage_full)
+    CURVE_CHECK_TRIES  = 3      # curve check: up to 2 step-backs
+    CANDIDATE_BACKOFFS = 3      # crashed candidates: up to 3 step-backs
+
+    @staticmethod
+    def _invalid_msg(c: "CT.Candidate") -> str:
+        return CT.T(f"Benchmark unplausibel ({c.note}) — der Treiber ist nach einem Absturz "
+                    f"vermutlich nicht sauber. Kein Profil gespeichert, GPU auf Standard: bitte den "
+                    f"PC neu starten und den Tune wiederholen.",
+                    f"Implausible benchmark ({c.note}) — the driver is probably not clean after a "
+                    f"crash. No profile saved, GPU back to stock: please restart the PC and run "
+                    f"the tune again.")
+
+    def _whole_card_run(self, stress: "StressTester", seconds: int, label: str, prog: int):
+        """The whole card under load at once: FurMark (8x MSAA — the load whose
+        picture got green speckles at memory +1500) and the stress worker's
+        verified memory copies. -> (passed, reason, info); passed None = aborted.
+        Without FurMark only the verified copies run."""
+        cfg = self.config
+        T = CT.T
+        res: dict = {}
+        ev = threading.Event()
+        th = None
+        t0 = time.time()
+        if cfg.furmark_path:
+            from core import furmark
+
+            def _fm():
+                try:
+                    res.update(furmark.run_benchmark(cfg.furmark_path, seconds + 6, cfg.bench_width,
+                                                     cfg.bench_height, cfg.bench_msaa,
+                                                     stop_event=ev))
+                except Exception as e:                  # never leave the worker alone
+                    res.update(ok=False, error=str(e))
+            th = threading.Thread(target=_fm, daemon=True)
+            th.start()
+            time.sleep(4)                               # FurMark is up before the copies start
+
+        def tick(e, d, s):
+            self._progress(prog, f"{label}: {e}/{d}s | {s.temp}°C | {s.gpu_power_w:.0f} W | "
+                                 f"{s.mem_mhz:.0f} MHz")
+            if self._cb_tick:
+                self._cb_tick(s)
+
+        r = stress.run(seconds, cfg.max_temp_c, on_tick=tick, mode="mem")
+        if not r.passed or self._stop.is_set():
+            ev.set()                                    # stop FurMark right away
+        if th is not None:
+            th.join(timeout=seconds + 120)
+        if self._stop.is_set():
+            return None, "", ""
+        tdr = bool(self.cr and self.cr.check_tdr_since(int(time.time() - t0) + 3))
+        reason = ""
+        if not r.passed:
+            reason = self._fail_reason(r)
+        elif th is not None and not res.get("ok"):
+            reason = "FurMark: " + (res.get("error") or T("Fehler", "error"))
+        elif tdr:
+            reason = T("Treiber-Reset / GPU-Fehler (Ereignisprotokoll)", "driver reset / GPU error (event log)")
+        elif th is not None:
+            ran = (res.get("duration_ms") or 0) / 1000.0 or float(res.get("elapsed_s") or 0)
+            if ran and ran < seconds * 0.9:
+                reason = T(f"FurMark lief nur {ran:.0f} s", f"FurMark ran only {ran:.0f} s")
+        info = (f"{r.avg_bw_gbs:.0f} GB/s, {r.max_temp:.0f}°C"
+                + (f", FurMark {res.get('fps_avg')} FPS" if res.get("ok") else ""))
+        if reason:
+            self._crash_pause()
+        return not reason, reason, info
+
+    def _mem_stage_full(self, stress: "StressTester", anchors):
+        """Memory for the Rundum-Tuner — the plan the user asked for after the
+        first live run (memory +1500 taken straight from the bandwidth peak gave
+        green speckles and a driver reset in FurMark): +500 first, then +100
+        steps up to 'Mem max' (default 1000), each step with the WHOLE card under
+        load (_whole_card_run) on the checked curve. Result: the highest step
+        that passed — one step lower when a failure marked the edge; reaching
+        'Mem max' without a failure keeps 'Mem max'.
+        -> (offset, report line), (-1, error) when even +0 fails, None = aborted."""
+        cfg = self.config
+        T = CT.T
+        step = max(25, int(cfg.mem_curve_step_mhz))
+        top = max(0, int(cfg.mem_oc_max_mhz))
+        m = max(0, min(int(cfg.mem_curve_start_mhz), top))
+        self._set_state(TunerState.STAGE4)
+        load = T("FurMark + geprüfte Speicherkopien", "FurMark + verified memory copies") \
+            if cfg.furmark_path else T("geprüfte Speicherkopien", "verified memory copies")
+        self._log(T(f"Speicher: Start +{m} MHz, {step}er-Schritte bis +{top} MHz, je {cfg.step_test_s} s "
+                    f"die ganze Karte unter Last ({load})",
+                    f"Memory: start +{m} MHz, {step}-MHz steps up to +{top} MHz, {cfg.step_test_s} s "
+                    f"of load on the whole card each ({load})"))
+        best, failed_at, n = None, None, 0
+        while True:
+            if self._stop.is_set():
+                return None
+            self._apply_curve(anchors, 0, m, 100)
+            time.sleep(2)
+            ok, why, info = self._whole_card_run(stress, cfg.step_test_s, f"Mem+{m}MHz",
+                                                 60 + min(n, 7))
+            if ok is None:
+                return None
+            n += 1
+            if ok:
+                best = m
+                self._log(f"  Mem+{m}MHz ✓  {info}")
+                if m >= top or (failed_at is not None and failed_at > m):
+                    break                        # the top, or the edge found going down
+                m = min(top, m + step)
+            else:
+                failed_at = m
+                self._log(f"  Mem+{m}MHz ✗  {why}", "warning")
+                if best is not None or m <= 0:
+                    break
+                m = max(0, m - step)             # the start value failed: down from there
+        if best is None:
+            return -1, T("Speicher: schon +0 MHz hält die Last auf der ganzen Karte nicht — Kurve/"
+                         "Kühlung prüfen, kein Profil gespeichert",
+                         "Memory: even +0 MHz fails the whole-card load — check the curve / "
+                         "cooling, no profile saved")
+        edge = failed_at is not None and failed_at > best
+        result = max(0, best - step) if edge else best
+        if edge:
+            line = T(f"Speicher: +{best} MHz bestanden, +{failed_at} nicht → +{result} MHz übernommen "
+                     f"({step} MHz Sicherheit)",
+                     f"Memory: +{best} MHz passed, +{failed_at} did not → +{result} MHz used "
+                     f"({step} MHz safety)")
+        else:
+            line = T(f"Speicher: bis +{best} MHz („Speicher max“) bestanden → +{result} MHz übernommen",
+                     f"Memory: passed up to +{best} MHz ('Mem max') → +{result} MHz used")
+        self._log("  " + line)
+        return result, line
+
+    def _curve_fail(self, msg: str):
+        """End a Rundum run without a profile: log, back to stock, error state."""
+        self._log(msg, "error")
+        self._reset_locked()
+        if self.cr:
+            self.cr.clear_tuning_flag()
+        self._progress(100, "✗ " + msg.split(" — ")[0])
+        self._set_state(TunerState.ERROR)
+
+    def _run_curve(self, stress: "StressTester", base: StressResult):
+        """Rundum-Tuner — after the baseline (see _run):
+        1. the card's curve (voltage points, stock clocks) from Afterburner's profile
+        2. stock under the boost load: the highest voltage the card reaches
+        3. stock benchmark — the "before"
+        4. per voltage point (top down, every 50 mV): the highest stable clock
+           (core/curve_tune.search_anchor), minus the safety margin -> own curve
+        5. memory stage (optional, as in the other modes)
+        6. benchmark the curve caps the goal allows, pick per goal
+        7. final test: FurMark (5 min) + compute-checked mixed load, one step
+           back and again on a failure; only a configuration that passed is saved
+        8. save + report"""
+        cfg = self.config
+        T = CT.T
+        de = CT.is_de()
+        goal = cfg.goal if cfg.goal in CT.GOALS else "balanced"
+        gname = CT.GOAL_TEXT[goal][0 if de else 1]
+
+        # 1) the curve Afterburner applies offsets to
+        getter = getattr(self.ab, "base_curve", None)
+        curve, src = getter(cfg.ab_slot) if getter else (None, "Afterburner")
+        if curve is None:
+            raise TunerApplyError(T(f"Rundum-Tuner: {src}", f"All-round tuner: {src}"))
+        points = curve.active_points()
+        self._log(T(f"Rundum-Tuner — Ziel: {gname}", f"All-round tuner — goal: {gname}"))
+        self._log(T(f"  V/F-Kurve aus [{src}]: {len(points)} aktive Punkte, "
+                    f"{points[0].voltage_mv:.0f}–{points[-1].voltage_mv:.0f} mV",
+                    f"  V/F curve from [{src}]: {len(points)} active points, "
+                    f"{points[0].voltage_mv:.0f}–{points[-1].voltage_mv:.0f} mV"))
+
+        # 2) stock under the boost load: the top of the curve the card reaches
+        self._set_state(TunerState.CURVE)
+        self._progress(15, T("Höchste Spannung unter Boost-Last messen …",
+                             "Measuring the highest voltage under boost load …"))
+        probe = stress.run(cfg.curve_probe_s, cfg.max_temp_c, mode="boost",
+                           on_tick=lambda e, d, s: (
+                               self._progress(15, f"Boost-Probe: {e}/{d}s | {s.voltage_mv:.0f} mV | "
+                                                  f"{s.core_mhz:.0f} MHz"),
+                               self._cb_tick(s) if self._cb_tick else None))
+        if self._stop.is_set():
+            return
+        if not probe.passed:
+            return self._curve_fail(T(f"Boost-Probe bei Standard fehlgeschlagen ({self._fail_reason(probe)}) "
+                                      f"— Kühlung/Treiber prüfen",
+                                      f"Boost probe at stock failed ({self._fail_reason(probe)}) "
+                                      f"— check cooling / driver"))
+        ceiling = probe.steady_voltage_mv
+        if ceiling <= 0:
+            # No voltage readings: the point whose stock clock matches the boost clock.
+            top = probe.max_core_mhz or probe.avg_core_mhz
+            fit = [p for p in points if p.base_mhz >= top - 7]
+            ceiling = (fit[0].voltage_mv if fit else points[-1].voltage_mv)
+            self._log(T(f"  Keine Spannungswerte (Afterburner-Monitoring 'GPU-Spannung' aus?) — "
+                        f"Obergrenze aus dem Takt geschätzt: {ceiling:.0f} mV",
+                        f"  No voltage readings (Afterburner monitoring 'GPU voltage' off?) — "
+                        f"ceiling estimated from the clock: {ceiling:.0f} mV"), "warning")
+        anchors_mv = CT.anchor_voltages([p.voltage_mv for p in points], ceiling,
+                                        cfg.curve_min_mv, cfg.curve_anchor_step_mv)
+        if not anchors_mv:
+            return self._curve_fail(T(f"Keine Messpunkte zwischen {cfg.curve_min_mv} und "
+                                      f"{ceiling:.0f} mV", f"No points between {cfg.curve_min_mv} "
+                                      f"and {ceiling:.0f} mV"))
+        self._log(T(f"  Boost-Last bei Standard: {ceiling:.0f} mV @ {probe.avg_core_mhz:.0f} MHz "
+                    f"→ Messpunkte: {', '.join(str(v) for v in anchors_mv)} mV",
+                    f"  Boost load at stock: {ceiling:.0f} mV @ {probe.avg_core_mhz:.0f} MHz "
+                    f"→ points: {', '.join(str(v) for v in anchors_mv)} mV"))
+
+        # 3) stock benchmark — the "before"
+        self._set_state(TunerState.BENCH)
+        self._stock_rate = 0.0             # points per second at stock (plausibility of later runs)
+        stock = self._bench(stress, cfg.bench_s, T("Standard-Benchmark", "Stock benchmark"), 17, 3)
+        if stock is None:
+            return
+        if not stock.passed and cfg.furmark_path and not stock.thermal:
+            self._log(T(f"  FurMark lief bei Standard nicht ({stock.note}) — weiter mit dem internen "
+                        f"Rechen-Benchmark",
+                        f"  FurMark failed at stock ({stock.note}) — continuing with the internal "
+                        f"compute benchmark"), "warning")
+            cfg.furmark_path = ""
+            stock = self._bench(stress, cfg.bench_s, T("Standard-Benchmark", "Stock benchmark"), 17, 3)
+            if stock is None:
+                return
+        if not stock.passed:
+            return self._curve_fail(T(f"Standard-Benchmark fehlgeschlagen ({stock.note}) — Kühlung "
+                                      f"prüfen, keine Änderung vorgenommen",
+                                      f"Stock benchmark failed ({stock.note}) — check cooling, "
+                                      f"nothing was changed"))
+        stock.name = T("Standard", "Stock")
+        if cfg.furmark_path:
+            self._stock_rate = stock.score / max(cfg.bench_s, 1)
+        bench_name = "FurMark" if cfg.furmark_path else T("interner Rechen-Benchmark",
+                                                           "internal compute benchmark")
+        unit = T("Punkte", "points") if cfg.furmark_path else "TFLOPS"
+        self._log(T(f"  Standard: {stock.score:.0f} {unit}, Ø {stock.power_w:.0f} W, max. "
+                    f"{stock.temp_c:.0f} °C, Ø {stock.clock_mhz:.0f} MHz ({bench_name})",
+                    f"  Stock: {stock.score:.0f} {unit}, avg {stock.power_w:.0f} W, max "
+                    f"{stock.temp_c:.0f} °C, avg {stock.clock_mhz:.0f} MHz ({bench_name})"))
+
+        # 4) every voltage point: the highest stable clock
+        self._set_state(TunerState.CURVE)
+        self._log(T(f"Kurve: {len(anchors_mv)} Spannungspunkte — je Schritt {cfg.step_test_s} s "
+                    f"Boost-Last, +{cfg.curve_step_mhz} MHz, bei Fehler halbiert bis "
+                    f"{cfg.curve_min_step_mhz} MHz",
+                    f"Curve: {len(anchors_mv)} voltage points — {cfg.step_test_s} s boost load per "
+                    f"step, +{cfg.curve_step_mhz} MHz, halved on a failure down to "
+                    f"{cfg.curve_min_step_mhz} MHz"))
+        results: list = []
+        prior, known = int(cfg.curve_prior_mhz), bool(cfg.curve_prior_mhz)
+        n = len(anchors_mv)
+        for i, mv in enumerate(anchors_mv, 1):
+            pt = curve.lock_point(mv)
+            base_mhz = pt.base_mhz
+            start = int(round(base_mhz + prior))
+            step = cfg.curve_step_mhz if known else cfg.curve_coarse_step_mhz
+            self._log(T(f"  Punkt {i}/{n}: {mv} mV (Stock {base_mhz:.0f} MHz) — Start bei "
+                        f"{start} MHz ({prior:+d})",
+                        f"  Point {i}/{n}: {mv} mV (stock {base_mhz:.0f} MHz) — starting at "
+                        f"{start} MHz ({prior:+d})"))
+            prog = 20 + int((i - 1) / n * 40)
+            label = T(f"Punkt {i}/{n}", f"Point {i}/{n}")
+            r = CT.search_anchor(
+                lambda v, f, b=base_mhz, lb=label, pg=prog: self._test_point(stress, v, f, b, lb, pg),
+                mv, base_mhz, start, step=step, min_step=cfg.curve_min_step_mhz,
+                down_step=cfg.curve_down_mhz, max_mhz=int(base_mhz + cfg.core_max_mhz),
+                stop=self._stop.is_set)
+            if self._stop.is_set():
+                return
+            results.append(r)
+            if r.best_mhz:
+                prior, known = r.offset, True
+                self._log(T(f"  → {mv} mV: {r.best_mhz} MHz stabil ({r.offset:+d})",
+                            f"  → {mv} mV: {r.best_mhz} MHz stable ({r.offset:+d})"))
+            elif not r.reachable:
+                self._log(T(f"  → {mv} mV: unter Last nicht erreichbar",
+                            f"  → {mv} mV: not reachable under load"), "warning")
+            else:
+                self._log(T(f"  → {mv} mV: kein stabiler Takt gefunden",
+                            f"  → {mv} mV: no stable clock found"), "warning")
+        CT.apply_margins(results, cfg.curve_safety_mhz, cfg.curve_recovery_mhz)
+        anchors = CT.curve_anchors(results)
+        if not anchors:
+            return self._curve_fail(T("Kein Spannungspunkt stabil messbar — kein Profil gespeichert",
+                                      "No voltage point measurably stable — no profile saved"))
+        self._log(T(f"Eigene Kurve (−{cfg.curve_safety_mhz} MHz Sicherheit, −{cfg.curve_recovery_mhz} "
+                    f"nach Treiber-Reset): ", f"Own curve (−{cfg.curve_safety_mhz} MHz safety, "
+                    f"−{cfg.curve_recovery_mhz} after a driver reset): ")
+                  + ", ".join(f"{mv} mV → {f} MHz" for mv, f in sorted(anchors, reverse=True)))
+
+        # 4b) Curve check — FurMark (heavy, the whole card) on the new curve with
+        #     memory at stock. The points were searched with the light boost
+        #     load; whatever FurMark still breaks is lowered HERE, before the
+        #     memory is touched — so a later crash points at the memory.
+        notes: list = []
+        self._set_state(TunerState.BENCH)
+        for attempt in range(1, self.CURVE_CHECK_TRIES + 1):
+            self._apply_curve(anchors, 0, 0, 100)
+            time.sleep(2)
+            chk = self._bench(stress, cfg.curve_check_s, T("Kurven-Check", "Curve check"), 58, 2)
+            if chk is None:
+                return
+            if chk.invalid:
+                return self._curve_fail(self._invalid_msg(chk))
+            if chk.passed:
+                notes.append(T(f"Kurven-Check (FurMark {cfg.curve_check_s} s, Speicher +0): bestanden",
+                               f"Curve check (FurMark {cfg.curve_check_s} s, memory +0): passed"))
+                self._log(T(f"  Kurven-Check ✓  {chk.score:.0f} {unit}, max. {chk.temp_c:.0f} °C",
+                            f"  Curve check ✓  {chk.score:.0f} {unit}, max {chk.temp_c:.0f} °C"))
+                break
+            if chk.thermal or not chk.unstable:
+                return self._curve_fail(T(f"Kurven-Check: {chk.note} — Kühlung prüfen, kein Profil "
+                                          f"gespeichert", f"Curve check: {chk.note} — check the "
+                                          f"cooling, no profile saved"))
+            if attempt == self.CURVE_CHECK_TRIES:
+                return self._curve_fail(T(f"Die Kurve hält FurMark auch nach {attempt - 1} "
+                                          f"Rücknahme(n) nicht ({chk.note}) — kein Profil gespeichert",
+                                          f"The curve fails FurMark even after {attempt - 1} "
+                                          f"step-back(s) ({chk.note}) — no profile saved"))
+            new = CT.lower_curve(anchors, cfg.curve_step_mhz, chk.last_mv)
+            pts = ", ".join(str(mv) for (mv, f), (_m, f2) in zip(anchors, new) if f2 != f)
+            anchors = new
+            what = T(f"Kurve −{cfg.curve_step_mhz} MHz bei {pts} mV",
+                     f"curve −{cfg.curve_step_mhz} MHz at {pts} mV")
+            notes.append(T(f"Kurven-Check ✗ ({chk.note}) → {what}", f"Curve check ✗ ({chk.note}) → {what}"))
+            self._log(T(f"  Kurven-Check ✗  {chk.note} — {what}, neuer Versuch",
+                        f"  Curve check ✗  {chk.note} — {what}, trying again"), "warning")
+
+        # 5) memory — the whole card under load (see _mem_stage_full)
+        mem = 0
+        if cfg.mem_stage and cfg.mem_oc_enabled:
+            got = self._mem_stage_full(stress, anchors)
+            if got is None:
+                return
+            mem, mem_note = got
+            if mem < 0:
+                return self._curve_fail(mem_note)
+            notes.append(mem_note)
+
+        # 6) the curve caps the goal allows — benchmarked, picked per goal. Caps
+        #    every 25 mV between the measured points (the curve is interpolated).
+        #    A candidate that crashes is NOT skipped: memory one step back first
+        #    (the likeliest cause of artifacts), then the curve where the card
+        #    ran, and all candidates are measured again on the safer settings.
+        self._set_state(TunerState.BENCH)
+        cap_mvs = CT.anchor_voltages([p.voltage_mv for p in points], max(anchors)[0],
+                                     min(anchors)[0], cfg.curve_cap_step_mv)
+        plan = CT.plan_candidates(goal, cap_mvs, self._max_power_pct(),
+                                  stock.power_capped_pct >= 30)
+        backoffs = 0
+        while True:
+            tested: list = []
+            crashed = None
+            for k, c in enumerate(plan):
+                lbl = c.label(de)
+                self._apply_curve(anchors, c.cap_mv, mem, c.pwr_pct)
+                time.sleep(2)
+                b = self._bench(stress, cfg.bench_s, T(f"Kandidat {k + 1}/{len(plan)} ({lbl})",
+                                                       f"Candidate {k + 1}/{len(plan)} ({lbl})"),
+                                68 + int(k / max(len(plan), 1) * 10), 2)
+                if b is None:
+                    return
+                if b.invalid:
+                    return self._curve_fail(self._invalid_msg(b))
+                b.cap_mv, b.pwr_pct = c.cap_mv, c.pwr_pct
+                if b.unstable:
+                    crashed = (lbl, b)
+                    break
+                tested.append(b)
+                if b.passed:
+                    self._log(f"  {lbl}: {b.score:.0f} {unit}, Ø {b.power_w:.0f} W, "
+                              f"max. {b.temp_c:.0f} °C, {b.per_watt:.2f} {unit}/W")
+                else:
+                    self._log(f"  {lbl}: ✗ {b.note}", "warning")
+                if CT.stop_testing(goal, tested, stock):
+                    if k + 1 < len(plan):
+                        self._log(T("  Niedrigere Kappungen wären noch langsamer — Schluss",
+                                    "  Lower caps would only be slower — done"))
+                    break
+            if crashed is None:
+                break
+            lbl, b = crashed
+            if backoffs >= self.CANDIDATE_BACKOFFS:
+                return self._curve_fail(T(f"„{lbl}“ stürzt auch nach {backoffs} Rücknahme(n) ab "
+                                          f"({b.note}) — kein Profil gespeichert",
+                                          f"'{lbl}' still crashes after {backoffs} step-back(s) "
+                                          f"({b.note}) — no profile saved"))
+            backoffs += 1
+            if mem > 0:
+                m2 = max(0, mem - cfg.mem_curve_step_mhz)
+                what = T(f"Speicher +{mem}→+{m2} MHz", f"memory +{mem}→+{m2} MHz")
+                mem = m2
+            else:
+                new = CT.lower_curve(anchors, cfg.curve_step_mhz, b.last_mv)
+                pts = ", ".join(str(mv) for (mv, f), (_m, f2) in zip(anchors, new) if f2 != f)
+                anchors = new
+                what = T(f"Kurve −{cfg.curve_step_mhz} MHz bei {pts} mV",
+                         f"curve −{cfg.curve_step_mhz} MHz at {pts} mV")
+            notes.append(T(f"Kandidat „{lbl}“ abgestürzt ({b.note}) → {what}, alle Kandidaten neu",
+                           f"Candidate '{lbl}' crashed ({b.note}) → {what}, all candidates again"))
+            self._set_state(TunerState.BACKOFF)
+            self._log(T(f"  {lbl}: ✗ {b.note} — zurück: {what}, Kandidaten werden neu gemessen",
+                        f"  {lbl}: ✗ {b.note} — step back: {what}, measuring the candidates again"),
+                      "warning")
+            self._set_state(TunerState.BENCH)
+        chosen = CT.choose_candidate(goal, tested, stock)
+        if chosen is None:
+            chosen = tested[0] if tested else CT.Candidate("", 0, 100)
+            self._log(T("  Kein Kandidat hat den Benchmark bestanden — Endtest mit der vollen "
+                        "Kurve, bei Fehlern wird zurückgenommen",
+                        "  No candidate passed the benchmark — final test with the full curve, "
+                        "stepping back on failures"), "warning")
+        else:
+            rule = CT.GOAL_RULE[goal][0 if de else 1]
+            self._log(T(f"  Gewählt für „{gname}“ ({rule}): {chosen.label(de)}",
+                        f"  Chosen for '{gname}' ({rule}): {chosen.label(de)}"))
+        cap, pwr = chosen.cap_mv, chosen.pwr_pct
+
+        # 7) final test — only what passed it is saved
+        cur = list(anchors)
+        attempt, retries = 1, []
+        endurance: Optional[CT.Candidate] = None
+        verify: Optional[StressResult] = None
+        while True:
+            self._set_state(TunerState.FINAL_TEST)
+            tries = (T(f" | Versuch {attempt}/{self.FINAL_RETRIES + 1}",
+                       f" | attempt {attempt}/{self.FINAL_RETRIES + 1}") if attempt > 1 else "")
+            what_now = CT.Candidate("", cap, pwr).label(de)
+            self._log(T(f"Endtest: {what_now}, Mem+{mem}MHz | {bench_name} {cfg.final_bench_s}s + "
+                        f"Rechen-Prüfung {cfg.final_test_s}s{tries}",
+                        f"Final test: {what_now}, Mem+{mem}MHz | {bench_name} {cfg.final_bench_s}s + "
+                        f"compute check {cfg.final_test_s}s{tries}"))
+            self._apply_curve(cur, cap, mem, pwr)
+            time.sleep(2)
+            endurance = self._bench(stress, cfg.final_bench_s, T("Endtest", "Final test"), 80, 12)
+            if endurance is None:
+                return
+            if endurance.invalid:
+                return self._curve_fail(self._invalid_msg(endurance))
+            verify = None
+            if endurance.passed:
+                def _tick_v(e, d, s):
+                    self._progress(92 + int(e / max(d, 1) * 6),
+                                   T(f"Rechen-Prüfung: {e}/{d}s | {s.temp}°C | {s.core_mhz:.0f} MHz",
+                                     f"Compute check: {e}/{d}s | {s.temp}°C | {s.core_mhz:.0f} MHz"))
+                    if self._cb_tick:
+                        self._cb_tick(s)
+                verify = stress.run(cfg.final_test_s, cfg.max_temp_c, on_tick=_tick_v, mode="mixed")
+                if self._stop.is_set():
+                    return
+            if endurance.passed and verify is not None and verify.passed:
+                break
+            if verify is not None:
+                why = self._fail_reason(verify)
+                unstable = bool(verify.crash_detected or verify.tdr_detected or verify.compute_error)
+                thermal = not unstable and (verify.throttle_hit or verify.max_temp >= cfg.max_temp_c)
+                tdr_note = " [TDR!]" if verify.tdr_detected else ""
+                crash_mv = verify.last_voltage_mv
+                if unstable:
+                    self._crash_pause()
+            else:
+                why, unstable, thermal = endurance.note, endurance.unstable, endurance.thermal
+                tdr_note = " [TDR!]" if "TDR" in (endurance.note or "") else ""
+                crash_mv = endurance.last_mv
+            if attempt > self.FINAL_RETRIES:
+                return self._curve_fail(T(f"Endtest nicht bestanden ({why}), auch nach {len(retries)} "
+                                          f"Rücknahme(n) — KEIN Profil gespeichert, GPU auf Standard",
+                                          f"Final test failed ({why}), even after {len(retries)} "
+                                          f"step-back(s) — NO profile saved, GPU back to stock"))
+            cur, mem, cap, pwr, what = CT.final_backoff(attempt, cur, mem, cap, pwr, unstable,
+                                                         thermal, cfg.curve_step_mhz, de, cap_mvs,
+                                                         crash_mv=crash_mv,
+                                                         mem_step=cfg.mem_curve_step_mhz)
+            retries.append(what)
+            self._set_state(TunerState.BACKOFF)
+            self._log(T(f"  Endtest ✗{tdr_note}  {why} — zurück: {what} → Endtest wird wiederholt",
+                        f"  Final test ✗{tdr_note}  {why} — step back: {what} → final test again"),
+                      "warning")
+            attempt += 1
+
+        # The fair "after": the same short benchmark as the stock run.
+        after = chosen if (not retries and chosen in tested and chosen.passed) else None
+        if after is None:
+            after = self._bench(stress, cfg.bench_s, T("Nachher-Benchmark", "After benchmark"), 98, 1)
+            if after is None:
+                return
+            if not after.passed:          # the profile passed the final test — keep it, say so
+                notes.append(T(f"Nachher-Benchmark ✗ ({after.note}) — Vergleich vorher/nachher fehlt",
+                               f"After benchmark ✗ ({after.note}) — no before/after comparison"))
+                after = CT.Candidate(T("nicht gemessen", "not measured"))
+
+        # 8) save + report
+        self._set_state(TunerState.SAVING)
+        try:
+            gpu_name = self.monitor.read().name
+        except Exception:
+            gpu_name = "Unknown"
+        top_mv, top_f = max(cur)
+        top_off = int(top_f - curve.lock_point(top_mv).base_mhz)
+        saved = CT.Candidate("", cap, pwr)
+        tag = {"max": "MAX", "balanced": "BAL", "efficiency": "EFF"}[goal]
+        score = self._score(verify)
+        gain = CT._pct(after.score, stock.score)
+        profile = TuneProfile(
+            name=f"GOP_CURVE_{tag}_{datetime.now().strftime('%m%d_%H%M')}",
+            core_offset_mhz=top_off,
+            mem_offset_mhz=mem,
+            power_limit_pct=pwr,
+            curve_points=[[int(mv), int(f)] for mv, f in sorted(cur)],
+            curve_cap_mv=int(cap),
+            is_stable=True,
+            stability_score=score,
+            stage1_freq=int(endurance.clock_mhz),
+            stage1_voltage=int(verify.avg_voltage_mv),
+            notes=(f"[{T('Rundum', 'All-round')} {gname}] "
+                   + T(f"Kurve {len(cur)} Punkte {min(cur)[0]}–{max(cur)[0]} mV",
+                       f"curve {len(cur)} points {min(cur)[0]}–{max(cur)[0]} mV")
+                   + (T(f", flach ab {cap} mV", f", flat from {cap} mV") if cap else "")
+                   + f" | Mem+{mem}MHz | Pwr {pwr}% | {bench_name} {stock.score:.0f}→{after.score:.0f} "
+                     f"({gain}) | {stock.power_w:.0f}→{after.power_w:.0f} W | MaxTemp "
+                     f"{endurance.temp_c:.0f}°C | Score {score}/100"
+                   + (T(f" | nach {len(retries)} Rücknahme(n)", f" | after {len(retries)} step-back(s)")
+                      if retries else "")),
+            created_at=datetime.now().isoformat(),
+            gpu_name=gpu_name,
+        )
+        self.best_profile = profile
+        self.pm.save(profile)
+        if self.cr:
+            self.cr.save_last_applied(profile.to_dict())
+        rep = CT.build_report(goal, results, stock, after, chosen, mem, cands=tested,
+                              endurance=endurance, endurance_s=cfg.final_bench_s,
+                              verify_s=cfg.final_test_s, bench_name=bench_name,
+                              max_temp_limit=cfg.max_temp_c, safety_mhz=cfg.curve_safety_mhz,
+                              retries=retries,
+                              saved=saved if (saved.cap_mv, saved.pwr_pct) != (chosen.cap_mv,
+                                                                                chosen.pwr_pct) else None,
+                              notes=notes, core_max=cfg.core_max_mhz,
+                              lang="de" if de else "en")
+        self.last_report = rep
+        self.last_report_path = ""
+        try:
+            Path(self._log_dir).mkdir(parents=True, exist_ok=True)
+            path = os.path.join(self._log_dir,
+                                f"curve_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("\n".join([f"GPU: {gpu_name}", f"Profil: {profile.name}", ""] + rep["lines"]
+                                  + ["", T("Empfehlungen:", "Recommendations:")]
+                                  + [f"  • {x}" for x in rep["recommendations"]]) + "\n")
+            self.last_report_path = path
+        except OSError:
+            pass
+
+        self._log("═══════════════════════════════════════")
+        for line in rep["lines"]:
+            if line:
+                self._log(line)
+        self._log(T("Empfehlungen:", "Recommendations:"))
+        for x in rep["recommendations"]:
+            self._log(f"  • {x}")
+        # Same summary lines as the other modes (Tune History reads them).
+        self._log(f"Profile saved: {profile.name}")
+        self._log(f"  Mode:        {T('Rundum', 'All-round')} ({gname})")
+        self._log(f"  Core offset:  +{max(0, top_off)}MHz ({T('Kurve, oberster Punkt', 'curve, top point')})")
+        self._log(f"  Memory offset:+{mem}MHz")
+        self._log(f"  Power limit:  {pwr}%")
+        self._log(f"  Avg voltage:  {verify.avg_voltage_mv:.0f}mV")
+        self._log(f"  Max temp:     {endurance.temp_c:.0f}°C")
+        self._log(f"  Score:        {score}/100")
+        if self.cr:
+            self.cr.clear_tuning_flag()
+        self._progress(100, f"✓ {T('Fertig', 'Done')}! [{T('Rundum', 'All-round')} {gname}] "
+                            f"{rep['summary']}")
         self._log("═══════════════════════════════════════")
         self._log("        Auto-Tune Complete")
         self._log("═══════════════════════════════════════")

@@ -125,8 +125,10 @@ ok, err = ab.write_and_apply(2, TuneProfile(core_offset_mhz=30, lock_voltage_mv=
 it = ProfileFile(open(gpu_path, "rb").read().decode("latin-1")).items("Profile2")
 c = VFCurve.from_hex(it["vfcurve"])
 check(ok and it["coreclkboost"] == "1000000", "curve marker written")
-check(all(abs(p.effective_mhz - 2400) <= 1 for p in c.active_points() if p.voltage_mv >= 950),
-      "flat line at 2400 MHz from 950 mV")
+top = max(c.active_points(), key=lambda q: (q.effective_mhz, -q.voltage_mv))
+check(abs(top.effective_mhz - 2400) <= 1 and abs(top.voltage_mv - 950) < 3.2
+      and all(p.effective_mhz <= 2301 for p in c.active_points() if p.voltage_mv > top.voltage_mv),
+      "lock at 950 mV / 2400 MHz is the top, everything above it 100 MHz lower")
 
 print("clamps for garbage profile JSON")
 ab.log.clear()

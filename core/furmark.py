@@ -155,10 +155,87 @@ def parse_stats(text: str) -> dict:
     m = re.search(r"FPS \(min/avg/max\)\s*:\s*(\d+)\s*/\s*(\d+)\s*/\s*(\d+)", text or "")
     if m:
         out["fps_min"], out["fps_avg"], out["fps_max"] = (int(x) for x in m.groups())
-    for key, pat in (("frames", r"frames\s*:\s*(\d+)"), ("max_temp", r"max temperature:\s*(\d+)"),
+    for key, pat in (("score", r"SCORE\s*:\s*(\d+)"), ("duration_ms", r"duration\s*:\s*(\d+)\s*ms"),
+                     ("frames", r"frames\s*:\s*(\d+)"), ("max_temp", r"max temperature:\s*(\d+)"),
                      ("max_usage", r"max usage:\s*(\d+)"), ("clock_max", r"max core clock:\s*(\d+)"),
                      ("clock_min", r"min core clock:\s*(\d+)")):
         m = re.search(pat, text or "")
         if m:
             out[key] = int(m.group(1))
     return out
+
+
+def benchmark_args(path: str, seconds: float, width: int = 1920, height: int = 1080,
+                   msaa: int = 8, demo: str = "furmark-gl") -> list[str]:
+    """FurMark 2 scored benchmark: fixed duration, no score box at the end."""
+    args = [path, "--demo", demo if demo in DEMOS else "furmark-gl", "--benchmark",
+            "--no-score-box", "--duration-ms", str(int(seconds * 1000)),
+            "--width", str(width), "--height", str(height), "--vsync", "0"]
+    if msaa in MSAA_CHOICES and msaa:
+        args += ["--msaa", str(msaa)]
+    return args
+
+
+def run_benchmark(path: str, seconds: float, width: int = 1920, height: int = 1080,
+                  msaa: int = 8, demo: str = "furmark-gl", stop_event=None,
+                  on_tick=None, grace_s: float = 90.0) -> dict:
+    """Run a FurMark 2 benchmark and wait for it (blocks ~seconds + start-up).
+    -> {"ok", "score", "fps_avg", "fps_min", "max_temp", "max_usage", "exit_code",
+        "aborted", "error", "elapsed_s", "duration_ms"}. FurMark crashing (non-zero
+    exit), hanging past the grace time or printing no score counts as NOT ok.
+    elapsed_s (wall time) and duration_ms (FurMark's own) let the caller spot a
+    run that ended far too early. on_tick(elapsed_s) is called about once a
+    second (e.g. to record power and temperature)."""
+    import subprocess
+    import threading
+    import time
+    res = {"ok": False, "score": 0, "fps_avg": 0, "fps_min": 0, "max_temp": 0,
+           "max_usage": 0, "exit_code": None, "aborted": False, "error": "",
+           "elapsed_s": 0.0, "duration_ms": 0}
+    if not path or not os.path.exists(path) or not is_v2(path):
+        res["error"] = "FurMark 2 nicht gefunden"
+        return res
+    try:
+        proc = subprocess.Popen(benchmark_args(path, seconds, width, height, msaa, demo),
+                                cwd=os.path.dirname(path), stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, text=True,
+                                errors="replace",
+                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except OSError as e:
+        res["error"] = f"FurMark ließ sich nicht starten: {e}"
+        return res
+    out: list = []
+    reader = threading.Thread(target=lambda: out.append(proc.stdout.read() or ""), daemon=True)
+    reader.start()
+    t0 = time.time()
+    last_tick = 0.0
+    while proc.poll() is None:
+        el = time.time() - t0
+        if stop_event is not None and stop_event.is_set():
+            proc.kill()
+            res.update(aborted=True, error="abgebrochen", elapsed_s=round(el, 1))
+            return res
+        if el > seconds + grace_s:
+            proc.kill()
+            res.update(error=f"FurMark hängt ({el:.0f} s) — abgebrochen", elapsed_s=round(el, 1))
+            return res
+        if on_tick is not None and el - last_tick >= 1.0:
+            last_tick = el
+            try:
+                on_tick(el)
+            except Exception:
+                pass
+        time.sleep(0.2)
+    res["elapsed_s"] = round(time.time() - t0, 1)
+    reader.join(timeout=5)
+    stats = parse_stats("".join(out))
+    res["exit_code"] = proc.returncode
+    for k in ("score", "fps_avg", "fps_min", "max_temp", "max_usage", "duration_ms"):
+        res[k] = stats.get(k, 0)
+    if proc.returncode != 0:
+        res["error"] = f"FurMark endete mit Code {proc.returncode} (Absturz?)"
+    elif not res["score"]:
+        res["error"] = "FurMark lieferte keine Punktzahl"
+    else:
+        res["ok"] = True
+    return res

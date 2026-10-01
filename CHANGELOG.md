@@ -720,6 +720,102 @@ verifiers (VERIFY_MAP stays 1:1) and full English descriptions.
     the real app); the older UI suites follow the new structure — 527 checks
     in 19 suites, all green.
 
+- **Round 13 — the All-round tuner ("Rundum")** (the user: "one tune that does
+  everything, ends with a 5-minute test, reads the scores, compares and keeps
+  searching until it has the best result" — with Yuri "1usmus" Bubliy's HYDRA as
+  the model; the user chose a goal switch, per-point curve tuning and FurMark as
+  the final test):
+  - **Per voltage point** (`core/curve_tune.py`): a boost-load probe at stock
+    finds the highest voltage the card reaches (RTX 4080: 1075 mV); from there
+    every 50 mV down to 850 mV each point is searched on its own — curve flat at
+    the point, the stress worker's new **`boost` mode** (light enough to stay
+    under the power limit, so the card sits exactly on the point), every result
+    checked; +15 MHz until a failure, halved to 5 MHz, never re-testing above a
+    failure. Start: the last stable profile, else a cautious value for the card's
+    generation. 30 MHz safety, 60 MHz where the driver had to restart. A pass
+    only counts when the card really ran at the point (median voltage within
+    10 mV — both ways); "Core max" itself is tested and reported.
+  - **Own V/F curve** (`VFCurve.with_anchor_curve`): offsets interpolated
+    between the points, below the lowest one the smallest measured offset;
+    every point above the top (or the chosen cap) is written **100 MHz lower** —
+    the card adds offsets to its *live* curve, which shifts with temperature and
+    not evenly (−30 MHz at 1075 mV, +60 MHz at 920 mV on the RTX 4080), so a
+    curve flat in the file was not flat on the card (875 mV under test, the card
+    ran 920 mV). The same for the classic V/F flatline.
+  - **Curve check:** 30 s FurMark on the new curve with memory at +0, before the
+    memory is touched; a crash lowers only the point where the card ran.
+  - **Memory with the whole card under load** (the user's plan after run 1):
+    +500 (RTX 40; per generation) → +1000 in 100-MHz steps, each step FurMark and
+    the worker's verified memory copies at the same time; 100 MHz safety when a
+    step failed. RTX 40 "Mem max" is +1000 now.
+  - **Goal by benchmark:** FurMark 2 (`furmark.run_benchmark`, 1080p, 8x MSAA —
+    GPU-bound even under an FPS cap) on curve caps every 25 mV. Max = highest
+    score (within 1 % the frugal one; a higher power limit only when stock ran
+    into it); Balanced = at least half of the measured gain, the most points per
+    watt of those; Efficiency = stock performance (≥ 99 %) at the lowest power.
+    A crashed candidate: memory −100 first, then the curve, all candidates again.
+  - **Final test:** 5 min FurMark + 2 min compute-checked mixed load; on a
+    failure one targeted step back (the points around the voltage where the card
+    failed / memory −100 / too hot: power limit, then a lower cap) and again —
+    only what passed is saved; then the same 60-s benchmark again for a fair
+    before/after. A benchmark that ran far too short or far below stock stops
+    the tune ("driver not clean after a crash — restart the PC"), and after
+    every crash the driver gets 20 s.
+  - **Report** (log, `logs/curve_report_*.txt`, "Report" button): every point
+    found → used, every candidate with points/W, before → after, final test,
+    recommendations ("Core max" reached, a point below the card's minimum load
+    voltage, clock stretching, temperature). Profiles keep the curve
+    (`curve_points`, `curve_cap_mv`); the profile list shows "Curve" and the
+    points; Tune History lists the run as "Rundum".
+  - **Live on the RTX 4080, three runs:**
+    1. The point search worked and repeats within a few MHz between runs, but
+       the memory stage of the time took +1500 straight from the bandwidth peak
+       (no margin; GDDR6X hides errors from a bandwidth test by retrying) — the
+       first FurMark candidate showed **green speckles, all screens went black**
+       (nvlddmkm 13/14, FurMark died), and the tune went on measuring on a
+       broken driver (FurMark ended after 10 of 60 s with 398 instead of ~7200
+       points) until the user aborted. Led to: memory with the whole card under
+       load, the curve check, candidate step-back, the plausibility stop, the
+       crash pause and nvlddmkm 13/14 counting as a crash.
+    2. Stopped at stock clocks: nvlddmkm **153** had been counted as a crash —
+       the driver logs it at the end of *every* stress step (17x in run 1
+       without any problem). Only Display 4101 and nvlddmkm 13/14 count now.
+    3. **Passed:** curve 1075 mV → 2940, 1025 → 2847, 975 → 2741, 925 → 2560
+       MHz (Core max reached there); memory +500 … +1000 all passed under
+       whole-card load; Balanced chose "flat from 1050 mV"; FurMark 7269 → 7538
+       points (+3.7 %), 257 → 265 W, average clock 2790 → 2880 MHz; 5-min final
+       test and compute check passed without a step back. 3DMark Speed Way
+       afterwards: 7622 (RTX 4080 average: 7424).
+    - Also found live: NVIDIA sets "SW thermal" for about a second whenever a
+      load ends or Afterburner applies a profile (seen at 46–53 °C) — a good
+      step failed as "throttling". A slowdown counts only after the ramp-up and
+      when it lasts 3 s; the log names the reason.
+  - **GPU table** (`core/gpu_defaults.py`): RTX 50 (Blackwell) added — it fell
+    back to the "unknown" values (sources: TheFPSReview, RTX 5080 FE +350 MHz /
+    memory +500, RTX 5090 FE +270 / +1500); cautious **start values per
+    generation** (core and memory) for the All-round tuner; RTX 4080 core max
+    +250 (the live run hit +220); hot GDDR6X on RTX 3080/3090 memory max +800;
+    "RTX 5000 Ada" (workstation) isn't taken for an RTX 50. AMD (RX 5000–9000)
+    and Intel Arc are marked not supported: the GPU tab says so and points to
+    AMD Adrenalin / Intel Graphics Software instead of failing (the tuner needs
+    Afterburner's NVIDIA curve and NVML).
+  - **NumLock tweak:** Windows rewrites `InitialKeyboardIndicators` at sign-out
+    from the live keyboard state ("2147483650" → "2", both mean NumLock on); the
+    status check compared the exact string, so the drift dialog asked after
+    every restart. It checks the NumLock bit now.
+  - **GPU tab:** at the minimum window size the four mode buttons use short
+    texts (OC / UV) instead of clipping; an abort is written into the run's log
+    file (it only reached the UI).
+  - Tests: `tests/test_round13.py` (search, margins, goals, report, the own
+    curve in an Afterburner profile, the FurMark benchmark with a fake process,
+    the worker's boost mode, the driver-event filter, the GPU table, and the
+    whole tune against a simulated card that reads its curve from the profile
+    file the real code wrote — memory edge, crashed candidate, implausible
+    benchmark, failing curve check, driver reset, no FurMark, no voltage
+    readings, power-limited card, abort, English) and `tests/test_ui_round13.py`
+    (GPU tab: modes, goal switch, start configuration, AMD / no NVML) — 711
+    checks in 21 suites, all green.
+
 ### 🔎 Reviewed, verified NOT a bug
 
 Some reported items were checked against the actual code and left unchanged

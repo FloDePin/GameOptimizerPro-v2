@@ -18,6 +18,10 @@ argv[2] = mode:
                     (mid-curve), the boost load 2790 MHz at 240 W / 64 % util —
                     the top of the V/F curve, exactly where games run and where an
                     overclock fails first. Every result is verified in both phases.
+  "boost"           only the boost phase of "mixed", without pause: the GPU stays
+                    at the TOP point of its V/F curve (below the power limit) —
+                    with the curve flattened at a voltage point, exactly that
+                    point is tested. Prints "RATE <TFLOPS>" (duty-cycled work).
   "mem"             copies two large buffers back and forth and prints
                     "BW <GB/s>". GDDR6X corrects transfer errors by retrying, so a
                     memory overclock past its limit shows up as LOST bandwidth, not
@@ -119,6 +123,32 @@ def mixed_stress(parent_pid):
                         return
             if not _parent_alive(parent_pid):
                 return
+    except SystemExit:
+        raise
+    except Exception as e:
+        raise _GpuStarted(str(e)) from e
+
+
+def boost_stress(parent_pid):
+    """Boost load only (see module docstring): small verified products with a
+    pause after each one — ~64 % utilisation, the top of the V/F curve."""
+    import cupy as cp
+    light = _gemm_set(cp, BOOST_N)
+    cp.cuda.Stream.null.synchronize()
+    flop = 2.0 * BOOST_N ** 3
+    try:
+        last, iters = time.time(), 0
+        while True:
+            t = time.perf_counter()
+            _gemm_checked(cp, light)
+            iters += 1
+            time.sleep((time.perf_counter() - t) * BOOST_PAUSE)
+            now = time.time()
+            if now - last >= 1.0:
+                _emit(f"RATE {flop * iters / (now - last) / 1e12:.3f}")
+                last, iters = now, 0
+                if not _parent_alive(parent_pid):
+                    return
     except SystemExit:
         raise
     except Exception as e:
@@ -255,7 +285,8 @@ if __name__ == "__main__":
         parent_pid = os.getppid()
     mode = sys.argv[2] if len(sys.argv) > 2 else "gemm"
     try:
-        {"mem": mem_stress, "mixed": mixed_stress}.get(mode, cuda_stress)(parent_pid)
+        {"mem": mem_stress, "mixed": mixed_stress,
+         "boost": boost_stress}.get(mode, cuda_stress)(parent_pid)
     except ImportError:
         cpu_stress(parent_pid)            # kein cupy → CPU-Last
     except _GpuStarted as e:

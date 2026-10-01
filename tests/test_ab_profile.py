@@ -83,11 +83,14 @@ f = c.with_flatline(950, 2400)
 lock = c.lock_point(950)
 act = [p for p in f.points() if p.active]
 check(abs(lock.voltage_mv - 950) < 3.2, f"lock point nearest to 950 mV ({lock.voltage_mv})")
-check(all(abs(p.effective_mhz - 2400) < 0.51 for p in act if p.voltage_mv >= lock.voltage_mv),
-      "flat at target from lock voltage up")
+lp = next(p for p in act if p.index == lock.index)
+check(abs(lp.effective_mhz - 2400) < 0.51, "the lock point runs the target")
+above = [p for p in act if p.voltage_mv > lock.voltage_mv]
+check(above and all(2299.0 < p.effective_mhz <= 2300.01 for p in above),
+      "every point above the lock 100 MHz lower: it stays the fastest on a shifted live curve")
 check(all(p.effective_mhz <= 2400.0 for p in act), "never above target")
-eff = [p.effective_mhz for p in act]
-check(all(b >= a - 0.51 for a, b in zip(eff, eff[1:])), "effective curve monotonic")
+eff = [p.effective_mhz for p in act if p.voltage_mv <= lock.voltage_mv]
+check(all(b >= a - 0.51 for a, b in zip(eff, eff[1:])), "effective curve monotonic up to the lock")
 delta = round(2400 - lock.base_mhz)
 check(all(p.offset_mhz == delta for p in act if p.voltage_mv < lock.voltage_mv
           and p.base_mhz + delta <= 2400), "points below lock shifted by the same delta")
@@ -96,7 +99,9 @@ check(all(p.offset_mhz == delta for p in f.points() if p.voltage_mv > 0 and not 
 fr = VFCurve(make_curve(quantize=False)).with_flatline(950, 2400)
 fa = [p for p in fr.active_points()]
 check(all(p.effective_mhz <= 2400.0 for p in fa), "fractional bases: never above target (floor)")
-check(all(p.effective_mhz > 2399.0 for p in fa if p.voltage_mv >= 950), "fractional bases: within 1 MHz of target")
+flk = VFCurve(make_curve(quantize=False)).lock_point(950)
+check(all(p.effective_mhz > 2399.0 for p in fa if p.index == flk.index),
+      "fractional bases: lock point within 1 MHz of target")
 for bad in ((300, 2400), (950, 5000)):
     try:
         c.with_flatline(*bad); check(False, f"flatline {bad} rejected")
@@ -156,8 +161,10 @@ ic = ProfileFile(newc).items("Profile2")
 check(ic["coreclkboost"] == str(CORE_CURVE_MARKER) and ic["powerlimit"] == "100",
       "curve mode: CoreClkBoost=1000000 marker, power 100")
 fc = VFCurve.from_hex(ic["vfcurve"])
-check(all(abs(p.effective_mhz - 2400) < 0.51 for p in fc.active_points() if p.voltage_mv >= 949),
-      "curve mode: flat line written")
+top = max(fc.active_points(), key=lambda q: (q.effective_mhz, -q.voltage_mv))
+check(abs(top.effective_mhz - 2400) < 0.51 and abs(top.voltage_mv - 950) < 3.2
+      and all(p.effective_mhz < 2301 for p in fc.active_points() if p.voltage_mv > top.voltage_mv),
+      "curve mode: lock point is the top of the written curve, everything above clearly lower")
 try:
     apply_slot(make_profile(defaults_curve=False).replace(
         "VFCurve=" + make_curve().hex().upper(), "VFCurve="), 2, SlotSettings(lock_mv=950, lock_mhz=2400))

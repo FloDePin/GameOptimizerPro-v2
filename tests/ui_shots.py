@@ -67,10 +67,12 @@ suffix = f"_{W}"
 PLAN = [
     ("dashboard", None, 5500), ("optimizer", None, 1200), ("optimizer", "windows", 2500),
     ("optimizer", "verify", 600), ("optimizer", "exim", 600), ("gpu", None, 1200),
-    ("gpu", "profiles", 600), ("gpu", "manual", 600), ("stress", None, 1500), ("compare", None, 800),
+    ("gpu", "curve", 900), ("gpu", "profiles", 600), ("gpu", "manual", 600), ("stress", None, 1500), ("compare", None, 800),
     ("bios", None, 4000), ("games", None, 800), ("games", "history", 600), ("diagnose", None, 800),
     ("startup", None, 2500), ("services", None, 4000), ("settings", None, 2500),
 ]
+if os.environ.get("GOP_SHOTS"):                     # e.g. GOP_SHOTS=gpu,stress — only these pages
+    PLAN = [p for p in PLAN if p[0] in os.environ["GOP_SHOTS"].split(",")]
 
 
 def grab(name):
@@ -90,6 +92,9 @@ def step(i=0):
     if sub:
         if key == "optimizer":
             page._show_section(sub)
+        elif key == "gpu" and sub == "curve":       # Auto-Tune view in the Rundum mode
+            page._show_view("auto")
+            page._select_mode("curve")
         else:
             page._show_view(sub)
     w.after(wait, lambda: (grab(f"{i:02d}_{key}" + (f"_{sub}" if sub else "")), step(i + 1)))

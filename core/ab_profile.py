@@ -58,6 +58,14 @@ VF_POINT_SIZE     = 12
 VF_INACTIVE_BASE  = 225.0      # base MHz of points the GPU does not use
 CORE_CURVE_MARKER = 1000000    # CoreClkBoost value Afterburner writes for a custom curve
 MAX_CURVE_SHIFT   = 1000       # MHz — sanity bound for any per-point offset we write
+# Points ABOVE a flat start (lock point / cap) are written this far below it.
+# The GPU adds our offsets to its LIVE curve, which shifts with temperature —
+# and not evenly: on an RTX 4080 the live clock was 30 MHz below the stored
+# curve at 1075 mV but 60 MHz above it at 920 mV. A curve that was flat in the
+# file was then not flat on the card, and the GPU boosted past the point under
+# test (to 920 mV instead of 875 mV). Clearly lower points above make the flat
+# start the fastest point no matter how the live curve is shifted.
+ABOVE_FLAT_DROP_MHZ = 100
 
 
 class ProfileError(ValueError):
@@ -151,8 +159,10 @@ class VFCurve:
 
     def with_flatline(self, lock_mv: float, target_mhz: float) -> "VFCurve":
         """Classic curve undervolt: the point at lock_mv runs target_mhz and every
-        higher point is flattened to target_mhz, so the GPU never boosts past that
-        voltage. Points below are shifted by the same amount (capped at target)."""
+        higher point is set ABOVE_FLAT_DROP_MHZ below it, so the GPU never boosts
+        past that voltage (the usual "drag the points right of it down" — the
+        lock point is the fastest one even on a shifted live curve). Points below
+        are shifted by the same amount (capped at target)."""
         # floor(), not round(): with fractional base values a rounded offset
         # could put a point up to 0.5 MHz ABOVE the frequency that was tested.
         lock  = self.lock_point(lock_mv)
@@ -169,8 +179,84 @@ class VFCurve:
                 off = delta
             elif p.voltage_mv < lock.voltage_mv:
                 off = min(delta, math.floor(target_mhz - p.base_mhz))
+            elif p.index == lock.index:
+                off = delta
             else:
-                off = math.floor(target_mhz - p.base_mhz)
+                off = math.floor(target_mhz - ABOVE_FLAT_DROP_MHZ - p.base_mhz)
+            if abs(off) > MAX_CURVE_SHIFT:
+                raise ProfileError(
+                    f"Kurven-Offset {off:+d} MHz bei {p.voltage_mv:.0f} mV außerhalb "
+                    f"±{MAX_CURVE_SHIFT} MHz")
+            c._set_offset(p.index, off)
+        return c
+
+    def with_anchor_curve(self, anchors, cap_mv: float = 0) -> "VFCurve":
+        """Own V/F curve from measured points: anchors = [(voltage_mv, mhz)],
+        each the highest frequency found stable at that voltage (margins already
+        taken off). Between two anchors the OFFSET is interpolated linearly;
+        below the lowest anchor the smallest measured offset is used (untested
+        territory — the safe side); the highest anchor — or cap_mv, if given and
+        lower — is the top of the curve: every point above it is written
+        ABOVE_FLAT_DROP_MHZ lower, so the GPU never boosts past it, however its
+        live curve is shifted. Below the top no point may run faster than any
+        point above it: going down the curve every frequency is clamped to the
+        one above (only ever lowered, never raised past a measurement)."""
+        act = self.active_points()
+        if not act:
+            raise ProfileError("VFCurve hat keine aktiven Punkte")
+        pts = sorted((float(mv), float(mhz)) for mv, mhz in anchors)
+        if not pts:
+            raise ProfileError("keine Messpunkte für die Kurve")
+        aoff = []                                  # (point voltage, offset, target)
+        for mv, mhz in pts:
+            p = self.lock_point(mv)
+            aoff.append((p.voltage_mv, mhz - p.base_mhz, mhz))
+        low_off = min(o for _v, o, _t in aoff)
+        top_v, _o, top_t = aoff[-1]
+
+        def target(p):                               # before the cap / monotony
+            v = p.voltage_mv
+            if v >= top_v:
+                return top_t                         # flat above the highest anchor
+            if v < aoff[0][0]:
+                return p.base_mhz + low_off
+            for (v1, o1, _t1), (v2, o2, _t2) in zip(aoff, aoff[1:]):
+                if v1 <= v <= v2:
+                    return p.base_mhz + o1 + (o2 - o1) * (v - v1) / (v2 - v1)
+            return p.base_mhz + low_off              # pragma: no cover (sorted anchors)
+
+        c = self.copy()
+        pts_all = [p for p in c.points() if p.voltage_mv > 0]
+        eff = {p.index: target(p) for p in pts_all}
+        flat = self.lock_point(top_v)                # the curve is flat from here up
+        if cap_mv:
+            cap = self.lock_point(cap_mv)
+            if cap.voltage_mv < top_v:
+                cap_t = eff[cap.index]
+                for p in pts_all:
+                    if p.voltage_mv >= cap.voltage_mv:
+                        eff[p.index] = cap_t
+                flat = cap
+        # monotonic from the top (only lowering)
+        ordered = sorted(pts_all, key=lambda q: (q.voltage_mv, q.index))
+        for hi, lo in zip(reversed(ordered), list(reversed(ordered))[1:]):
+            if eff[lo.index] > eff[hi.index]:
+                eff[lo.index] = eff[hi.index]
+        offs = {}
+        for p in pts_all:
+            off = math.floor(eff[p.index] - p.base_mhz)
+            if not p.active:                         # ignored by the GPU — keep it tame
+                off = math.floor(low_off)
+            offs[p.index] = off
+        # Every point above the top of the curve clearly below it (see
+        # ABOVE_FLAT_DROP_MHZ) — also covers rounding with fractional bases.
+        flat_eff = flat.base_mhz + offs[flat.index]
+        for p in pts_all:
+            if p.active and p.voltage_mv > flat.voltage_mv:
+                offs[p.index] = min(offs[p.index],
+                                    math.floor(flat_eff - ABOVE_FLAT_DROP_MHZ - p.base_mhz))
+        for p in pts_all:
+            off = offs[p.index]
             if abs(off) > MAX_CURVE_SHIFT:
                 raise ProfileError(
                     f"Kurven-Offset {off:+d} MHz bei {p.voltage_mv:.0f} mV außerhalb "
@@ -374,10 +460,12 @@ class SlotSettings:
     power_pct: int = 100
     lock_mv:   int = 0       # > 0 together with lock_mhz -> flat V/F curve
     lock_mhz:  int = 0
+    curve:     tuple = ()    # own curve: ((voltage_mv, mhz), ...) measured points
+    cap_mv:    int = 0       # own curve: flat from this voltage up (0 = top point)
 
     @property
     def uses_curve(self) -> bool:
-        return self.lock_mv > 0 and self.lock_mhz > 0
+        return bool(self.curve) or (self.lock_mv > 0 and self.lock_mhz > 0)
 
 
 # Where a usable V/F curve (the card's base frequencies) is taken from. [Defaults]
@@ -443,12 +531,24 @@ def apply_slot(text: str, slot: int, s: SlotSettings) -> tuple[str, list[str]]:
             raise ProfileError(
                 "Das Afterburner-Profil enthält noch keine V/F-Kurve — in Afterburner "
                 "einmal unten auf 'Speichern' und dann auf einen Slot klicken.")
-        flat = curve.with_flatline(s.lock_mv, s.lock_mhz)
-        lock = curve.lock_point(s.lock_mv)
-        updates["CoreClkBoost"] = str(CORE_CURVE_MARKER)
-        updates["VFCurve"]      = flat.to_hex()
-        notes.append(f"V/F-Kurve flach ab {lock.voltage_mv:.0f} mV auf {s.lock_mhz} MHz "
-                     f"(Basis-Kurve aus [{src}])")
+        if s.curve:
+            own = curve.with_anchor_curve(s.curve, s.cap_mv)
+            updates["CoreClkBoost"] = str(CORE_CURVE_MARKER)
+            updates["VFCurve"]      = own.to_hex()
+            act = own.active_points()
+            top = max(act, key=lambda q: (q.effective_mhz, -q.voltage_mv))
+            vs = sorted(int(mv) for mv, _f in s.curve)
+            notes.append(f"Eigene V/F-Kurve aus {len(vs)} Messpunkten ({vs[0]}–{vs[-1]} mV), "
+                         f"max {top.effective_mhz:.0f} MHz ab {top.voltage_mv:.0f} mV"
+                         + (f", flach ab {s.cap_mv} mV" if s.cap_mv else "")
+                         + f" (Basis-Kurve aus [{src}])")
+        else:
+            flat = curve.with_flatline(s.lock_mv, s.lock_mhz)
+            lock = curve.lock_point(s.lock_mv)
+            updates["CoreClkBoost"] = str(CORE_CURVE_MARKER)
+            updates["VFCurve"]      = flat.to_hex()
+            notes.append(f"V/F-Kurve flach ab {lock.voltage_mv:.0f} mV auf {s.lock_mhz} MHz "
+                         f"(Basis-Kurve aus [{src}])")
     else:
         updates["CoreClkBoost"] = str(int(s.core_mhz) * 1000)
         if curve is not None:

@@ -18,14 +18,43 @@ Profil übernommen (NVML las **288 W** zurück), gleiche Werte gingen ohne Neust
 | 7 | Test in der App | ja, Reset-Knopf vorhanden | 3 min | ✅ erledigt |
 | 7b | Neue Funktionen prüfen (Dashboard, Dienste, Deep Clean, 26H2-Tweaks) | teils | 10 min | ✅ erledigt — Befunde siehe unten |
 | 8 | Erster Auto-Tune | ja, Abbruch setzt zurück | 20–30 min | ✅ zweimal gelaufen (+179 MHz / 97 %; 2. Lauf mit Mem +1000 im Endtest durchgefallen) |
-| 8b | **Nach dem Update (Runde 12): neue Oberfläche, FurMark/3DMark, Audio — Punkte unten** | ja | 30 min | offen |
+| 8b | Nach dem Update (Runde 12): neue Oberfläche, FurMark/3DMark, Audio | ja | 30 min | ✅ erledigt |
+| 8c | **Rundum-Tuner (Runde 13) — Punkte unten** | ja, Abbruch setzt zurück | 40–60 min | ✅ Lauf 3 bestanden (+3,7 % FurMark) |
 | 9 | Danach: im Alltag prüfen und als Standard setzen | ja | — | offen |
 
 **Wichtig für alle Schritte ab 3:** Kein Spiel und keine 3D-Anwendung offen lassen.
 
 ---
 
-## Jetzt (nach dem Update von Runde 12) — neue Oberfläche
+## Jetzt (nach dem Update von Runde 13) — Rundum-Tuner
+
+Der neue Modus **„Rundum“** misst jeden Spannungspunkt der Kurve einzeln und baut daraus eine
+eigene Kurve. Bei dir ist er schon einmal komplett durchgelaufen (Lauf 3: FurMark 7269 → 7538
+Punkte, Speicher +1000, Endtest bestanden). App einmal **schließen** (Tray → Beenden) und als
+**Administrator** neu starten, Afterburner laufen lassen, kein Spiel offen.
+
+1. **GPU-Tuner → Auto-Tune → Modus „Rundum“**, Ziel wählen:
+   - **Max. Leistung** — volle Kurve, höchste Punktzahl
+   - **Ausgewogen** — mindestens die Hälfte des Gewinns, davon die meisten Punkte pro Watt
+   - **Effizienz** — Standard-Leistung bei möglichst wenig Watt (Undervolting)
+2. In der Karte „Rundum-Parameter“ muss grün **„✓ FurMark 2 (v…)“** stehen. Die Standardwerte
+   passen (Core max 250, 45 s je Punkt, 30 MHz Sicherheit, 5 min FurMark-Endtest, Speicher max
+   1000). Im Start-Dialog steht der Startwert — bei dir jetzt dein gespeichertes Profil.
+3. **Tune starten → Ja.** Dauer ca. 40–60 min. Afterburner startet bei jedem Schritt kurz neu
+   (minimiert), FurMark-Fenster gehen auf — nicht schließen. Siehst du **Bildfehler** (z. B. grüne
+   Stippen): sofort **Abbrechen** und mir Bescheid geben.
+4. Am Ende: **„Bericht“** öffnet den Bericht (Punkte, Kandidaten, Vorher/Nachher, Empfehlungen).
+   Das Profil heißt `GOP_CURVE_…` und liegt in Afterburner-Slot 2.
+5. Gegenprobe im Spiel oder mit 3DMark (Speed Way lag nach Lauf 3 bei 7622, Durchschnitt aller
+   RTX 4080: 7424). Stürzt ein Spiel ab: den Tune mit größerer „Sicherheit (MHz)“ wiederholen.
+
+Außerdem neu: Die Meldung „NumLock beim Start einschalten — nicht mehr aktiv“ kommt nach einem
+Neustart nicht mehr (Windows schreibt den Wert beim Abmelden um, die Prüfung akzeptiert beide
+Schreibweisen).
+
+---
+
+## Davor (Runde 12) — neue Oberfläche
 
 Die ganze Oberfläche ist neu (CustomTkinter). App einmal **schließen** (Tray-Symbol → Beenden)
 und über **`GameOptimizerPro.bat`** neu starten. Fehlt das neue Paket `customtkinter`, fragt die

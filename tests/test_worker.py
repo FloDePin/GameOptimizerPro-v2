@@ -82,8 +82,32 @@ r = st.run(6, 90)
 check(r.passed and not r.throttle_hit and r.avg_rate_tflops > 0 and r.power_capped_pct == 100,
       f"passes under the power limit (capped {r.power_capped_pct}%), rate {r.avg_rate_tflops}")
 check(r.avg_core_mhz == 2700 and r.avg_mem_mhz == 11200, "averages after the ramp-up")
-r = StressTester(Mon(protective=True)).run(4, 90)
-check(r.passed and r.throttle_hit, "thermal/HW slowdown -> throttle_hit")
+r = StressTester(Mon(protective=True)).run(8, 90)
+check(r.passed and r.throttle_hit, "lasting thermal/HW slowdown -> throttle_hit")
+
+
+class Blip(Mon):
+    """Slowdown flag only in the given samples (0-based) — like the second NVIDIA
+    sets 'SW thermal' when a load ends or Afterburner applies a profile."""
+    def __init__(self, on):
+        super().__init__()
+        self.n, self.on = -1, set(on)
+
+    def read(self):
+        self.n += 1
+        st = super().read()
+        st.throttle_protective = self.n in self.on
+        st.throttle = "SW-Thermal" if self.n in self.on else "Power-Limit"
+        return st
+
+
+r = StressTester(Blip({0, 1, 2})).run(8, 90)
+check(r.passed and not r.throttle_hit, "slowdown flag only during the ramp-up -> ignored")
+r = StressTester(Blip({4, 5})).run(8, 90)
+check(r.passed and not r.throttle_hit, "a 2-s blip after the ramp-up -> ignored")
+r = StressTester(Blip({4, 5, 6})).run(9, 90)
+check(r.throttle_hit and r.throttle_note == "SW-Thermal", f"3 s in a row -> counted, named: {r.throttle_note!r}")
+check(r.last_voltage_mv == 1000, "voltage just before the end recorded")
 os.environ["FAKE_CORRUPT_DOT"] = "60"
 r = StressTester(Mon()).run(8, 90)
 os.environ.pop("FAKE_CORRUPT_DOT")
