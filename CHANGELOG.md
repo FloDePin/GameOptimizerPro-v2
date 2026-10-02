@@ -1008,6 +1008,15 @@ verifiers (VERIFY_MAP stays 1:1) and full English descriptions.
     procedure box follows the values; the build check reads build.json — 841
     checks in 23 suites, all green.
 
+- **Round 14 — one update check at a time** (build 16; the user tried the update
+  live on a build-14 copy: it worked, but two "update ready" windows came up —
+  "Check for updates now" clicked right after the start, and the automatic check
+  8 s later ran next to it): the lock was released when the download finished,
+  before the question; the automatic timer then fired inside the open dialog's
+  event loop. The lock now holds until the question is answered; a second start
+  says "the update check is already running". Test: a check started from inside
+  the open question asks nothing — 842 checks in 23 suites, all green.
+
 ### 🔎 Reviewed, verified NOT a bug
 
 Some reported items were checked against the actual code and left unchanged

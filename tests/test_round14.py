@@ -353,6 +353,27 @@ n, c = len(ASK), len(CALLS)
 w, st = run(manual=True)
 check(len(ASK) == n and INFO and "lokalen Änderungen" in INFO[-1] and "pull" not in CALLS[c:],
       "git with local changes: no pull, the user is told")
+# a second check while the first one's question is open (the user clicked "check now"
+# right after the start; the automatic check came 8 s later): no second window
+FAKE["git"], FAKE["clean"], ANSWER[0] = False, True, False
+w2, st2 = Win(), []
+flow = UF.UpdateFlow(w2)
+n = len(ASK)
+real_ask = UF.messagebox.askyesno
+
+
+def ask_and_retrigger(title, msg, **k):
+    ASK.append(msg)
+    flow.start(on_status=lambda t, kk="info": st2.append(t))     # the 8-s timer fires meanwhile
+    return False
+
+
+UF.messagebox.askyesno = ask_and_retrigger
+flow.start(manual=True, on_status=lambda t, kk="info": st2.append(t))
+w2.pump()
+UF.messagebox.askyesno = real_ask
+check(len(ASK) == n + 1 and any("läuft schon" in s for s in st2) and not flow.busy,
+      "a second check while the question is open: no second window, it says so")
 FAKE["git"], FAKE["stage"] = False, (False, "Update-Download fehlgeschlagen: x")
 w, st = run(manual=True)
 check(WARN and "fehlgeschlagen" in WARN[-1] and st[-1][1] == "error", "a failed download is reported")

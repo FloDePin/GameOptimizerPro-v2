@@ -1,5 +1,5 @@
 {
-  "build": 15,
+  "build": 16,
   "date": "2026-10-02",
-  "notes": "Klarere Namen für alle Tuner-Einstellungen, ein „?“ mit Erklärung an jedem Feld, Ablauf-Übersicht im Rundum-Modus; Startfehler (Tray-Menü) behoben."
+  "notes": "Update-Prüfung: nie mehr zwei Update-Fenster gleichzeitig; klarere Tuner-Einstellungen mit „?“-Erklärungen."
 }

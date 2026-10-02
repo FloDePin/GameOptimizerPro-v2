@@ -24,8 +24,13 @@ class UpdateFlow:
     def start(self, manual: bool = False, on_status=None):
         """Check (and download) in the background, then ask. manual = started by
         the user: says "up to date" / "offline" too, and asks again even if the
-        user declined this build before."""
+        user declined this build before. Only one check at a time — including
+        its question: a manual check right after the start used to run next to
+        the automatic one (two "update ready" windows)."""
         if self._busy:
+            if on_status:
+                on_status(tr("Die Update-Prüfung läuft schon …", "The update check is already running …"),
+                          "info")
             return
         self._busy = True
         box: dict = {}
@@ -45,8 +50,10 @@ class UpdateFlow:
             if th.is_alive():
                 self.w.after(300, poll)
                 return
-            self._busy = False
-            self._finish(box.get("res") or {"state": "error", "msg": "?"}, manual, on_status)
+            try:
+                self._finish(box.get("res") or {"state": "error", "msg": "?"}, manual, on_status)
+            finally:
+                self._busy = False            # only after the question was answered
         self.w.after(300, poll)
 
     @staticmethod
