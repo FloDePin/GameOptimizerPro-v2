@@ -972,6 +972,18 @@ verifiers (VERIFY_MAP stays 1:1) and full English descriptions.
     828 checks in 22 suites, all green; screenshots of every page at 1400×900
     and 1000×700 checked.
 
+- **Round 14 hotfix — the app didn't start** (the user: "Afterburner starts but
+  the optimizer doesn't come"): the tray menu's "Beenden" action got a third
+  parameter (`relaunch`, for restarting after an update). pystray accepts menu
+  actions with at most two (icon, item) and raised `ValueError` while building
+  the menu — after the start-up profile had already restarted Afterburner, before
+  the window, and pythonw shows no error. `_exit(icon, item)` is the tray action
+  again; the restart lives in `_shutdown(relaunch)`. The unit tests built the
+  app object by hand and never the real tray menu — new `tests/test_app_start.py`
+  runs the real start path (`main()` → tray menu → main window) in a child
+  process on the hidden desktop, with nothing applied (verified: with the bug put
+  back it fails with exactly this ValueError). 834 checks in 23 suites.
+
 ### 🔎 Reviewed, verified NOT a bug
 
 Some reported items were checked against the actual code and left unchanged

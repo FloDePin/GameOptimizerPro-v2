@@ -228,7 +228,13 @@ class GameOptimizerApp:
         else:
             self._exit()
 
-    def _exit(self, icon=None, item=None, relaunch=False):
+    def _exit(self, icon=None, item=None):
+        """Tray menu "Beenden" (and the window X when it quits). pystray accepts
+        menu actions with at most two parameters (icon, item) — a third one
+        made the menu raise ValueError at start-up, before the window came up."""
+        self._shutdown()
+
+    def _shutdown(self, relaunch: bool = False):
         self._running = False
         self._abort_tuning_if_running()      # GPU back to stock BEFORE we die
         try: self.temp_monitor.stop()
@@ -406,7 +412,7 @@ class GameOptimizerApp:
             startup_loader=self.sl,
         )
         self._window.protocol("WM_DELETE_WINDOW", self._on_close)
-        self._window.request_exit = lambda relaunch=False: self._exit(relaunch=relaunch)
+        self._window.request_exit = lambda relaunch=False: self._shutdown(relaunch=relaunch)
         # Updates from GitHub (setting "check_updates", default on) — a few
         # seconds after the start, in the background.
         from core import app_settings

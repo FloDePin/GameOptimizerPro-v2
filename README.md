@@ -234,7 +234,7 @@ GameOptimizerPro **2.0** is the finalized release: the complete feature set belo
 - 🔊 **Audio tweaks work on Windows 11 26H2** — through the Windows audio API instead of locked registry keys
 - 🎯 **All-round tuner** — own V/F curve measured point by point every 25 mV (HYDRA-style), memory tested with the whole card under load (now in every mode), goal switch Max / Balanced / Efficiency, 5-min FurMark final test and a before/after report, live values through the whole tune; GPU table with RTX 50 and cautious start values; AMD/Intel get a clear "not supported"
 - 🧹 **Round 14 — leaner:** per-game profiles, CPU pinning and the FPS capture removed (the background process watcher with them); the tune history moved into the GPU tuner; page switches **2–3× faster** (pages stay stacked and are built in the background); a **BIOS guide for every platform** with menu paths per board maker and honest live status; **updates from GitHub**; "close to tray" switch; Afterburner setup checks "start with Windows" / "apply at start-up"
-- 🧪 828 automated checks in 22 test suites (in `tests/`), incl. a PowerShell parse check of every command, the whole UI under a real main loop (on a hidden desktop, so it can run while you game), the All-round tuner against a simulated card and the updater against temporary folders
+- 🧪 834 automated checks in 23 test suites (in `tests/`), incl. a PowerShell parse check of every command, the whole UI under a real main loop (on a hidden desktop, so it can run while you game), the All-round tuner against a simulated card and the updater against temporary folders
 
 See [CHANGELOG.md](CHANGELOG.md) for the full detail.
 
