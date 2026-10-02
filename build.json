@@ -1,5 +1,5 @@
 {
-  "build": 16,
+  "build": 17,
   "date": "2026-10-02",
-  "notes": "Update-Prüfung: nie mehr zwei Update-Fenster gleichzeitig; klarere Tuner-Einstellungen mit „?“-Erklärungen."
+  "notes": "Tune-Verlauf: alle Werte (auch Standardwerte und abgebrochene Läufe), Grund bei Läufen ohne Profil, Löschen einzeln oder alle."
 }

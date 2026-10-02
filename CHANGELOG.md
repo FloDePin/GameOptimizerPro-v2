@@ -1017,6 +1017,30 @@ verifiers (VERIFY_MAP stays 1:1) and full English descriptions.
   says "the update check is already running". Test: a check started from inside
   the open question asks nothing — 842 checks in 23 suites, all green.
 
+- **Round 14 — tune history: every value, the reason, deleting** (build 17; the
+  user: "some values from yesterday are missing — if those are stock values,
+  show them; and the history should be deletable, single runs or all"):
+  - Finished runs: stock values are shown as such (+0 MHz memory, 100 % power)
+    instead of "--" (the view hid 0 and 100).
+  - Runs without a profile no longer show only "--": their values come from the
+    steps — the configuration tested last ("Final test: +179MHz | 96% pwr |
+    Mem+500MHz"), the stage results, the All-round tuner's own curve (top point
+    against its stock clock), the baseline voltage, the highest temperature seen.
+    A new column "Note" says why: final test failed (with the error), stopped,
+    driver reset at the boost probe, interrupted (app closed / crash). On the
+    user's six real runs every value is filled in now.
+  - Unknown values stay `None` ("--") instead of a made-up 0; log lines are read
+    by their level tag; the selected run's reason heads its log.
+  - **Delete selected** (Ctrl/Shift click for several, or the Delete key) and
+    **Delete all**, each after a question: the tune log and — for the All-round
+    tuner — its report (`TuneHistory.delete` / `delete_all`; only tune_*.log in
+    logs/ is touched, saved GPU profiles stay; a log a running tune still writes
+    is skipped and the view says so).
+  - Tests: the real log lines of the live runs (failed final test, TDR at the
+    boost probe, cut-off All-round run, finished run without memory / power
+    lines, stopped run), deleting one / all / nothing outside logs, the view's
+    question and buttons — 853 checks in 23 suites, all green.
+
 ### 🔎 Reviewed, verified NOT a bug
 
 Some reported items were checked against the actual code and left unchanged

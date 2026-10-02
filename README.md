@@ -108,8 +108,9 @@
 - Compare up to **4 saved GPU profiles side-by-side** (core/memory offset, power limit, voltage lock, stability score) to pick the best one at a glance
 
 ### 📋 Tune History (GPU Tuner → History)
-- Every Auto-Tune run (date, mode, core and memory offset, power, voltage, temperature, result)
-- Click any run to view its log
+- Every Auto-Tune run (date, mode, core and memory offset, power, voltage, temperature, result); stock values are shown as such (+0 MHz, 100 %)
+- Runs without a profile show the values tested last and **why** (final test failed, stopped, driver reset …)
+- Click a run to view its log; **delete** selected runs or the whole history (log + All-round report; saved GPU profiles stay)
 
 ### 🌡 Temperature Warning
 - Windows Toast Notification when GPU hits 90°C
@@ -235,7 +236,7 @@ GameOptimizerPro **2.0** is the finalized release: the complete feature set belo
 - 🎯 **All-round tuner** — own V/F curve measured point by point every 25 mV (HYDRA-style), memory tested with the whole card under load (now in every mode), goal switch Max / Balanced / Efficiency, 5-min FurMark final test and a before/after report, live values through the whole tune; GPU table with RTX 50 and cautious start values; AMD/Intel get a clear "not supported"
 - ❓ **Clear tuner settings:** every field of the GPU tuner has a self-explaining name (e.g. "Max clock gain per point", "Test time per step", "Spacing of measured points", "Safety margin") and a **"?"** that explains it (German / English); the All-round mode shows **how the tune runs, step by step, with the current values**
 - 🧹 **Round 14 — leaner:** per-game profiles, CPU pinning and the FPS capture removed (the background process watcher with them); the tune history moved into the GPU tuner; page switches **2–3× faster** (pages stay stacked and are built in the background); a **BIOS guide for every platform** with menu paths per board maker and honest live status; **updates from GitHub**; "close to tray" switch; Afterburner setup checks "start with Windows" / "apply at start-up"
-- 🧪 842 automated checks in 23 test suites (in `tests/`), incl. a PowerShell parse check of every command, the whole UI under a real main loop (on a hidden desktop, so it can run while you game), the All-round tuner against a simulated card and the updater against temporary folders
+- 🧪 853 automated checks in 23 test suites (in `tests/`), incl. a PowerShell parse check of every command, the whole UI under a real main loop (on a hidden desktop, so it can run while you game), the All-round tuner against a simulated card and the updater against temporary folders
 
 See [CHANGELOG.md](CHANGELOG.md) for the full detail.
 

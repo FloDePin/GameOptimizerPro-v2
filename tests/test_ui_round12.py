@@ -422,10 +422,26 @@ def s_history():
     rows = g.history.tree.get_children()
     check(g._views["history"].winfo_manager() and rows == ("tune_20261001_114809.log",), f"one run listed: {rows}")
     vals = g.history.tree.item(rows[0], "values")
-    check(vals[1] in ("Rundum", "All-round") and vals[2] == "+135" and vals[3] == "+1000" and "OK" in vals[-1],
+    check(vals[1] in ("Rundum", "All-round") and vals[2] == "+135" and vals[3] == "+1000" and vals[4] == "100%"
+          and "OK" in vals[7] and vals[8] == "",
           f"mode, core, memory, result: {vals}")
     g.history.tree.selection_set(rows[0]); g.history._on_select(); g.history.log._drain()
     check("Profile saved" in g.history.log.txt.get("1.0", "end"), "selecting a run shows its log")
+    import ui.tune_history_view as THV
+    asked = []
+    real_ask = THV.messagebox.askyesno
+    THV.messagebox.askyesno = lambda title, msg, **k: (asked.append(msg), False)[1]
+    g.history.tree.selection_set(rows[0]); g.history._on_select()
+    check(str(g.history.btn_delete.cget("state")) == "normal", "a selected run can be deleted")
+    g.history.delete_selected()
+    check(asked and "01.10.2026" in asked[-1] and os.path.exists(os.path.join(tmp, "tune_20261001_114809.log")),
+          "delete asks first ('no' keeps the run)")
+    THV.messagebox.askyesno = lambda title, msg, **k: (asked.append(msg), True)[1]
+    g.history.delete_all()
+    check(not os.path.exists(os.path.join(tmp, "tune_20261001_114809.log"))
+          and g.history.tree.get_children() and "1 " in g.history.lbl_status.cget("text"),
+          f"delete all: gone, the view says so ({g.history.lbl_status.cget('text')!r})")
+    THV.messagebox.askyesno = real_ask
     g._show_view("auto")
     from ui.components import HelpTip
     def tips(x):

@@ -394,8 +394,69 @@ by = {r.filename: r for r in runs}
 order = [r.filename for r in runs]
 check(by["tune_20261001_114809.log"].mode == "Rundum" and by["tune_20261001_114809.log"].mem_offset == 1000
       and by["tune_20261001_114809.log"].passed and by["tune_20260930_101817.log"].mode == "OC+UV"
-      and by["tune_20260930_101817.log"].mem_offset == 0 and not by["tune_20260930_101817.log"].passed,
-      "runs, memory offset, result")
+      and by["tune_20260930_101817.log"].mem_offset is None and not by["tune_20260930_101817.log"].passed,
+      "runs, memory offset, result (unknown = None, not 0)")
+# real log lines of runs from the live tests (shortened)
+L1 = """2026-09-30 10:41:40,793 [INFO]   GameOptimizerPro Auto-Tune [OC UV]
+2026-09-30 10:42:17,167 [INFO] Baseline OK | temp=68.1°C | GPU-Last=100% | volt=934mV | clk=2474MHz
+2026-09-30 10:52:00,284 [INFO]   +165MHz ✓  step=15MHz  avg=67.1°C  volt=989mV  clk=2730/2940MHz
+2026-09-30 10:55:41,087 [INFO] Stage 1 done: best core = +175MHz (precision ±5MHz)
+2026-09-30 11:01:25,082 [INFO] Stage 2 done: best power = 97% (precision ±1%)
+2026-09-30 11:01:25,082 [INFO] Final test: +175MHz | 97% pwr | Mem+1000MHz | 120s
+2026-09-30 11:03:03,735 [WARNING] Final failed (Rechenfehler unter Last (GPU instabil)) — saving conservative profile
+2026-09-30 11:03:07,663 [INFO]         Auto-Tune Complete
+"""
+L2 = """2026-10-01 11:43:38,448 [INFO]   GameOptimizerPro Auto-Tune [CURVE]
+2026-10-01 11:44:14,833 [INFO] Baseline OK | temp=64.7°C | GPU-Last=96% | volt=940mV | clk=2456MHz
+2026-10-01 11:44:25,103 [ERROR] Boost-Probe bei Standard fehlgeschlagen (TDR (GPU driver timeout) detected) — Kühlung/Treiber prüfen
+"""
+L3 = """2026-10-01 09:33:51,892 [INFO]   GameOptimizerPro Auto-Tune [CURVE]
+2026-10-01 09:35:55,343 [INFO]   Punkt 1/5: 1075 mV (Stock 2805 MHz) — Start bei 2805 MHz (+0)
+2026-10-01 09:53:29,966 [INFO] Eigene Kurve (−30 MHz Sicherheit, −60 nach Treiber-Reset): 1075 mV → 2939 MHz, 1025 mV → 2839 MHz
+2026-10-01 09:59:16,461 [INFO] Stage 4 done: best memory = +1500MHz (precision ±25MHz)
+2026-10-01 10:00:07,402 [INFO]   flach ab 1050 mV: 398 Punkte, Ø 246 W, max. 63 °C, 1.62 Punkte/W
+"""
+L4 = """2026-09-30 10:18:17,000 [INFO]   GameOptimizerPro Auto-Tune [OC UV]
+2026-09-30 10:39:32,066 [INFO] Profile saved: GOP_OC+UV_0930_1039
+2026-09-30 10:39:32,067 [INFO]   Core offset:  +179MHz
+2026-09-30 10:39:32,067 [INFO]   Avg voltage:  995mV
+"""
+L5 = """2026-10-02 09:00:00,000 [INFO]   GameOptimizerPro Auto-Tune [CURVE]
+2026-10-02 09:01:00,000 [WARNING] Abbruch angefordert — GPU wird auf Standard zurückgesetzt …
+"""
+hd2 = Path(TMP) / "hist2"
+hd2.mkdir()
+for name, txt in (("tune_20260930_104140.log", L1), ("tune_20261001_114338.log", L2),
+                  ("tune_20261001_093351.log", L3), ("tune_20260930_101817.log", L4),
+                  ("tune_20261002_090000.log", L5)):
+    (hd2 / name).write_text(txt, encoding="utf-8")
+(hd2 / "curve_report_20261002_090030.txt").write_text("report", encoding="utf-8")
+(hd2 / "curve_report_20251201_000000.txt").write_text("other run", encoding="utf-8")
+(hd2 / "settings.json").write_text("{}", encoding="utf-8")
+th = TuneHistory(str(hd2))
+r = {x.filename: x for x in th.get_runs()}
+a = r["tune_20260930_104140.log"]
+check((a.core_offset, a.power_pct, a.mem_offset, a.avg_volt_mv, a.max_temp) == (175, 97, 1000, 934, 68.1)
+      and not a.passed and a.reason.startswith("Endtest fehlgeschlagen (Rechenfehler"),
+      f"failed final test: the values tested last + the reason: {(a.core_offset, a.power_pct, a.mem_offset, a.reason)}")
+b = r["tune_20261001_114338.log"]
+check(b.core_offset is None and b.avg_volt_mv == 940 and b.reason.startswith("Boost-Probe bei Standard"),
+      "stopped before any value: unknown stays '--', the error is the reason")
+c = r["tune_20261001_093351.log"]
+check(c.core_offset == 134 and c.mem_offset == 1500 and c.power_pct == 100 and "unterbrochen" in c.reason,
+      f"All-round run cut off: offset of the own curve's top point, memory, stock power: {(c.core_offset, c.mem_offset)}")
+d = r["tune_20260930_101817.log"]
+check(d.passed and (d.core_offset, d.mem_offset, d.power_pct) == (179, 0, 100) and not d.reason,
+      "finished run without memory / power lines: stock values (+0, 100 %), not '--'")
+check(r["tune_20261002_090000.log"].reason == "abgebrochen", "stopped by the user: 'abgebrochen'")
+check(th.delete(["tune_20261002_090000.log"]) == 1 and not (hd2 / "tune_20261002_090000.log").exists()
+      and not (hd2 / "curve_report_20261002_090030.txt").exists()
+      and (hd2 / "curve_report_20251201_000000.txt").exists(),
+      "delete one run: its log and its report, nothing else")
+check(th.delete(["../settings.json", "settings.json", "nope.log"]) == 0 and (hd2 / "settings.json").exists(),
+      "delete never touches anything but tune logs in logs/")
+check(th.delete_all() == 4 and not list(hd2.glob("tune_*.log")) and (hd2 / "settings.json").exists(),
+      "delete all: every tune log, other files stay")
 check(order.index("tune_20261001_114809.log") < order.index("tune_20260930_101817.log")
       and order[0] == "tune_broken-name.log" and by["tune_broken-name.log"].date == "broken-name",
       f"newest first; an odd file name sorts by its time and keeps its name as the date: {order}")
