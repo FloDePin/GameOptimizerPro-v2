@@ -484,6 +484,36 @@ app_obj._on_close()
 check(acts == ["hide", "exit", "exit"], f"X: tray (setting on), quit (off), quit without a tray icon: {acts}")
 check(GOP.BASE.joinpath("build.json").exists(), "build.json ships with the app")
 
+# Nagle check: only connected adapters count. Windows (re)creates the interface key
+# of an unused Bluetooth PAN adapter without the values — the tweak was reported
+# "no longer active" at every start. The adapters and keys are stubbed (functions
+# shadow the cmdlets); nothing on this PC is read or changed.
+from core.tweak_verifier import VERIFY_MAP
+
+
+def nagle(adapters: str, keys: str) -> str:
+    stub = (
+        "function Get-NetAdapter { " + adapters + " }\n"
+        "function Get-ChildItem { "
+        "[pscustomobject]@{PSChildName='{aaaa-1}';PSPath='A'},"
+        "[pscustomobject]@{PSChildName='{BBBB-2}';PSPath='B'} }\n"
+        "function Get-ItemProperty($p) { " + keys + " }\n")
+    script = stub + "$__r=$(" + VERIFY_MAP["disable_nagle"].strip() + "); Write-Output \"r|$__r\""
+    out = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+                         capture_output=True, text=True, timeout=60,
+                         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout
+    return next((l.split("|", 1)[1].strip() for l in out.splitlines() if l.startswith("r|")), "?")
+
+
+UP_A = "[pscustomobject]@{Status='Up';InterfaceGuid='{AAAA-1}'}, [pscustomobject]@{Status='Disconnected';InterfaceGuid='{BBBB-2}'}"
+ONLY_A = "if($p -eq 'A'){[pscustomobject]@{TcpAckFrequency=1}}else{[pscustomobject]@{EnableDHCP=1}}"
+r1, r2, r3 = (nagle(UP_A, ONLY_A),
+              nagle(UP_A, "[pscustomobject]@{EnableDHCP=1}"),
+              nagle("", ONLY_A))
+check(r1 == "1", f"Nagle: connected adapter has it, unused Bluetooth key without values → active ({r1})")
+check(r2 == "0", f"Nagle: the connected adapter lost it → not active ({r2})")
+check(r3 == "0", f"Nagle: no adapter connected → every key counts, as before ({r3})")
+
 shutil.rmtree(TMP, ignore_errors=True)
 print("\n%d failure(s)" % len(FAILS))
 for f in FAILS:

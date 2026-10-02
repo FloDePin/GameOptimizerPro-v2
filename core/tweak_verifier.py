@@ -198,9 +198,17 @@ VERIFY_MAP: dict[str, str] = {
 
     # ── Network ───────────────────────────────────────────────────────────────
     "disable_nagle": (
+        # Only connected adapters count (like LSO / RSS below): Windows (re)creates
+        # the interface keys of unused adapters (Bluetooth PAN, VPN, virtual
+        # switches) without the values — the tweak then looked "no longer active"
+        # at every start although the network in use still had it.
         '$ok=$true; '
-        'Get-ItemProperty "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces\\*" '
-        '-EA SilentlyContinue | ForEach-Object{ if($_.TcpAckFrequency -ne 1){$ok=$false} }; '
+        '$up=@(Get-NetAdapter -EA SilentlyContinue | Where-Object{$_.Status -eq "Up"} | '
+        'ForEach-Object{"$($_.InterfaceGuid)".ToUpper()}); '
+        'Get-ChildItem "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces" '
+        '-EA SilentlyContinue | ForEach-Object{ '
+        'if($up.Count -eq 0 -or $up -contains $_.PSChildName.ToUpper()){ '
+        'if((Get-ItemProperty $_.PSPath -EA SilentlyContinue).TcpAckFrequency -ne 1){$ok=$false} } }; '
         'if($ok){"1"}else{"0"}'
     ),
     "disable_network_throttle": (
