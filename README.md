@@ -233,8 +233,9 @@ GameOptimizerPro **2.0** is the finalized release: the complete feature set belo
 - 🔥 **FurMark 1/2 + 3DMark** with recording of temperature, clocks, power and driver resets during the test; FurMark location remembered
 - 🔊 **Audio tweaks work on Windows 11 26H2** — through the Windows audio API instead of locked registry keys
 - 🎯 **All-round tuner** — own V/F curve measured point by point every 25 mV (HYDRA-style), memory tested with the whole card under load (now in every mode), goal switch Max / Balanced / Efficiency, 5-min FurMark final test and a before/after report, live values through the whole tune; GPU table with RTX 50 and cautious start values; AMD/Intel get a clear "not supported"
+- ❓ **Clear tuner settings:** every field of the GPU tuner has a self-explaining name (e.g. "Max clock gain per point", "Test time per step", "Spacing of measured points", "Safety margin") and a **"?"** that explains it (German / English); the All-round mode shows **how the tune runs, step by step, with the current values**
 - 🧹 **Round 14 — leaner:** per-game profiles, CPU pinning and the FPS capture removed (the background process watcher with them); the tune history moved into the GPU tuner; page switches **2–3× faster** (pages stay stacked and are built in the background); a **BIOS guide for every platform** with menu paths per board maker and honest live status; **updates from GitHub**; "close to tray" switch; Afterburner setup checks "start with Windows" / "apply at start-up"
-- 🧪 834 automated checks in 23 test suites (in `tests/`), incl. a PowerShell parse check of every command, the whole UI under a real main loop (on a hidden desktop, so it can run while you game), the All-round tuner against a simulated card and the updater against temporary folders
+- 🧪 841 automated checks in 23 test suites (in `tests/`), incl. a PowerShell parse check of every command, the whole UI under a real main loop (on a hidden desktop, so it can run while you game), the All-round tuner against a simulated card and the updater against temporary folders
 
 See [CHANGELOG.md](CHANGELOG.md) for the full detail.
 

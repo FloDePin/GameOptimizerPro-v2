@@ -984,6 +984,30 @@ verifiers (VERIFY_MAP stays 1:1) and full English descriptions.
   process on the hidden desktop, with nothing applied (verified: with the bug put
   back it fails with exactly this ValueError). 834 checks in 23 suites.
 
+- **Round 14 — clear tuner settings** (the user: "the names aren't clear — in
+  which steps do we go now? Name them more precisely, if need be with a '?' that
+  opens a small window with the explanation, both languages"; build 15):
+  - Every field of both parameter cards renamed after what it does, the same
+    names in the start dialogs and the report: Takt-Schritt / Clock step,
+    Takt-Plus max. (je Punkt) / Max clock gain (per point), Power-Limit min.,
+    Temperatur-Grenze, Testdauer je Schritt, Abstand der Messpunkte, Sicherheits-
+    abzug, Endtest: FurMark / Rechenprüfung, Speicher-Plus max., Afterburner-
+    Profilplatz.
+  - A **"?"** next to every field and the memory tick box (`HelpTip`, new in
+    `ui/components.py`): pointing at it or a click opens a small window with the
+    explanation — what the value does, the step sizes (+15 MHz, halved to 5;
+    memory +500 then 100-MHz steps; power limit in 5 % steps), the preset.
+  - The All-round card shows **"How the tune runs"**: the six steps with the
+    values set right now (point spacing, test time, safety margin, memory range,
+    final test), updated as soon as a value changes; the classic start dialog
+    lists every value and is bilingual.
+  - The classic dialog shows step and test time now; the report says "max clock
+    gain per point" where it said "Core max".
+  - Tests: names, a "?" for every setting (10 in the All-round card, 9 in the
+    classic card), the help window opens and closes (hidden desktop), the
+    procedure box follows the values; the build check reads build.json — 841
+    checks in 23 suites, all green.
+
 ### 🔎 Reviewed, verified NOT a bug
 
 Some reported items were checked against the actual code and left unchanged

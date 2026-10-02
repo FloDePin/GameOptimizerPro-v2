@@ -171,8 +171,8 @@ check(r.best_mhz == 2590 and r.limit_hit and r.steps[-1][0] == 2590,
 rr = [CT.AnchorResult(925, 2370, best_mhz=2590, limit_hit=True)]
 CT.apply_margins(rr)
 rep_l = CT.build_report("balanced", rr, None, None, None, 0, core_max=220, lang="de")
-check(any("Grenze „Core max“ erreicht" in line for line in rep_l["lines"])
-      and any("Core max“ (+220 MHz) die Suche beendet" in x for x in rep_l["recommendations"]),
+check(any("Grenze „Takt-Plus max. je Punkt“ erreicht" in line for line in rep_l["lines"])
+      and any("Takt-Plus max. je Punkt“ (+220 MHz) die Suche beendet" in x for x in rep_l["recommendations"]),
       "report: limit reached at that point + recommendation")
 check(steps[0][0] == [(1050, 2905), (1000, 2885), (950, 2755)], "−15 MHz on every point")
 check(CT.final_backoff(2, an, 0, 0, 100, True, False)[4].startswith("Kurve"),

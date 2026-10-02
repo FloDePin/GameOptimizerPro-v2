@@ -1,5 +1,5 @@
 {
-  "build": 14,
+  "build": 15,
   "date": "2026-10-02",
-  "notes": "Spiele-Profile und FPS-Messung entfernt, Tune-Verlauf im GPU-Tuner, BIOS-Guide mit allen Plattformen, Updates von GitHub, schnellere Seitenwechsel."
+  "notes": "Klarere Namen für alle Tuner-Einstellungen, ein „?“ mit Erklärung an jedem Feld, Ablauf-Übersicht im Rundum-Modus; Startfehler (Tray-Menü) behoben."
 }

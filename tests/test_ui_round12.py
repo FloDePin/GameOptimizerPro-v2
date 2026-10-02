@@ -373,7 +373,9 @@ def s_settings():
     st.sw_check_updates.toggle(); st.sw_close_to_tray.toggle()
     check(app_settings.get("check_updates") is False and app_settings.get("close_to_tray") is False,
           "both switches are saved")
-    check("build 14" in st.lbl_update.cget("text").lower(), f"installed build shown: {st.lbl_update.cget('text')!r}")
+    from core import updater as _up
+    check(f"build {_up.local_build().build}" in st.lbl_update.cget("text").lower(),
+          f"installed build shown: {st.lbl_update.cget('text')!r}")
     class FakeFlow:
         def start(self, manual=False, on_status=None):
             self.manual = manual
@@ -425,6 +427,23 @@ def s_history():
     g.history.tree.selection_set(rows[0]); g.history._on_select(); g.history.log._drain()
     check("Profile saved" in g.history.log.txt.get("1.0", "end"), "selecting a run shows its log")
     g._show_view("auto")
+    from ui.components import HelpTip
+    def tips(x):
+        out = []
+        for c in x.winfo_children():
+            if isinstance(c, HelpTip): out.append(c)
+            out += tips(c)
+        return out
+    tip = tips(g.params_card)[0]
+    tip.show()
+    w.update()
+    pop = tip._tip
+    texts = [c.cget("text") for c in pop.winfo_children()[0].winfo_children()] if pop else []
+    check(pop is not None and pop.winfo_ismapped() and texts == [tip.text] and pop.overrideredirect(),
+          "'?': a small window with the explanation opens")
+    tip.hide()
+    w.update()
+    check(tip._tip is None and not pop.winfo_exists(), "... and closes again")
     check("games" not in w._page_factories and not any(k == "games" for k, *_x in mw.TAB_DEFS),
           "the games page is gone")
 

@@ -101,9 +101,39 @@ def _texts(w):
 
 
 ctexts = _texts(tab.curve_card)
-check("Punktabstand (mV)" in ctexts and tab.v_point_mv.get() == 25,
-      "Rundum parameters: 'Punktabstand' 25 mV by default")
-check(any("übersprungen" in x and "25 = genauer" in x for x in ctexts), "and explained")
+check("Abstand der Messpunkte (mV)" in ctexts and tab.v_point_mv.get() == 25,
+      "Rundum parameters: 'Abstand der Messpunkte' 25 mV by default")
+names = ["Takt-Plus max. je Punkt (MHz)", "Temperatur-Grenze (°C)", "Testdauer je Schritt (s)",
+         "Abstand der Messpunkte (mV)", "Sicherheitsabzug (MHz)", "Endtest: FurMark (min)",
+         "Endtest: Rechenprüfung (s)", "Speicher-Plus max. (MHz)", "Afterburner-Profilplatz (2–5)"]
+check(all(n in ctexts for n in names), f"clear names: {[n for n in names if n not in ctexts]}")
+from ui.components import HelpTip
+
+
+def _tips(w):
+    out = []
+    for c in w.winfo_children():
+        if isinstance(c, HelpTip):
+            out.append(c)
+        out += _tips(c)
+    return out
+
+
+tips = _tips(tab.curve_card)
+check(len(tips) == 10 and all(len(x.text) > 60 for x in tips),
+      f"a '?' with an explanation for every Rundum setting + the memory tick box ({len(tips)})")
+ptips = _tips(tab.params_card)
+check(len(ptips) == 9, f"... and for the classic parameters ({len(ptips)})")
+steps = tab.lbl_curve_steps.cget("text")
+check(steps.startswith("1. Standard messen") and "alle 25 mV" in steps and "6. Endtest: 5 min FurMark" in steps,
+      "procedure box: the steps with the current values")
+tab.v_point_mv.set(50); tab.v_mem_stage.set(False); tab.v_fm_final.set(7)
+steps = tab.lbl_curve_steps.cget("text")
+check("alle 50 mV" in steps and "bleibt auf Standard" in steps and "7 min FurMark" in steps,
+      "... updated as soon as a value changes")
+tab.v_point_mv.set(25); tab.v_mem_stage.set(True); tab.v_fm_final.set(5)
+check(any("übersprungen" in x.text and "25 = genauer" in x.text for x in tips),
+      "the point spacing is explained in its '?'")
 check(list(tab._goal_labels) == ["Max. Leistung", "Ausgewogen", "Effizienz"] and tab.v_goal.get() == "balanced",
       "goal switch, 'Ausgewogen' preselected")
 tab._select_goal("efficiency")
@@ -161,7 +191,8 @@ check(tab.params_card.winfo_manager() == "pack" and tab.curve_card.winfo_manager
       and tab.goal_card.winfo_manager() == "", "back to OC + UV: classic parameters again")
 check(tab.v_core_max.get() == 250, "classic modes keep their 'Core max' (+250)")
 tab._start_tune()
-check(started[-1].mode == TuneMode.OC_UV and "Mode: OC + Undervolt" in ASKED[-1][1],
+check(started[-1].mode == TuneMode.OC_UV and "Modus: OC + Undervolt" in ASKED[-1][1]
+      and "Takt-Schritt" in ASKED[-1][1] and "Testdauer je Schritt" in ASKED[-1][1],
       "classic start unchanged")
 c2 = started[-1]
 check(c2.mem_stage and c2.mem_curve_start_mhz == 500 and c2.furmark_path == FM and c2.bench_msaa == 8

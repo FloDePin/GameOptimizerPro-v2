@@ -1573,8 +1573,8 @@ class AutoTuner:
                      f"Memory: +{best} MHz passed, +{failed_at} did not → +{result} MHz used "
                      f"({step} MHz safety)")
         else:
-            line = T(f"Speicher: bis +{best} MHz („Speicher max“) bestanden → +{result} MHz übernommen",
-                     f"Memory: passed up to +{best} MHz ('Mem max') → +{result} MHz used")
+            line = T(f"Speicher: bis +{best} MHz („Speicher-Plus max.“) bestanden → +{result} MHz übernommen",
+                     f"Memory: passed up to +{best} MHz ('max memory gain') → +{result} MHz used")
         self._log("  " + line)
         return result, line
 

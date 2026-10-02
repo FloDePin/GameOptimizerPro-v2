@@ -409,7 +409,8 @@ def build_report(goal: str, results: list[AnchorResult], stock: Optional[Candida
         extra = ((" — Treiber-Reset bei der Suche, 60 MHz Abstand" if de
                   else " — driver reset while searching, 60 MHz margin") if r.tdr else "")
         if r.limit_hit:
-            extra += (" — Grenze „Core max“ erreicht" if de else " — 'Core max' limit reached")
+            extra += (" — Grenze „Takt-Plus max. je Punkt“ erreicht" if de
+                      else " — 'max clock gain per point' limit reached")
         lines.append(f"  {r.mv} mV: {r.best_mhz} MHz ({r.offset:+d} ggü. Stock {r.base_mhz:.0f}) → "
                      f"{r.target_mhz} MHz{extra}" if de else
                      f"  {r.mv} mV: {r.best_mhz} MHz ({r.offset:+d} vs stock {r.base_mhz:.0f}) → "
@@ -475,10 +476,10 @@ def build_report(goal: str, results: list[AnchorResult], stock: Optional[Candida
     if capped_pts:
         lim = f" (+{core_max} MHz)" if core_max else ""
         pts = ", ".join(str(v) for v in sorted(capped_pts))
-        rec.append((f"Bei {pts} mV hat die Grenze „Core max“{lim} die Suche beendet, nicht ein Fehler — "
-                    f"mit höherem „Core max“ findet der Tuner dort vermutlich mehr." if de else
-                    f"At {pts} mV the 'Core max' limit{lim} ended the search, not a failure — with a "
-                    f"higher 'Core max' the tuner probably finds more there."))
+        rec.append((f"Bei {pts} mV hat die Grenze „Takt-Plus max. je Punkt“{lim} die Suche beendet, nicht "
+                    f"ein Fehler — mit einer höheren Grenze findet der Tuner dort vermutlich mehr." if de else
+                    f"At {pts} mV the 'max clock gain per point' limit{lim} ended the search, not a "
+                    f"failure — with a higher limit the tuner probably finds more there."))
     unreach = [r.mv for r in results if not r.reachable]
     ok_mvs = [r.mv for r in results if r.best_mhz]
     low = [v for v in unreach if ok_mvs and v < min(ok_mvs)]

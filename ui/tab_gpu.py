@@ -16,8 +16,8 @@ import customtkinter as ctk
 
 from core.nvtune_core import AfterburnerController, GpuMonitor, ProfileManager, TuneProfile
 from core.nvtune_tuner import AutoTuner, TunerConfig, TunerState
-from ui.components import (Card, CheckBox, LogView, NumberField, Page, ResponsiveGrid, Table,
-                           WrapLabel, button, scroll_area, tile)
+from ui.components import (Card, CheckBox, HelpTip, LogView, NumberField, Page, ResponsiveGrid, Table,
+                           WrapLabel, button, param_cell, scroll_area, tile)
 from ui.theme import (ACC, AMBER, APP_BG, BORDER, CARD_BG, CARD_BG2, CYAN, DIM, ERR, F_BB,
                       F_MONO, F_S, F_XS, GREEN, INPUT_BG, MUTED, TEXT, TEXT2, VIOLET, ctk_font,
                       icon_image, mix, on_color, tr)
@@ -64,6 +64,36 @@ GOALS = [
      "Undervolting: stock performance (≥ 99 %) at as few watts as possible — cooler and "
      "quieter."),
 ]
+
+
+# Parameter names and their "?" explanations (German, English). The same names
+# are used in the start dialogs and the report.
+H_TEMP = ("Temperatur-Grenze (°C)", "Temperature limit (°C)",
+          "Erreicht die Grafikkarte diese Temperatur, wird der laufende Testschritt sofort beendet und "
+          "als „zu heiß“ gewertet — der Tuner geht danach vorsichtiger weiter.",
+          "If the graphics card reaches this temperature, the running test step ends at once and counts "
+          "as 'too hot' — the tuner continues more carefully.")
+H_STEP_TIME = ("Testdauer je Schritt (s)", "Test time per step (s)",
+               "So lange läuft jeder einzelne Testschritt (jede Taktstufe, jede Speicherstufe). Länger "
+               "findet seltene Fehler eher, der Tune dauert aber länger.",
+               "How long every single test step runs (each clock step, each memory step). Longer finds "
+               "rare errors more often, but the tune takes longer.")
+H_MEM_MAX = ("Speicher-Plus max. (MHz)", "Max memory gain (MHz)",
+             "Höchster Speicher-Offset, der getestet wird. Ablauf: Start mit einem vorsichtigen Wert "
+             "(RTX 40: +500), dann in 100er-Schritten bis zu diesem Wert — jeder Schritt mit FurMark und "
+             "geprüften Speicherkopien gleichzeitig. Übernommen wird der höchste bestandene Schritt, "
+             "100 MHz darunter, wenn ein Schritt scheiterte.",
+             "Highest memory offset that is tested. It starts at a cautious value (RTX 40: +500) and goes "
+             "up in 100-MHz steps to this value — every step with FurMark and verified memory copies at "
+             "once. Used: the highest step that passed, 100 MHz lower if a step failed.")
+H_SLOT = ("Afterburner-Profilplatz (2–5)", "Afterburner profile slot (2–5)",
+          "In welchen der fünf Profilplätze von MSI Afterburner das Ergebnis geschrieben wird. Platz 1 "
+          "bleibt für deine eigenen Einstellungen.",
+          "Which of MSI Afterburner's five profile slots the result is written to. Slot 1 stays yours.")
+H_MEM_STAGE = ("Wird der Haken entfernt, bleibt der Grafikspeicher auf Standard und nur der Kern-Takt "
+               "wird eingestellt (spart ca. 6–10 Minuten).",
+               "Unticked, the video memory stays at stock and only the core clock is set (saves about "
+               "6–10 minutes).")
 
 
 class GpuTunerTab(Page):
@@ -186,39 +216,57 @@ class GpuTunerTab(Page):
 
         grid = ResponsiveGrid(params.body, min_width=150, max_cols=2, gap=10, bg=CARD_BG)
         grid.pack(fill="x")
-        for label, var, lo, hi, step in (
-            (tr("Core-Schritt (MHz)", "Core step (MHz)"), self.v_core_step, 5, 50, 5),
-            (tr("Core max. (MHz)", "Core max (MHz)"),     self.v_core_max, 0, 500, 15),
-            (tr("Power min. (%)", "Power min (%)"),       self.v_pwr_min, 50, 100, 5),
-            (tr("Max. Temperatur (°C)", "Max temp (°C)"), self.v_max_temp, 70, 95, 1),
-            (tr("Stufentest (s)", "Step test (s)"),       self.v_step_dur, 15, 300, 15),
-            (tr("Endtest (s)", "Final test (s)"),         self.v_final_dur, 60, 600, 30),
-            (tr("Speicher max. (MHz)", "Mem max (MHz)"),  self.v_mem_max, 100, 3000, 100),
-            (tr("AB-Slot (2–5)", "AB slot (2–5)"),        self.v_ab_slot, 2, 5, 1),
+        for (de, en, hde, hen), var, lo, hi, step in (
+            (("Takt-Schritt (MHz)", "Clock step (MHz)",
+              "Um so viele MHz wird der Kern-Takt (Core-Offset) je Testschritt erhöht. Nach einem Fehler "
+              "geht es zurück zum letzten stabilen Wert und der Schritt wird halbiert, bis 5 MHz.",
+              "The core clock offset goes up by this many MHz per test step. After a failure it goes "
+              "back to the last stable value and the step is halved, down to 5 MHz."),
+             self.v_core_step, 5, 50, 5),
+            (("Takt-Plus max. (MHz)", "Max clock gain (MHz)",
+              "Höchster Core-Offset (MHz über dem Werkstakt), der getestet wird — die Obergrenze der "
+              "Suche. Vorgabe je Kartengeneration.",
+              "Highest core offset (MHz above the factory clock) that is tested — the upper bound of "
+              "the search. Preset per card generation."),
+             self.v_core_max, 0, 500, 15),
+            (("Power-Limit min. (%)", "Min power limit (%)",
+              "So weit darf das Power-Limit beim Undervolten höchstens sinken (in 5-%-Schritten). "
+              "Gesucht wird das niedrigste Limit, das höchstens 3 % Leistung kostet.",
+              "The power limit may go down this far at most when undervolting (in 5 % steps). The "
+              "search looks for the lowest limit that costs at most 3 % performance."),
+             self.v_pwr_min, 50, 100, 5),
+            (H_TEMP, self.v_max_temp, 70, 95, 1),
+            (H_STEP_TIME, self.v_step_dur, 15, 300, 15),
+            (("Endtest (s)", "Final test (s)",
+              "Abschlusstest mit genau der Einstellung, die gespeichert wird (spielähnliche Wechsellast, "
+              "jedes Ergebnis geprüft). Fällt er durch, nimmt der Tuner einen Schritt zurück und testet "
+              "erneut — gespeichert wird nur, was bestanden hat.",
+              "Final test with exactly the setting that is saved (game-like alternating load, every "
+              "result checked). If it fails, the tuner takes one step back and tests again — only what "
+              "passed is saved."),
+             self.v_final_dur, 60, 600, 30),
+            (H_MEM_MAX, self.v_mem_max, 100, 3000, 100),
+            (H_SLOT, self.v_ab_slot, 2, 5, 1),
         ):
-            cell = tk.Frame(grid, bg=CARD_BG)
-            tk.Label(cell, text=label, font=F_XS, fg=DIM, bg=CARD_BG, anchor="w").pack(fill="x")
-            NumberField(cell, var, lo, hi, step, width=64, bg=CARD_BG).pack(anchor="w", pady=(2, 0))
-            grid.add(cell)
+            grid.add(param_cell(grid, tr(de, en), var, lo, hi, step, tr(hde, hen)))
 
         # Memory stage: searched with the whole card under load (as in the Rundum
         # mode) — not a fixed guess, and not the bandwidth peak of a memory-only load.
         mem = tk.Frame(params.body, bg=CARD_BG)
         mem.pack(fill="x", pady=(12, 0))
-        self.chk_mem_stage = CheckBox(mem, self.v_mem_stage, accent=CYAN, bg=CARD_BG,
+        mrow = tk.Frame(mem, bg=CARD_BG)
+        mrow.pack(fill="x")
+        self.chk_mem_stage = CheckBox(mrow, self.v_mem_stage, accent=CYAN, bg=CARD_BG,
                                       text=tr("Speicher mit übertakten", "Overclock memory too"), font=F_BB)
-        self.chk_mem_stage.pack(anchor="w")
+        self.chk_mem_stage.pack(side="left")
+        HelpTip(mrow, tr(H_MEM_MAX[2] + " " + H_MEM_STAGE[0], H_MEM_MAX[3] + " " + H_MEM_STAGE[1]),
+                bg=CARD_BG).pack(side="left", padx=(6, 0))
         WrapLabel(mem, text=tr(
-            "Stufe 4 wie im Rundum-Modus: Start mit einem vorsichtigen Wert je Kartengeneration "
-            "(RTX 40: +500), dann 100er-Schritte bis „Speicher max.“ — jeder Schritt mit der ganzen "
-            "Karte unter Last (FurMark + geprüfte Speicherkopien), damit Fehler sofort auffallen. "
-            "Übernommen: der höchste bestandene Schritt, 100 MHz darunter, wenn ein Fehler kam. "
-            "Dauert ca. 6–10 min länger.",
-            "Stage 4 as in the All-round mode: starts at a cautious value per card generation "
-            "(RTX 40: +500), then 100-MHz steps up to 'Mem max' — every step with the whole card "
-            "under load (FurMark + verified memory copies), so errors show at once. Used: the "
-            "highest step that passed, 100 MHz lower if a step failed. Takes about 6–10 min "
-            "longer."), font=F_XS, fg=DIM, bg=CARD_BG).pack(fill="x", pady=(4, 0))
+            "Wie im Rundum-Modus: +500, dann 100er-Schritte bis „Speicher-Plus max.“, jeder Schritt mit "
+            "der ganzen Karte unter Last. Dauert ca. 6–10 min länger.",
+            "As in the All-round mode: +500, then 100-MHz steps up to 'Max memory gain', every step "
+            "with the whole card under load. Takes about 6–10 min longer."),
+            font=F_XS, fg=DIM, bg=CARD_BG).pack(fill="x", pady=(4, 0))
         self._show_mode_cards()
 
         # ── Right: controls, live values, graph, progress, log ───────────────
@@ -306,51 +354,116 @@ class GpuTunerTab(Page):
         self.lbl_furmark.pack(fill="x", pady=(0, 10))
         grid = ResponsiveGrid(cp.body, min_width=150, max_cols=2, gap=10, bg=CARD_BG)
         grid.pack(fill="x")
-        for label, var, lo, hi, step in (
-            (tr("Core max. (MHz)", "Core max (MHz)"),               self.v_core_max, 0, 600, 15),
-            (tr("Max. Temperatur (°C)", "Max temp (°C)"),           self.v_max_temp, 70, 95, 1),
-            (tr("Test je Punkt (s)", "Test per point (s)"),         self.v_step_dur, 15, 300, 15),
-            (tr("Punktabstand (mV)", "Point spacing (mV)"),         self.v_point_mv, 25, 50, 25),
-            (tr("Sicherheit (MHz)", "Safety margin (MHz)"),         self.v_safety, 15, 90, 15),
-            (tr("FurMark-Endtest (min)", "FurMark final (min)"),    self.v_fm_final, 1, 15, 1),
-            (tr("Rechenprüfung (s)", "Compute check (s)"),          self.v_final_dur, 60, 600, 30),
-            (tr("Speicher max. (MHz)", "Mem max (MHz)"),            self.v_mem_max, 100, 3000, 100),
-            (tr("AB-Slot (2–5)", "AB slot (2–5)"),                  self.v_ab_slot, 2, 5, 1),
+        for (de, en, hde, hen), var, lo, hi, step in (
+            (("Takt-Plus max. je Punkt (MHz)", "Max clock gain per point (MHz)",
+              "Obergrenze der Suche: So viele MHz über dem Werkstakt darf ein Spannungspunkt höchstens "
+              "bekommen. Gesucht wird in +15-MHz-Schritten bis zum ersten Fehler, dann halbiert "
+              "(+7, +5 MHz) — diese Grenze fängt nur unsinnige Werte ab. Vorgabe je Kartengeneration "
+              "(RTX 4080: +350).",
+              "Upper bound of the search: at most this many MHz above the factory clock per voltage "
+              "point. The search goes up in +15 MHz steps to the first failure, then halved (+7, "
+              "+5 MHz) — this bound only catches absurd values. Preset per card generation "
+              "(RTX 4080: +350)."),
+             self.v_core_max, 0, 600, 15),
+            (H_TEMP, self.v_max_temp, 70, 95, 1),
+            (H_STEP_TIME, self.v_step_dur, 15, 300, 15),
+            (("Abstand der Messpunkte (mV)", "Spacing of measured points (mV)",
+              "Alle wie viel Millivolt ein Punkt der Spannungs-/Takt-Kurve einzeln gemessen wird — von "
+              "der höchsten erreichten Spannung bis 850 mV; dazwischen wird die Kurve verbunden. "
+              "25 = genauer (RTX 4080: ca. 8 Punkte), 50 = schneller (ca. 5 Punkte). Punkte unter der "
+              "Mindestspannung der Karte werden übersprungen.",
+              "Every how many millivolts a point of the voltage/clock curve is measured on its own — "
+              "from the highest voltage reached down to 850 mV; in between the curve is joined. "
+              "25 = finer (RTX 4080: about 8 points), 50 = faster (about 5 points). Points below the "
+              "card's minimum voltage are skipped."),
+             self.v_point_mv, 25, 50, 25),
+            (("Sicherheitsabzug (MHz)", "Safety margin (MHz)",
+              "Wird vom höchsten stabil gefundenen Takt jedes Punkts abgezogen — Reserve für Spiele, die "
+              "anders belasten, und für kalte Starts. Wo der Treiber während der Suche neu starten "
+              "musste, doppelt so viel.",
+              "Taken off the highest stable clock found at every point — headroom for games that load "
+              "the card differently and for cold starts. Doubled where the driver had to restart "
+              "during the search."),
+             self.v_safety, 15, 90, 15),
+            (("Endtest: FurMark (min)", "Final test: FurMark (min)",
+              "Zum Schluss läuft die gewählte Einstellung so lange unter FurMark (volle Grafiklast, mit "
+              "Speicher-Übertaktung). Fällt sie durch, nimmt der Tuner gezielt einen Schritt zurück und "
+              "testet erneut — gespeichert wird nur, was bestanden hat.",
+              "At the end the chosen setting runs this long under FurMark (full graphics load, with the "
+              "memory overclock). If it fails, the tuner takes one targeted step back and tests again "
+              "— only what passed is saved."),
+             self.v_fm_final, 1, 15, 1),
+            (("Endtest: Rechenprüfung (s)", "Final test: compute check (s)",
+              "Danach so lange eine Rechenlast, deren Ergebnisse verglichen werden — schon ein einziger "
+              "falscher Wert lässt den Test durchfallen. Findet Instabilität, bevor ein Spiel abstürzt.",
+              "Then a compute load this long whose results are compared — a single wrong value fails "
+              "the test. Finds instability before a game crashes."),
+             self.v_final_dur, 60, 600, 30),
+            (H_MEM_MAX, self.v_mem_max, 100, 3000, 100),
+            (H_SLOT, self.v_ab_slot, 2, 5, 1),
         ):
-            cell = tk.Frame(grid, bg=CARD_BG)
-            tk.Label(cell, text=label, font=F_XS, fg=DIM, bg=CARD_BG, anchor="w").pack(fill="x")
-            NumberField(cell, var, lo, hi, step, width=64, bg=CARD_BG).pack(anchor="w", pady=(2, 0))
-            grid.add(cell)
+            grid.add(param_cell(grid, tr(de, en), var, lo, hi, step, tr(hde, hen)))
         memf = tk.Frame(cp.body, bg=CARD_BG)
         memf.pack(fill="x", pady=(12, 0))
         CheckBox(memf, self.v_mem_stage, accent=CYAN, bg=CARD_BG,
-                 text=tr("Speicher mit übertakten", "Overclock memory too"), font=F_BB).pack(anchor="w")
-        WrapLabel(memf, text=tr(
-            "Start mit einem vorsichtigen Wert je Kartengeneration (RTX 40: +500), dann "
-            "100er-Schritte bis „Speicher max“ — jeder Schritt mit der ganzen Karte unter Last "
-            "(FurMark + geprüfte Speicherkopien), damit Fehler sofort auffallen. Übernommen: der "
-            "höchste bestandene Schritt, 100 MHz darunter, wenn ein Fehler kam.",
-            "Starts at a cautious value per card generation (RTX 40: +500), then 100-MHz steps "
-            "up to 'Mem max' — every step with the whole card under load (FurMark + verified "
-            "memory copies), so errors show at once. Used: the highest step that passed, 100 MHz "
-            "lower if a step failed."),
-            font=F_XS, fg=DIM, bg=CARD_BG).pack(fill="x", pady=(4, 0))
-        WrapLabel(cp.body, text=tr(
-            "Messpunkte alle „Punktabstand“ mV (25 = genauer, 50 = schneller) von der höchsten "
-            "erreichten Spannung bis 850 mV; Punkte unter der Mindestspannung der Karte unter Last "
-            "werden übersprungen. Je Punkt: Kurve dort flach, leichte Boost-Last (die Karte sitzt "
-            "genau auf dem Punkt), jedes Ergebnis wird geprüft. +15 MHz bis zum Fehler, dann "
-            "halbiert bis 5 MHz. Übernommen wird der gefundene Takt minus Sicherheit (60 MHz, wo "
-            "der Treiber neu starten musste). „Core max“ ist hier nur die Obergrenze je Punkt — "
-            "gesucht wird bis zum ersten Fehler.",
-            "Points every 'Point spacing' mV (25 = finer, 50 = faster) from the highest voltage "
-            "reached down to 850 mV; points below the card's minimum voltage under load are "
-            "skipped. Per point: curve flat there, light boost load (the card sits exactly on the "
-            "point), every result checked. +15 MHz until a failure, then halved down to 5 MHz. "
-            "Used: the clock found minus the safety margin (60 MHz where the driver had to "
-            "restart). 'Core max' is only the upper bound per point here — the search goes to "
-            "the first failure."), font=F_XS, fg=DIM, bg=CARD_BG).pack(fill="x", pady=(10, 0))
+                 text=tr("Speicher mit übertakten", "Overclock memory too"), font=F_BB).pack(side="left")
+        HelpTip(memf, tr(H_MEM_MAX[2] + " " + H_MEM_STAGE[0], H_MEM_MAX[3] + " " + H_MEM_STAGE[1]),
+                bg=CARD_BG).pack(side="left", padx=(6, 0))
+
+        # the whole procedure with the current values (updates while they change)
+        steps = tk.Frame(cp.body, bg=CARD_BG2)
+        steps.pack(fill="x", pady=(12, 0))
+        tk.Label(steps, text=tr("SO LÄUFT DER TUNE", "HOW THE TUNE RUNS"), font=("Segoe UI Semibold", 8),
+                 fg=MUTED, bg=CARD_BG2, anchor="w").pack(fill="x", padx=10, pady=(8, 2))
+        self.lbl_curve_steps = WrapLabel(steps, text="", font=F_XS, fg=TEXT2, bg=CARD_BG2)
+        self.lbl_curve_steps.pack(fill="x", padx=10, pady=(0, 8))
+        for v in (self.v_point_mv, self.v_step_dur, self.v_safety, self.v_mem_max, self.v_fm_final,
+                  self.v_final_dur, self.v_core_max, self.v_mem_stage):
+            v.trace_add("write", lambda *_a: self._update_curve_steps())
+        self._update_curve_steps()
         self._update_furmark_status()
+
+    def _update_curve_steps(self):
+        """The Rundum procedure, step by step, with the values set right now."""
+        def val(var, default):
+            try:
+                return int(var.get())
+            except (tk.TclError, ValueError):
+                return default
+        pmv, step_s = val(self.v_point_mv, 25), val(self.v_step_dur, 45)
+        safety, mem_max = val(self.v_safety, 30), val(self.v_mem_max, 1000)
+        fm, ver, cmax = val(self.v_fm_final, 5), val(self.v_final_dur, 120), val(self.v_core_max, 350)
+        try:
+            mem_on = bool(self.v_mem_stage.get())
+        except tk.TclError:
+            mem_on = True
+        try:
+            mem_start = self._mem_start()
+        except Exception:
+            mem_start = 500
+        mem_de = (f"4. Speicher: +{mem_start} MHz, dann +100er-Schritte bis +{mem_max} MHz — je Schritt "
+                  f"{step_s} s FurMark + geprüfte Speicherkopien; übernommen: höchster bestandener Schritt"
+                  if mem_on else "4. Speicher: bleibt auf Standard (Haken aus)")
+        mem_en = (f"4. Memory: +{mem_start} MHz, then +100 MHz steps up to +{mem_max} MHz — {step_s} s "
+                  f"of FurMark + verified memory copies per step; used: the highest step that passed"
+                  if mem_on else "4. Memory: stays at stock (unticked)")
+        self.lbl_curve_steps.config(text=tr(
+            f"1. Standard messen: Boost-Last + 60 s FurMark-Benchmark (der Vergleichswert)\n"
+            f"2. Kurve: alle {pmv} mV ein Punkt, von der höchsten erreichten Spannung bis 850 mV. "
+            f"Je Punkt +15 MHz, bis ein Fehler kommt, dann +7 / +5 MHz (höchstens +{cmax} MHz), "
+            f"{step_s} s je Schritt. Übernommen: gefundener Takt − {safety} MHz\n"
+            f"3. Kurven-Check: 30 s FurMark mit der neuen Kurve\n"
+            f"{mem_de}\n"
+            f"5. Vergleich: 60 s FurMark je Kurven-Variante — Auswahl nach dem Ziel\n"
+            f"6. Endtest: {fm} min FurMark + {ver} s Rechenprüfung → Profil + Bericht",
+            f"1. Measure stock: boost load + 60 s FurMark benchmark (the reference)\n"
+            f"2. Curve: a point every {pmv} mV, from the highest voltage reached down to 850 mV. "
+            f"Per point +15 MHz until a failure, then +7 / +5 MHz (at most +{cmax} MHz), "
+            f"{step_s} s per step. Used: the clock found − {safety} MHz\n"
+            f"3. Curve check: 30 s FurMark on the new curve\n"
+            f"{mem_en}\n"
+            f"5. Compare: 60 s FurMark per curve variant — picked by the goal\n"
+            f"6. Final test: {fm} min FurMark + {ver} s compute check → profile + report"))
 
     def _select_goal(self, goal_id: str):
         self.v_goal.set(goal_id)
@@ -523,13 +636,16 @@ class GpuTunerTab(Page):
 
             self.lbl_gpu_defaults.config(
                 text=f"{gpu_name[:40]}  ·  {d.generation}  ·  "
-                     f"{tr('Vorgaben', 'Defaults')}: Core max +{d.core_max_mhz} MHz, "
-                     f"Mem max +{d.mem_max_mhz} MHz, Power min {d.power_min_pct} %, "
-                     f"Temp-Limit {d.max_temp_c} °C"
-                     + (tr(f"  ·  Rundum: Start Core +{d.core_start_mhz}, Speicher +{d.mem_start_mhz}, "
-                           f"Core max +{d.curve_core_max_mhz} je Punkt",
-                           f"  ·  All-round: start core +{d.core_start_mhz}, memory +{d.mem_start_mhz}, "
-                           f"core max +{d.curve_core_max_mhz} per point")
+                     + tr(f"Vorgaben: Takt-Plus max. +{d.core_max_mhz} MHz, Speicher-Plus max. "
+                          f"+{d.mem_max_mhz} MHz, Power-Limit min. {d.power_min_pct} %, Temperatur-Grenze "
+                          f"{d.max_temp_c} °C",
+                          f"Defaults: max clock gain +{d.core_max_mhz} MHz, max memory gain "
+                          f"+{d.mem_max_mhz} MHz, min power limit {d.power_min_pct} %, temperature limit "
+                          f"{d.max_temp_c} °C")
+                     + (tr(f"  ·  Rundum: Start Takt +{d.core_start_mhz}, Speicher +{d.mem_start_mhz}, "
+                           f"Takt-Plus max. je Punkt +{d.curve_core_max_mhz}",
+                           f"  ·  All-round: start clock +{d.core_start_mhz}, memory +{d.mem_start_mhz}, "
+                           f"max clock gain per point +{d.curve_core_max_mhz}")
                         if d.tuner_supported else ""),
                 fg=ACC if d.tuner_supported else AMBER
             )
@@ -743,17 +859,19 @@ class GpuTunerTab(Page):
             "then estimated from the clock."))
         msg = tr(
             f"Rundum-Tuner — Ziel: {gname}\n"
-            f"AB-Slot {slot}  |  Core max +{self.v_core_max.get()} MHz  |  Max. Temp "
-            f"{self.v_max_temp.get()} °C\n"
-            f"Spannungspunkte: alle {pmv} mV ab der höchsten erreichten, je Schritt {step_s} s{start}\n"
+            f"Afterburner-Profilplatz {slot}  |  Takt-Plus max. je Punkt +{self.v_core_max.get()} MHz  |  "
+            f"Temperatur-Grenze {self.v_max_temp.get()} °C\n"
+            f"Messpunkte: alle {pmv} mV ab der höchsten erreichten Spannung, Testdauer je Schritt "
+            f"{step_s} s, Sicherheitsabzug {self.v_safety.get()} MHz{start}\n"
             f"Benchmark: {bench}\n{mem_line}\n"
             f"Endtest: {fm_s // 60} min FurMark + {ver_s} s Rechenprüfung{volt_line}\n\n"
             f"Dauer ca. {lo}–{hi} Minuten. Afterburner startet bei jedem Schritt kurz neu (minimiert). "
             f"Während des Tests nicht spielen. Start?",
             f"All-round tuner — goal: {gname}\n"
-            f"AB slot {slot}  |  Core max +{self.v_core_max.get()} MHz  |  Max temp "
-            f"{self.v_max_temp.get()} °C\n"
-            f"Voltage points: every {pmv} mV from the highest reached, {step_s} s per step{start}\n"
+            f"Afterburner profile slot {slot}  |  Max clock gain per point +{self.v_core_max.get()} MHz  |  "
+            f"Temperature limit {self.v_max_temp.get()} °C\n"
+            f"Measured points: every {pmv} mV from the highest voltage reached, test time per step "
+            f"{step_s} s, safety margin {self.v_safety.get()} MHz{start}\n"
             f"Benchmark: {bench}\n{mem_line}\n"
             f"Final test: {fm_s // 60} min FurMark + {ver_s} s compute check{volt_line}\n\n"
             f"Takes about {lo}–{hi} minutes. Afterburner restarts briefly for every step "
@@ -813,16 +931,22 @@ class GpuTunerTab(Page):
                        f"Memory: +{mem_start} to +{self.v_mem_max.get()} MHz in 100-MHz steps, whole "
                        f"card under load ({load}), 100 MHz safety")
                     if mem_on else tr("Speicher: wird nicht übertaktet", "Memory: not overclocked"))
-        if not messagebox.askyesno("Start Tune",
-            f"Mode: {mode_str}\n"
-            f"AB Slot: {slot}\n"
-            f"Core Max: +{self.v_core_max.get()}MHz  |  "
-            f"Power Min: {self.v_pwr_min.get()}%  |  "
-            f"Max Temp: {self.v_max_temp.get()}°C\n"
-            f"{mem_line}\n"
+        if not messagebox.askyesno(tr("Tune starten", "Start tune"),
+            tr(f"Modus: {mode_str}\n"
+               f"Afterburner-Profilplatz: {slot}\n"
+               f"Takt-Schritt {self.v_core_step.get()} MHz  |  Takt-Plus max. +{self.v_core_max.get()} MHz  |  "
+               f"Power-Limit min. {self.v_pwr_min.get()} %  |  Temperatur-Grenze {self.v_max_temp.get()} °C\n"
+               f"Testdauer je Schritt {self.v_step_dur.get()} s  |  Endtest {self.v_final_dur.get()} s\n",
+               f"Mode: {mode_str}\n"
+               f"Afterburner profile slot: {slot}\n"
+               f"Clock step {self.v_core_step.get()} MHz  |  Max clock gain +{self.v_core_max.get()} MHz  |  "
+               f"Min power limit {self.v_pwr_min.get()} %  |  Temperature limit {self.v_max_temp.get()} °C\n"
+               f"Test time per step {self.v_step_dur.get()} s  |  Final test {self.v_final_dur.get()} s\n")
+            + f"{mem_line}\n"
             + (tr("FurMark-Fenster gehen bei den Speicher-Schritten auf — nicht schließen.\n",
                   "FurMark windows open during the memory steps — don't close them.\n") if fm else "")
-            + f"\nDauer ca. {'30-45' if mem_on else '20-35'} Minuten. Start?"):
+            + tr(f"\nDauer ca. {'30-45' if mem_on else '20-35'} Minuten. Start?",
+                 f"\nTakes about {'30-45' if mem_on else '20-35'} minutes. Start?")):
             return
 
         cfg = TunerConfig(

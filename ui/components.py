@@ -196,6 +196,84 @@ class NumberField(tk.Frame):
         self.var.set(max(self.lo, min(self.hi, self.value() + delta)))
 
 
+class HelpTip(tk.Label):
+    """A small "?" next to a setting: pointing at it (or a click) opens a little
+    window with the explanation; leaving it closes the window again."""
+
+    WRAP_PX = 330
+
+    def __init__(self, parent, text: str, bg: str = CARD_BG):
+        super().__init__(parent, text="?", font=("Segoe UI Semibold", 8), fg=TEXT,
+                         bg=mix(bg, "#ffffff", 0.14), padx=4, pady=0, cursor="question_arrow")
+        self.text = text
+        self._tip: tk.Toplevel | None = None
+        self._job = None
+        self.bind("<Enter>", lambda e: self._schedule(), add="+")
+        self.bind("<Leave>", lambda e: self.hide(), add="+")
+        self.bind("<Button-1>", lambda e: self.show(), add="+")
+
+    def _schedule(self):
+        self._cancel()
+        self._job = self.after(300, self.show)
+
+    def _cancel(self):
+        if self._job is not None:
+            try:
+                self.after_cancel(self._job)
+            except tk.TclError:
+                pass
+            self._job = None
+
+    def show(self):
+        self._cancel()
+        if self._tip is not None:
+            return
+        try:
+            tip = tk.Toplevel(self)
+            tip.wm_overrideredirect(True)
+            tip.attributes("-topmost", True)
+            box = tk.Frame(tip, bg=BORDER2, padx=1, pady=1)
+            box.pack()
+            tk.Label(box, text=self.text, font=F_S, fg=TEXT, bg=CARD_BG2, justify="left", anchor="w",
+                     wraplength=self.WRAP_PX, padx=10, pady=8).pack()
+            tip.update_idletasks()
+            x = self.winfo_rootx() + self.winfo_width() + 6
+            y = self.winfo_rooty() - 4
+            sw = self.winfo_screenwidth()
+            if x + tip.winfo_reqwidth() > sw - 8:            # no room on the right: left of the "?"
+                x = max(8, self.winfo_rootx() - tip.winfo_reqwidth() - 6)
+            tip.geometry(f"+{x}+{y}")
+            self._tip = tip
+        except tk.TclError:
+            self._tip = None
+
+    def hide(self):
+        self._cancel()
+        if self._tip is not None:
+            try:
+                self._tip.destroy()
+            except tk.TclError:
+                pass
+            self._tip = None
+
+    def destroy(self):
+        self.hide()
+        super().destroy()
+
+
+def param_cell(parent, label: str, var, lo: int, hi: int, step: int, help_text: str,
+               bg: str = CARD_BG, width: int = 64) -> tk.Frame:
+    """Setting in a parameter grid: label (wraps) + "?" with the explanation,
+    the number field below."""
+    cell = tk.Frame(parent, bg=bg)
+    head = tk.Frame(cell, bg=bg)
+    head.pack(fill="x")
+    HelpTip(head, help_text, bg=bg).pack(side="right", anchor="n", padx=(4, 0))
+    WrapLabel(head, text=label, font=F_XS, fg=DIM, bg=bg, pad=2).pack(side="left", fill="x", expand=True)
+    NumberField(cell, var, lo, hi, step, width=width, bg=bg).pack(anchor="w", pady=(2, 0))
+    return cell
+
+
 def run_async(widget: tk.Misc, work, done=None, poll_ms: int = 80):
     """Run work() in a thread; done(result) runs later on the Tk main thread.
     The hand-over is polled from the main thread (after() called from a worker
