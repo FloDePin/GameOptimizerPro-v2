@@ -18,7 +18,7 @@ from core.i18n import current_lang
 from core.nvtune_core import AfterburnerController, GpuMonitor, ProfileManager, TuneProfile
 from core.nvtune_tuner import AutoTuner, TunerConfig, TunerState
 from ui.components import (Card, CheckBox, HelpTip, LogView, NumberField, Page, ResponsiveGrid, Table,
-                           WrapLabel, button, param_cell, scroll_area, tile)
+                           TextDialog, WrapLabel, button, param_cell, scroll_area, tile)
 from ui.theme import (ACC, AMBER, APP_BG, BORDER, CARD_BG, CARD_BG2, CYAN, DIM, ERR, F_BB,
                       F_MONO, F_S, F_XS, GREEN, INPUT_BG, MUTED, TEXT, TEXT2, VIOLET, ctk_font,
                       icon_image, mix, on_color, tr)
@@ -702,9 +702,12 @@ class GpuTunerTab(Page):
         self.btn_apply_profile = button(act, tr("In Afterburner-Platz … ▾", "To Afterburner slot … ▾"),
                                         self._apply_profile, kind="primary", color=CYAN, height=30)
         self.btn_apply_profile.pack(side="left", padx=(0, 6))
+        button(act, tr("Umbenennen …", "Rename …"), self._rename_profile,
+               height=30).pack(side="left", padx=(0, 6))
         button(act, tr("Als Tray-Standard", "Set as tray default"), self._set_tray_default,
                height=30).pack(side="left", padx=(0, 6))
-        button(act, tr("Löschen", "Delete"), self._delete_profile, kind="ghost", height=30,
+        # framed like the others (the user: "Löschen should have a frame too")
+        button(act, tr("Löschen", "Delete"), self._delete_profile, height=30,
                image=icon_image("delete", ERR, 14), compound="left").pack(side="left")
         self.lbl_detail = WrapLabel(card.body, text=tr("Profil auswählen", "Select a profile"),
                                     font=F_MONO, fg=DIM, bg=CARD_BG)
@@ -1031,10 +1034,53 @@ class GpuTunerTab(Page):
         self._post_slot_menu(sel[0], w.winfo_rootx(), w.winfo_rooty() + w.winfo_height())
 
     def _on_profile_menu(self, e):
+        """Right click on a profile: into a slot, rename, delete."""
         row = self.tree.identify_row(e.y)
-        if row:
-            self.tree.selection_set(row)
-            self._post_slot_menu(row, e.x_root, e.y_root)
+        if not row:
+            return
+        self.tree.selection_set(row)
+        if not self.ab.available:
+            menu = tk.Menu(self, tearoff=0)
+            menu.add_command(label=tr("MSI Afterburner nicht gefunden", "MSI Afterburner not found"),
+                             state="disabled")
+        else:
+            menu = self._slot_menu(row)
+        menu.add_separator()
+        menu.add_command(label=tr("Umbenennen …", "Rename …"), command=self._rename_profile)
+        menu.add_command(label=tr("Löschen", "Delete"), command=self._delete_profile)
+        self._post(menu, e.x_root, e.y_root)
+
+    def _rename_profile(self):
+        sel = self.tree.selection()
+        if not sel:
+            return messagebox.showwarning(tr("Profile", "Profiles"),
+                                          tr("Bitte zuerst ein Profil auswählen.", "Select a profile first."))
+        old = sel[0]
+        names = {p.name for p in self.pm.list_all()}
+
+        def check(new: str) -> str:
+            if new.startswith("__"):
+                return tr("Der Name darf nicht mit „__“ beginnen.", "The name must not start with '__'.")
+            if new != old and (new in names or self.pm.load(new) is not None and self.pm.load(new).name != old):
+                return tr(f"„{new}“ gibt es schon.", f"'{new}' already exists.")
+            return ""
+        new = self._ask_name(old, check)
+        if not new or new == old:
+            return
+        ok, err = self.pm.rename(old, new)
+        if not ok:
+            return messagebox.showerror(tr("Umbenennen", "Rename"), err)
+        self._refresh_profiles()
+        if self.tree.exists(new):
+            self.tree.selection_set(new)
+            self.tree.see(new)
+        self.lbl_detail.config(text=tr(f"„{old}“ heißt jetzt „{new}“.", f"'{old}' is now '{new}'."), fg=GREEN)
+
+    def _ask_name(self, old: str, check) -> str:
+        """The rename dialog (own method: tests answer it)."""
+        return TextDialog(self, tr("Profil umbenennen", "Rename profile"),
+                          tr(f"Neuer Name für „{old}“:", f"New name for '{old}':"), initial=old,
+                          ok_text=tr("Umbenennen", "Rename"), check=check, accent=CYAN).show()
 
     def _on_history_menu(self, run, x: int, y: int):
         """Right click on a run in the history: its saved profile into a slot."""

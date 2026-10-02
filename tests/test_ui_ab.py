@@ -88,9 +88,17 @@ def s3():
     check(ab.calls[-1][:2] == ("reset", 3) and ab.calls[-1][2] is False, "reset_to_stock(slot 3) on a worker thread")
     check("simulierter Fehler" in gpu.lbl_manual_st.cget("text"), f"error shown: {gpu.lbl_manual_st.cget('text')}")
     check(gpu.v_m_core.get() == 0 and gpu.v_m_pwr.get() == 100, "sliders back to stock")
-    print("profile apply")
+    print("profile apply: the button opens the slot menu, the chosen slot is written")
     gpu.tree.selection_set("Test OC")
-    boxes.clear(); gpu._apply_profile()
+    posted = []
+    real_post = gpu._post
+    gpu._post = lambda menu, x, y: posted.append(menu)
+    gpu._apply_profile()
+    gpu._post = real_post
+    check(posted and posted[-1].index("end") == 6, "button -> menu with the five slots (no direct write)")
+    import ui.tab_gpu as TG
+    TG.messagebox.askyesno = lambda *a, **k: True
+    boxes.clear(); gpu._export_to_slot(gpu.pm.load("Test OC"), 3, "leer")
 
 @step(2000)
 def s4():

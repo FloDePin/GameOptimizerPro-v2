@@ -71,6 +71,12 @@ class CompareTab(Page):
         self.detail_tree = tbl.tree
         self._refresh_list()
 
+    def on_show(self):
+        """Every time the page is shown: profiles saved since (a tune that just
+        finished, a rename, a delete) are in the lists — the page is built in
+        the background at start and only read them then."""
+        self._refresh_list()
+
     def _refresh_list(self):
         profiles = [p for p in self.pm.list_all() if not p.name.startswith("__")]
         names    = [NONE] + [p.name for p in profiles]

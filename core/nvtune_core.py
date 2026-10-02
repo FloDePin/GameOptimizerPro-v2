@@ -119,6 +119,14 @@ class TuneProfile:
 
 # ── Profile manager ──────────────────────────────────────────────────────────
 
+def _t(de: str, en: str) -> str:
+    try:
+        from core.i18n import current_lang
+        return de if current_lang() == "de" else en
+    except Exception:
+        return de
+
+
 class ProfileManager:
     def __init__(self, profiles_dir: str):
         self.dir = Path(profiles_dir)
@@ -139,27 +147,101 @@ class ProfileManager:
             json.dump(profile.to_dict(), f, indent=2)
         return str(path)
 
-    def load(self, name: str) -> Optional[TuneProfile]:
+    @staticmethod
+    def _is_profile(d) -> bool:
+        """Only real GPU profiles. The folder also holds other JSON files
+        (language.json, the old game_profiles.json) — read as profiles they
+        showed up as a profile called "Default" in every list."""
+        return (isinstance(d, dict) and isinstance(d.get("name"), str) and d["name"].strip() != ""
+                and ("core_offset_mhz" in d or "power_limit_pct" in d))
+
+    # Renamed profiles: old name -> new name (the tune history knows a run's
+    # profile by the name it was saved under). Not *.json: never read as a profile.
+    ALIASES = "renamed.map"
+
+    def _aliases(self) -> dict:
+        try:
+            d = json.loads((self.dir / self.ALIASES).read_text(encoding="utf-8"))
+            return d if isinstance(d, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def _write_aliases(self, d: dict):
+        try:
+            (self.dir / self.ALIASES).write_text(json.dumps(d, indent=1, ensure_ascii=False),
+                                                 encoding="utf-8")
+        except OSError:
+            pass
+
+    def _read(self, name: str) -> Optional[TuneProfile]:
         path = self.dir / f"{self._safe_name(name)}.json"
         if not path.exists():
             return None
-        with open(path, "r", encoding="utf-8") as f:
-            return TuneProfile.from_dict(json.load(f))
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                d = json.load(f)
+        except (OSError, ValueError):
+            return None
+        return TuneProfile.from_dict(d) if self._is_profile(d) else None
+
+    def load(self, name: str) -> Optional[TuneProfile]:
+        """The profile `name` — or, if it was renamed, under its new name."""
+        p = self._read(name)
+        if p is None:
+            aliases, seen = self._aliases(), {name}
+            while p is None and name in aliases and aliases[name] not in seen:
+                name = aliases[name]
+                seen.add(name)
+                p = self._read(name)
+        return p
 
     def list_all(self) -> list[TuneProfile]:
         result = []
         for f in sorted(self.dir.glob("*.json")):
             try:
                 with open(f, encoding="utf-8") as fp:
-                    result.append(TuneProfile.from_dict(json.load(fp)))
+                    d = json.load(fp)
             except Exception:
-                pass
+                continue
+            if self._is_profile(d):
+                result.append(TuneProfile.from_dict(d))
         return result
+
+    def rename(self, old: str, new: str) -> tuple[bool, str]:
+        """-> (ok, message). The file is saved under the new name; the old name
+        keeps pointing to it (tune history)."""
+        new = (new or "").strip()
+        p = self._read(old)
+        if p is None:
+            return False, _t("Profil nicht gefunden", "Profile not found")
+        if not new or new.startswith("__"):
+            return False, _t("Ungültiger Name", "Invalid name")
+        if new == old:
+            return True, ""
+        # case-only rename ("Alt" -> "ALT"): the same file on Windows
+        same_file = self._safe_name(new).lower() == self._safe_name(old).lower()
+        if not same_file and (self.dir / f"{self._safe_name(new)}.json").exists():
+            return False, _t(f"„{new}“ gibt es schon", f"'{new}' already exists")
+        p.name = new
+        try:
+            self.save(p)
+            if not same_file:
+                (self.dir / f"{self._safe_name(old)}.json").unlink()
+        except OSError as e:
+            return False, str(e)
+        aliases = {k: (new if v == old else v) for k, v in self._aliases().items() if k != new}
+        if not same_file:
+            aliases[old] = new
+        self._write_aliases(aliases)
+        return True, ""
 
     def delete(self, name: str) -> bool:
         path = self.dir / f"{self._safe_name(name)}.json"
         if path.exists():
             path.unlink()
+            aliases = self._aliases()
+            if name in aliases.values():
+                self._write_aliases({k: v for k, v in aliases.items() if v != name})
             return True
         return False
 

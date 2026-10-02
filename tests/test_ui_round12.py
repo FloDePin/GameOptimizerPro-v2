@@ -480,6 +480,53 @@ def s_history():
     check(gone.index("end") == 0 and str(gone.entrycget(0, "state")) == "disabled",
           "a deleted profile: says so, no slots")
     g._post, TG.messagebox.askyesno, TG.messagebox.showinfo = real_post, real_ask_ab, real_info
+
+    # renaming a profile (the user: "renaming the profiles would be nice")
+    g._show_view("profiles")
+    g._refresh_profiles()
+    g.tree.selection_set("GOP_CURVE_BAL_1001_1225")
+    asked_names = []
+
+    def answer(old, check_fn):
+        asked_names.append((old, check_fn("P1"), check_fn("__x"), check_fn("Rundum gestern")))
+        return "Rundum gestern"
+    g._ask_name = answer
+    g._rename_profile()
+    check(asked_names and asked_names[0][0] == "GOP_CURVE_BAL_1001_1225" and asked_names[0][1]
+          and asked_names[0][2] and asked_names[0][3] == "",
+          "rename dialog starts from the old name; an existing / reserved name is refused in the dialog")
+    check(g.tree.exists("Rundum gestern") and not g.tree.exists("GOP_CURVE_BAL_1001_1225")
+          and g.tree.selection() == ("Rundum gestern",), "renamed in the list, still selected")
+    check(g.history._runs[rows[0]].profile_name == "GOP_CURVE_BAL_1001_1225"
+          and pm.load("GOP_CURVE_BAL_1001_1225").name == "Rundum gestern",
+          "the history's run still finds its (renamed) profile")
+    btns = []
+
+    def find(wd):
+        for c in wd.winfo_children():
+            if isinstance(c, TG.ctk.CTkButton):
+                btns.append(c)
+            find(c)
+    find(g._views["profiles"])
+    dele = [b for b in btns if b.cget("text") in ("Löschen", "Delete")]
+    tray = [b for b in btns if b.cget("text") in ("Als Tray-Standard", "Set as tray default")]
+    check(dele and tray and dele[0].cget("fg_color") == tray[0].cget("fg_color") != "transparent"
+          and any(b.cget("text") in ("Umbenennen …", "Rename …") for b in btns),
+          "'Löschen' has a frame like 'Als Tray-Standard' (was a borderless ghost button); 'Umbenennen …' is there")
+    from ui.components import TextDialog
+    dlg = TextDialog(w, "Profil umbenennen", "Neuer Name:", initial="Alt",
+                     check=lambda t: "gibt es schon" if t == "P1" else "")
+    t_end = time.time() + 0.3
+    while time.time() < t_end:
+        w.update(); time.sleep(0.02)
+    check(dlg._var.get() == "Alt", "text dialog: pre-filled with the old name")
+    dlg._var.set("P1"); dlg._ok()
+    check(dlg.winfo_exists() and "gibt es schon" in dlg.lbl_err.cget("text") and dlg.result is None,
+          "a taken name: the dialog stays open and says why")
+    dlg._var.set("  Neu  "); dlg._ok()
+    w.update()
+    check(dlg.result == "Neu" and not dlg.winfo_exists(), "a good name: trimmed, dialog closed")
+    g._show_view("history")
     import ui.tune_history_view as THV
     asked = []
     real_ask = THV.messagebox.askyesno
@@ -555,6 +602,15 @@ def s_bios():
     b.profile_var.set(names[0]); b._on_profile_change()
 
     c = w._tab_frames["compare"]
+    # a profile saved after the page was built (the user: today's tune was missing in the
+    # comparison) and a non-profile JSON in the folder (it showed up as "Default")
+    with open(os.path.join(str(pm.dir), "language.json"), "w", encoding="utf-8") as _f:
+        _f.write('{"lang": "de"}')
+    pm.save(TuneProfile(name="Neu nach dem Bau", core_offset_mhz=50))
+    w._show_tab("compare")
+    vals = list(c._combos[0].cget("values"))
+    check("Neu nach dem Bau" in vals and "Rundum gestern" in vals and "Default" not in vals,
+          f"comparison: refreshed every time it is shown, only real profiles: {vals}")
     c._sel_vars[0].set("P1"); c._on_select(0)
     c._sel_vars[1].set("P2"); c._on_select(1)
     check(len(c.detail_tree.get_children()) == 9, "detail table")

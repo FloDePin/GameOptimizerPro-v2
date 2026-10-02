@@ -181,6 +181,47 @@ check(runs["tune_20261002_154619.log"].profile_name == "GOP_CURVE_BAL_1002_1650"
 check(runs["tune_20261002_120000.log"].profile_name == "" and runs["tune_20261002_120000.log"].mode == "OC+UV",
       "stopped run: no profile; the Quick mode is shown as OC+UV")
 
+# ── 5) profiles: only real ones in the lists, renaming ───────────────────────
+print("profiles: only real ones, renaming")
+import json
+from core.nvtune_core import ProfileManager, TuneProfile
+pdir = os.path.join(tmp, "profiles")
+pm = ProfileManager(pdir)
+pm.save(TuneProfile(name="GOP_CURVE_BAL_1002_1628", core_offset_mhz=134, mem_offset_mhz=1000))
+pm.save(TuneProfile(name="Alt", core_offset_mhz=100))
+with open(os.path.join(pdir, "language.json"), "w", encoding="utf-8") as f:
+    json.dump({"lang": "de"}, f)                       # what core/i18n writes there
+with open(os.path.join(pdir, "game_profiles.json"), "w", encoding="utf-8") as f:
+    json.dump({"Hunt": {"exe": "hunt.exe"}}, f)       # left over from the removed games page
+names = sorted(p.name for p in pm.list_all())
+check(names == ["Alt", "GOP_CURVE_BAL_1002_1628"],
+      f"language.json / game_profiles.json are not profiles (they showed up as 'Default'): {names}")
+check(pm.load("language") is None, "... and load() doesn't turn them into one either")
+ok, err = pm.rename("GOP_CURVE_BAL_1002_1628", "Rundum heute")
+check(ok and pm.load("Rundum heute").core_offset_mhz == 134
+      and not os.path.exists(os.path.join(pdir, "GOP_CURVE_BAL_1002_1628.json")),
+      "renamed: saved under the new name, the old file is gone")
+check(pm.load("GOP_CURVE_BAL_1002_1628").name == "Rundum heute",
+      "the old name (the tune history knows the run by it) still finds the profile")
+ok, err = pm.rename("Alt", "Rundum heute")
+check(not ok and err and pm.load("Alt") is not None, f"a name that exists is refused, nothing lost: {err!r}")
+ok, err = pm.rename("Rundum heute", "Rundum 2")
+check(ok and pm.load("GOP_CURVE_BAL_1002_1628").name == "Rundum 2" and pm.load("Rundum heute").name == "Rundum 2",
+      "renamed twice: both earlier names still find it")
+ok, err = pm.rename("Rundum 2", "GOP_CURVE_BAL_1002_1628")
+check(ok and pm.load("GOP_CURVE_BAL_1002_1628").name == "GOP_CURVE_BAL_1002_1628"
+      and pm.load("Rundum 2").name == "GOP_CURVE_BAL_1002_1628", "back to the first name: no loop")
+ok, err = pm.rename("Alt", "ALT")
+check(ok and [p.name for p in pm.list_all()].count("ALT") == 1 and pm.load("Alt").name == "ALT",
+      "only the case changed (the same file on Windows): renamed, not 'already exists'")
+check(not pm.rename("ALT", "__tray_default__")[0] and not pm.rename("ALT", "  ")[0]
+      and not pm.rename("nope", "x")[0], "reserved / empty names and unknown profiles are refused")
+check(not any(f.endswith(".json") and "renamed" in f for f in os.listdir(pdir)),
+      "the rename map is no *.json (never read as a profile)")
+pm.delete("GOP_CURVE_BAL_1002_1628")
+check(pm.load("Rundum 2") is None and pm.load("Rundum heute") is None,
+      "deleted: its old names lead nowhere any more")
+
 import shutil
 shutil.rmtree(tmp, ignore_errors=True)
 print("\n%d failure(s)" % len(FAILS))

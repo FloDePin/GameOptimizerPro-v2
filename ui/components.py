@@ -19,7 +19,7 @@ import customtkinter as ctk
 
 from ui.theme import (ACC, APP_BG, BORDER, BORDER2, CARD_BG, CARD_BG2, DIM, ERR, F_B, F_H,
                       F_MONO, F_MONOS, F_NUM, F_S, F_TITLE, F_XS, GREEN, HOVER, INPUT_BG,
-                      MUTED, AMBER, RED, TEXT, TEXT2, WHITE, ctk_font, hover_of, mix, tint)
+                      MUTED, AMBER, RED, TEXT, TEXT2, WHITE, ctk_font, hover_of, mix, tint, tr)
 
 
 # ── text ──────────────────────────────────────────────────────────────────────
@@ -824,7 +824,7 @@ class ChoiceDialog(ctk.CTkToplevel):
                      wraplength=440).pack(anchor="w", pady=(8, 0))
         btns = tk.Frame(body, bg=APP_BG)
         btns.pack(fill="x", pady=(16, 0))
-        button(btns, "Abbrechen", self.destroy).pack(side="right", padx=(8, 0))
+        button(btns, tr("Abbrechen", "Cancel"), self.destroy).pack(side="right", padx=(8, 0))
         button(btns, ok_text, self._ok, kind="primary", color=accent).pack(side="right")
         self.protocol("WM_DELETE_WINDOW", self.destroy)
         try:
@@ -848,6 +848,66 @@ class ChoiceDialog(ctk.CTkToplevel):
     def show(self):
         self.wait_window()
         return self.result
+
+
+class TextDialog(ChoiceDialog):
+    """Modal one-line text input, pre-filled and selected (CTkInputDialog can't
+    pre-fill — renaming starts from the old name). show() -> text or None.
+    `check(text)` -> error message or "" keeps the dialog open on bad input."""
+
+    def __init__(self, parent, title: str, heading: str, initial: str = "", ok_text: str = "OK",
+                 check=None, accent: str = GREEN):
+        ctk.CTkToplevel.__init__(self, parent)
+        self.title(title)
+        self.result = None
+        self._check = check
+        try:
+            from ui.theme import app_icon_path
+            icon = app_icon_path()
+            if icon:
+                self.iconbitmap(icon)
+        except tk.TclError:
+            pass
+        body = tk.Frame(self, bg=APP_BG)
+        body.pack(fill="both", expand=True, padx=20, pady=18)
+        tk.Label(body, text=heading, font=("Segoe UI Semibold", 12), fg=TEXT, bg=APP_BG,
+                 justify="left", wraplength=420).pack(anchor="w", pady=(0, 10))
+        self._var = tk.StringVar(value=initial)
+        self.entry = ctk.CTkEntry(body, textvariable=self._var, width=420, height=32, font=ctk_font(13))
+        self.entry.pack(fill="x")
+        self.lbl_err = tk.Label(body, text="", font=F_XS, fg=ERR, bg=APP_BG, anchor="w")
+        self.lbl_err.pack(fill="x", pady=(6, 0))
+        btns = tk.Frame(body, bg=APP_BG)
+        btns.pack(fill="x", pady=(10, 0))
+        button(btns, tr("Abbrechen", "Cancel"), self.destroy).pack(side="right", padx=(8, 0))
+        button(btns, ok_text, self._ok, kind="primary", color=accent).pack(side="right")
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
+        self.bind("<Return>", lambda e: self._ok())
+        self.bind("<Escape>", lambda e: self.destroy())
+        try:
+            self.transient(parent.winfo_toplevel())
+        except tk.TclError:
+            pass
+        self.after(60, self._focus)
+
+    def _focus(self):
+        super()._focus()
+        try:
+            self.entry.focus_set()
+            self.entry.select_range(0, "end")
+            self.entry.icursor("end")
+        except tk.TclError:
+            pass
+
+    def _ok(self):
+        text = self._var.get().strip()
+        err = self._check(text) if (self._check and text) else ("" if text else "…")
+        if err:
+            self.lbl_err.config(text=err if err != "…" else tr("Bitte einen Namen eingeben.",
+                                                               "Please enter a name."))
+            return
+        self.result = text
+        self.destroy()
 
 
 class Table(tk.Frame):
