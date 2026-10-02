@@ -176,16 +176,48 @@ def benchmark_args(path: str, seconds: float, width: int = 1920, height: int = 1
     return args
 
 
+def _no_focus_startupinfo():
+    """FurMark's window opens WITHOUT taking the focus (SW_SHOWNOACTIVATE)."""
+    import subprocess
+    if os.name != "nt":
+        return None
+    si = subprocess.STARTUPINFO()
+    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    si.wShowWindow = 4                     # SW_SHOWNOACTIVATE
+    return si
+
+
+def _lock_foreground(lock: bool) -> bool:
+    """LockSetForegroundWindow: while FurMark starts, no other program may pull
+    the foreground to itself (only the foreground process can set the lock —
+    when we aren't in front, FurMark can't take the front anyway). The user's
+    own clicks still switch windows."""
+    if os.name != "nt":
+        return False
+    try:
+        import ctypes
+        return bool(ctypes.windll.user32.LockSetForegroundWindow(1 if lock else 2))
+    except Exception:
+        return False
+
+
+# FurMark is up and its window shown well within this; then the lock goes.
+FOCUS_LOCK_S = 8.0
+
+
 def run_benchmark(path: str, seconds: float, width: int = 1920, height: int = 1080,
                   msaa: int = 8, demo: str = "furmark-gl", stop_event=None,
-                  on_tick=None, grace_s: float = 90.0) -> dict:
+                  on_tick=None, grace_s: float = 90.0, focus: bool = False) -> dict:
     """Run a FurMark 2 benchmark and wait for it (blocks ~seconds + start-up).
     -> {"ok", "score", "fps_avg", "fps_min", "max_temp", "max_usage", "exit_code",
         "aborted", "error", "elapsed_s", "duration_ms"}. FurMark crashing (non-zero
     exit), hanging past the grace time or printing no score counts as NOT ok.
     elapsed_s (wall time) and duration_ms (FurMark's own) let the caller spot a
     run that ended far too early. on_tick(elapsed_s) is called about once a
-    second (e.g. to record power and temperature)."""
+    second (e.g. to record power and temperature).
+    focus=False (the tuner): FurMark's window opens without taking the focus.
+    Windows gives the foreground program priority on the GPU — live, a FurMark
+    in front left the tuner's verified memory copies 13 GB/s instead of 231."""
     import subprocess
     import threading
     import time
@@ -195,47 +227,70 @@ def run_benchmark(path: str, seconds: float, width: int = 1920, height: int = 10
     if not path or not os.path.exists(path) or not is_v2(path):
         res["error"] = "FurMark 2 nicht gefunden"
         return res
+    lock = {"on": not focus and _lock_foreground(True)}
+
+    def unlock():
+        if lock["on"]:
+            lock["on"] = False
+            _lock_foreground(False)
+
     try:
-        proc = subprocess.Popen(benchmark_args(path, seconds, width, height, msaa, demo),
-                                cwd=os.path.dirname(path), stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, text=True,
-                                errors="replace",
-                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-    except OSError as e:
-        res["error"] = f"FurMark ließ sich nicht starten: {e}"
-        return res
-    out: list = []
-    reader = threading.Thread(target=lambda: out.append(proc.stdout.read() or ""), daemon=True)
-    reader.start()
-    t0 = time.time()
-    last_tick = 0.0
-    while proc.poll() is None:
-        el = time.time() - t0
-        if stop_event is not None and stop_event.is_set():
-            proc.kill()
-            res.update(aborted=True, error="abgebrochen", elapsed_s=round(el, 1))
+        try:
+            proc = subprocess.Popen(benchmark_args(path, seconds, width, height, msaa, demo),
+                                    cwd=os.path.dirname(path), stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, text=True,
+                                    errors="replace",
+                                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                                    startupinfo=None if focus else _no_focus_startupinfo())
+        except OSError as e:
+            res["error"] = f"FurMark ließ sich nicht starten: {e}"
             return res
-        if el > seconds + grace_s:
-            proc.kill()
-            res.update(error=f"FurMark hängt ({el:.0f} s) — abgebrochen", elapsed_s=round(el, 1))
-            return res
-        if on_tick is not None and el - last_tick >= 1.0:
-            last_tick = el
+
+        def _kill():
+            # kill AND reap it: the next benchmark starts seconds later, and an
+            # un-waited FurMark could still hold the GPU / its window then
             try:
-                on_tick(el)
+                proc.kill()
+                proc.wait(timeout=10)
             except Exception:
                 pass
-        time.sleep(0.2)
-    res["elapsed_s"] = round(time.time() - t0, 1)
-    reader.join(timeout=5)
-    stats = parse_stats("".join(out))
-    res["exit_code"] = proc.returncode
-    for k in ("score", "fps_avg", "fps_min", "max_temp", "max_usage", "duration_ms"):
-        res[k] = stats.get(k, 0)
-    if proc.returncode != 0:
-        res["error"] = f"FurMark endete mit Code {proc.returncode} (Absturz?)"
-    elif not res["score"]:
-        res["error"] = "FurMark lieferte keine Punktzahl"
-    else:
-        res["ok"] = True
-    return res
+
+        out: list = []
+        reader = threading.Thread(target=lambda: out.append(proc.stdout.read() or ""), daemon=True)
+        reader.start()
+        t0 = time.time()
+        last_tick = 0.0
+        while proc.poll() is None:
+            el = time.time() - t0
+            if el >= FOCUS_LOCK_S:
+                unlock()                      # FurMark's window is up: nothing to keep out any more
+            if stop_event is not None and stop_event.is_set():
+                _kill()
+                res.update(aborted=True, error="abgebrochen", elapsed_s=round(el, 1))
+                return res
+            if el > seconds + grace_s:
+                _kill()
+                res.update(error=f"FurMark hängt ({el:.0f} s) — abgebrochen", elapsed_s=round(el, 1))
+                return res
+            if on_tick is not None and el - last_tick >= 1.0:
+                last_tick = el
+                try:
+                    on_tick(el)
+                except Exception:
+                    pass
+            time.sleep(0.2)
+        res["elapsed_s"] = round(time.time() - t0, 1)
+        reader.join(timeout=5)
+        stats = parse_stats("".join(out))
+        res["exit_code"] = proc.returncode
+        for k in ("score", "fps_avg", "fps_min", "max_temp", "max_usage", "duration_ms"):
+            res[k] = stats.get(k, 0)
+        if proc.returncode != 0:
+            res["error"] = f"FurMark endete mit Code {proc.returncode} (Absturz?)"
+        elif not res["score"]:
+            res["error"] = "FurMark lieferte keine Punktzahl"
+        else:
+            res["ok"] = True
+        return res
+    finally:
+        unlock()

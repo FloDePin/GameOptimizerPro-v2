@@ -33,6 +33,7 @@ class TuneRun:
     reason:      str   = ""               # why there is no profile (failed / stopped runs)
     log_lines:   list  = field(default_factory=list)
     path:        str   = ""
+    profile_name: str  = ""               # "Profile saved: <name>" (GPU profiles)
 
 
 def _de() -> bool:
@@ -180,6 +181,7 @@ class TuneHistory:
             # closing summary
             if msg.startswith("Profile saved:"):
                 run.passed = True
+                run.profile_name = msg[len("Profile saved:"):].strip()
             elif msg.startswith("Core offset:"):
                 v = re.search(r"([+-]?\d+)\s*MHz", msg)
                 if v:

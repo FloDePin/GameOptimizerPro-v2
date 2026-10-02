@@ -765,6 +765,20 @@ class AfterburnerController:
                           "einmal unten auf 'Speichern' und dann auf einen Slot klicken.")
         return curve, src
 
+    def slot_summaries(self, de: bool = True) -> dict:
+        """{1: "Kurve · Speicher +1000 · Power 100 %", 2: "leer", …} — what the
+        five slots hold right now (read-only; {} when the file can't be read)."""
+        from core.ab_profile import ProfileFile, slot_summary
+        path, _why = self.find_gpu_profile()
+        if not path:
+            return {}
+        try:
+            text, _enc = self._read(path)
+        except OSError:
+            return {}
+        pf = ProfileFile(text)
+        return {s: slot_summary(pf, s, de) for s in range(1, 6)}
+
     def reset_to_stock(self, slot: int = 2) -> tuple[bool, str]:
         """Stock clocks, stock power limit, flat stock curve — written into OUR
         slot and applied. (It used to just load the user's slot 1.)"""

@@ -184,8 +184,8 @@ def tune(gpu, **cfg):
     tmp = tempfile.mkdtemp(prefix="gop_r10t_")
     ab = AB(gpu)
     pm = NT.ProfileManager(os.path.join(tmp, "p"))
-    t = AutoTuner(Mon(), ab, pm, TunerConfig(mode=TuneMode.OC_ONLY, core_step_mhz=15,
-                                             core_max_mhz=300, **cfg), log_dir=os.path.join(tmp, "l"))
+    t = AutoTuner(Mon(), ab, pm, TunerConfig(mode=TuneMode.OC_UV, core_step_mhz=15, core_max_mhz=300,
+                                             power_min_pct=100, **cfg), log_dir=os.path.join(tmp, "l"))
     logs = []
     t.on_log(lambda m, l: logs.append(m))
     t._run_safe()
@@ -220,13 +220,14 @@ check(ab.log[-1][0] == "__reset__" and ab.log[-1][1:4] == (0, 0, 100), f"GPU bac
 check(any("KEIN Profil gespeichert" in m for m in logs), "clear message")
 
 b = NT.AutoTuner._final_backoff
-cfg = TunerConfig(core_step_mhz=15, power_step_pct=5, power_min_pct=65, vf_step_mv=25, max_temp_c=85)
+cfg = TunerConfig(core_step_mhz=15, power_step_pct=5, power_min_pct=65, max_temp_c=85)
 hot = StressResult(passed=False, max_temp=86, throttle_hit=True)
 err = StressResult(passed=False, compute_error=True)
-check(b(cfg, hot, 1, 100, 0, 0, 90)[3] == 85, "thermal failure -> power limit -5 % first")
-check(b(cfg, err, 1, 100, 950, 0, 100)[1] == 975, "V/F undervolt -> voltage +25 mV first")
-check(b(cfg, err, 1, 0, 0, 0, 100) is None, "stock settings failing: nothing left to take back")
-check(b(cfg, err, 1, 0, 0, 0, 90)[3] == 95, "UV only: power limit back up")
+check(b(cfg, hot, 1, 100, 0, 90)[2] == 85, "thermal failure -> power limit -5 % first")
+check(b(cfg, err, 1, 100, 0, 100)[0] == 85, "instability -> core offset one step back")
+check(b(cfg, err, 2, 100, 500, 100)[1] == 400, "... alternating with the memory offset")
+check(b(cfg, err, 1, 0, 0, 100) is None, "stock settings failing: nothing left to take back")
+check(b(cfg, err, 1, 0, 0, 90)[2] == 95, "power limit only: power limit back up")
 
 # ── 5) start without console, keep awake, 24-h temp rule ───────────────────
 print("launch / power / cleaner")

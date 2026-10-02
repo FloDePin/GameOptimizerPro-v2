@@ -4,7 +4,7 @@ TESTS = ["test_ab_profile.py", "test_real_profile.py", "test_ab_controller.py", 
          "test_mahm_threads.py", "test_tuner_apply.py", "test_tuner_stages.py", "test_worker.py",
          "test_ui_ab.py", "test_selftest_tool.py", "test_services.py", "test_score_clean_display.py",
          "test_ui_new.py", "test_round10.py", "test_memstage.py", "test_round12.py",
-         "test_ui_round12.py", "test_round13.py", "test_ui_round13.py", "test_round14.py", "test_app_start.py", "ps_parse_all.py",
+         "test_ui_round12.py", "test_round13.py", "test_ui_round13.py", "test_round14.py", "test_round15.py", "test_app_start.py", "ps_parse_all.py",
          "ci_backslash_check.py"]
 SKIPPED = 2          # exit code of a test that can't run here (e.g. no Afterburner)
 # These map real (alpha-0) windows for real geometry. They run on their own,

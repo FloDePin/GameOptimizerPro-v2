@@ -14,6 +14,7 @@ from tkinter import messagebox
 
 import customtkinter as ctk
 
+from core.i18n import current_lang
 from core.nvtune_core import AfterburnerController, GpuMonitor, ProfileManager, TuneProfile
 from core.nvtune_tuner import AutoTuner, TunerConfig, TunerState
 from ui.components import (Card, CheckBox, HelpTip, LogView, NumberField, Page, ResponsiveGrid, Table,
@@ -25,27 +26,27 @@ from ui.theme import (ACC, AMBER, APP_BG, BORDER, CARD_BG, CARD_BG2, CYAN, DIM, 
 # Fix import path for stress worker
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
+# Two modes (round 15). Rundum's goals cover the former "overclock only" (Max.
+# Leistung) and "undervolt only" (Effizienz) modes — per voltage point instead
+# of one offset for the whole curve, and as a real undervolt instead of a lower
+# power limit. Quick stays: half the time, and it needs no curve.
 MODES = [
-    ("oc_only", "Übertakten", "Overclock",
-     "Maximaler stabiler Core-Offset, das Power-Limit bleibt bei 100 % — mehr FPS bei gleichen "
-     "Temperaturen.",
-     "Max stable core offset, power limit stays at 100 % — more FPS, same temperatures."),
-    ("uv_only", "Undervolten", "Undervolt",
-     "Kleinstes stabiles Power-Limit, der Core-Offset bleibt 0 — kühler und leiser bei "
-     "Standard-Takt.",
-     "Lowest stable power limit, core offset stays at 0 — cooler and quieter at stock speed."),
-    ("oc_uv", "OC + UV", "OC + UV",
-     "Bewährt und schneller (20–45 min) — beides: höherer Takt und niedrigere Temperaturen, "
-     "gleiche oder bessere Leistung.",
-     "Proven and quicker (20–45 min) — best of both: higher clocks, lower temperatures, same "
-     "or better performance."),
     ("curve", "Rundum", "All-round",
-     "Neu und am gründlichsten (50–80 min) — misst die V/F-Kurve alle 25 mV Punkt für Punkt "
+     "Empfohlen, am gründlichsten (50–80 min) — misst die V/F-Kurve alle 25 mV Punkt für Punkt "
      "(wie HYDRA), baut daraus eine eigene Kurve, vergleicht per FurMark-Benchmark und wählt nach "
-     "dem Ziel. Endtest: 5 min FurMark + Rechenprüfung, danach ein Bericht.",
-     "New and most thorough (50–80 min) — measures the V/F curve point by point every 25 mV "
-     "(like HYDRA), builds an own curve from it, compares with FurMark benchmarks and picks "
-     "by the goal. Final test: 5 min FurMark + compute check, then a report."),
+     "dem Ziel: Max. Leistung, Ausgewogen oder Effizienz (Undervolting). Endtest: 5 min FurMark + "
+     "Rechenprüfung, danach ein Bericht.",
+     "Recommended, the most thorough (50–80 min) — measures the V/F curve point by point every "
+     "25 mV (like HYDRA), builds an own curve from it, compares with FurMark benchmarks and picks "
+     "by the goal: max performance, balanced or efficiency (undervolting). Final test: 5 min "
+     "FurMark + compute check, then a report."),
+    ("oc_uv", "Schnell (OC + UV)", "Quick (OC + UV)",
+     "Halb so lang (20–45 min) — ein Takt-Offset für die ganze Kurve plus das niedrigste "
+     "Power-Limit, das höchstens 3 % Leistung kostet: mehr Takt, weniger Verbrauch. Weniger genau "
+     "als Rundum, braucht aber keine Kurven-Messung.",
+     "Half the time (20–45 min) — one clock offset for the whole curve plus the lowest power "
+     "limit that costs at most 3 % performance: more clock, less power. Less precise than "
+     "All-round, but needs no curve measurement."),
 ]
 
 GOALS = [
@@ -154,7 +155,8 @@ class GpuTunerTab(Page):
     def _build_history(self, p):
         """All Auto-Tune runs (was a part of the removed "Games & history" page)."""
         from ui.tune_history_view import TuneHistoryView
-        self.history = TuneHistoryView(p, getattr(self.tuner, "_log_dir", "logs"))
+        self.history = TuneHistoryView(p, getattr(self.tuner, "_log_dir", "logs"),
+                                       on_menu=self._on_history_menu)
         self.history.pack(fill="both", expand=True)
 
     # ── Auto-Tune ─────────────────────────────────────────────────────────────
@@ -170,7 +172,7 @@ class GpuTunerTab(Page):
         right.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
 
         # ── Mode ──────────────────────────────────────────────────────────────
-        self.v_mode = tk.StringVar(value="oc_uv")
+        self.v_mode = tk.StringVar(value="curve")
         mode = Card(left, tr("Modus", "Mode"), accent=CYAN)
         mode.pack(fill="x", padx=(0, 8), pady=(0, 12))
         self.mode_card = mode
@@ -267,6 +269,9 @@ class GpuTunerTab(Page):
             "As in the All-round mode: +500, then 100-MHz steps up to 'Max memory gain', every step "
             "with the whole card under load. Takes about 6–10 min longer."),
             font=F_XS, fg=DIM, bg=CARD_BG).pack(fill="x", pady=(4, 0))
+        # The fields hold the Quick mode's defaults now — the start mode (Rundum)
+        # has its own (clock gain per point, memory up to +1000).
+        self._apply_mode_to_config(self.v_mode.get())
         self._show_mode_cards()
 
         # ── Right: controls, live values, graph, progress, log ───────────────
@@ -589,9 +594,9 @@ class GpuTunerTab(Page):
         self._apply_mode_to_config(mode_id)
         self._show_mode_cards()
 
-    # Short button texts when the four long ones don't fit (window at its minimum
-    # size); the description below the buttons says what the mode does anyway.
-    MODE_SHORT = {"oc_only": ("OC", "OC"), "uv_only": ("UV", "UV")}
+    # Short button texts when the long ones don't fit (window at its minimum
+    # size, large font scaling); the description below says what the mode does.
+    MODE_SHORT = {"oc_uv": ("Schnell", "Quick")}
 
     def _mode_texts(self, short: bool) -> dict:
         out = {}
@@ -651,7 +656,8 @@ class GpuTunerTab(Page):
             )
         except Exception as e:
             self.lbl_gpu_defaults.config(
-                text=f"GPU detection: {e} — using conservative defaults", fg=AMBER)
+                text=tr(f"GPU-Erkennung: {e} — vorsichtige Standardwerte",
+                        f"GPU detection: {e} — using conservative defaults"), fg=AMBER)
 
     def _apply_mode_to_config(self, mode_id: str):
         """When mode changes, adjust visible defaults."""
@@ -660,21 +666,7 @@ class GpuTunerTab(Page):
             gpu_name = self.monitor.read().name
             d = get_defaults(gpu_name)
 
-            if mode_id == "oc_only":
-                self.v_core_max.set(d.core_max_mhz)
-                self.v_pwr_min.set(100)
-                self.v_mem_stage.set(True)
-            elif mode_id == "uv_only":
-                self.v_core_max.set(0)
-                self.v_pwr_min.set(d.power_min_pct)
-                self.v_mem_stage.set(False)    # power saving: no extra memory power
-            elif mode_id in ("full", "vf_only"):
-                self.v_core_max.set(d.core_max_mhz)
-                self.v_pwr_min.set(100)  # VF curve handles UV, not power limit
-            elif mode_id == "mem_only":
-                self.v_core_max.set(0)
-                self.v_pwr_min.set(100)
-            elif mode_id == "curve":
+            if mode_id == "curve":
                 self.v_core_max.set(d.curve_core_max_mhz)   # per point, searched to a failure
                 self.v_mem_stage.set(True)
                 self.v_mem_max.set(min(1000, d.mem_max_mhz))   # +500 … +1000 (whole-card test)
@@ -707,8 +699,9 @@ class GpuTunerTab(Page):
         self.tree = tbl.tree
         act = tk.Frame(card.body, bg=CARD_BG)
         act.pack(fill="x", pady=(10, 0))
-        button(act, tr("In Afterburner anwenden", "Apply to Afterburner"), self._apply_profile,
-               kind="primary", color=CYAN, height=30).pack(side="left", padx=(0, 6))
+        self.btn_apply_profile = button(act, tr("In Afterburner-Platz … ▾", "To Afterburner slot … ▾"),
+                                        self._apply_profile, kind="primary", color=CYAN, height=30)
+        self.btn_apply_profile.pack(side="left", padx=(0, 6))
         button(act, tr("Als Tray-Standard", "Set as tray default"), self._set_tray_default,
                height=30).pack(side="left", padx=(0, 6))
         button(act, tr("Löschen", "Delete"), self._delete_profile, kind="ghost", height=30,
@@ -717,6 +710,7 @@ class GpuTunerTab(Page):
                                     font=F_MONO, fg=DIM, bg=CARD_BG)
         self.lbl_detail.pack(fill="x", pady=(10, 0))
         self.tree.bind("<<TreeviewSelect>>", self._on_profile_select)
+        self.tree.bind("<Button-3>", self._on_profile_menu)
         self._refresh_profiles()
 
     # ── Manual ────────────────────────────────────────────────────────────────
@@ -766,7 +760,6 @@ class GpuTunerTab(Page):
             TunerState.BASELINE:   (ACC, "Baseline..."),
             TunerState.STAGE1:     (ACC, "Stage 1: Core OC"),
             TunerState.STAGE2:     (ACC, "Stage 2: Power UV"),
-            TunerState.STAGE3:     (ACC, "Stage 3: V/F"),
             TunerState.STAGE4:     (ACC, tr("Stufe 4: Speicher", "Stage 4: Memory")),
             TunerState.CURVE:      (ACC, tr("Kurve: Messpunkte", "Curve: points")),
             TunerState.BENCH:      (ACC, "Benchmark"),
@@ -866,7 +859,8 @@ class GpuTunerTab(Page):
             f"Benchmark: {bench}\n{mem_line}\n"
             f"Endtest: {fm_s // 60} min FurMark + {ver_s} s Rechenprüfung{volt_line}\n\n"
             f"Dauer ca. {lo}–{hi} Minuten. Afterburner startet bei jedem Schritt kurz neu (minimiert). "
-            f"Während des Tests nicht spielen. Start?",
+            f"Während des Tests nicht spielen und die FurMark-Fenster nicht anklicken (das Fenster vorne "
+            f"bekommt auf der GPU Vorrang — die Speicherprüfung käme dann kaum zum Zug). Start?",
             f"All-round tuner — goal: {gname}\n"
             f"Afterburner profile slot {slot}  |  Max clock gain per point +{self.v_core_max.get()} MHz  |  "
             f"Temperature limit {self.v_max_temp.get()} °C\n"
@@ -875,7 +869,8 @@ class GpuTunerTab(Page):
             f"Benchmark: {bench}\n{mem_line}\n"
             f"Final test: {fm_s // 60} min FurMark + {ver_s} s compute check{volt_line}\n\n"
             f"Takes about {lo}–{hi} minutes. Afterburner restarts briefly for every step "
-            f"(minimised). Don't play during the test. Start?")
+            f"(minimised). Don't play during the test and don't click the FurMark windows (the window in "
+            f"front gets priority on the GPU — the memory check would hardly get a turn). Start?")
         if not messagebox.askyesno(tr("Rundum-Tuner starten", "Start all-round tuner"), msg):
             return
         cfg = TunerConfig(
@@ -902,24 +897,7 @@ class GpuTunerTab(Page):
         if self.v_mode.get() == "curve":
             return self._start_curve_tune()
         slot = self.v_ab_slot.get()
-
-        mode_map = {
-            "oc_only":  TuneMode.OC_ONLY,
-            "uv_only":  TuneMode.UV_ONLY,
-            "oc_uv":    TuneMode.OC_UV,
-            "full":     TuneMode.FULL,
-            "vf_only":  TuneMode.VF_ONLY,
-            "mem_only": TuneMode.MEM_ONLY,
-        }
-        mode     = mode_map.get(self.v_mode.get(), TuneMode.OC_UV)
-        mode_str = {
-            "oc_only":  "Overclock Only",
-            "uv_only":  "Undervolt Only (Power)",
-            "oc_uv":    "OC + Undervolt",
-            "full":     "FULL Tune (OC + V/F Curve + Mem OC)",
-            "vf_only":  "V/F Curve Undervolt",
-            "mem_only": "Memory Overclock",
-        }.get(self.v_mode.get(), "OC + UV")
+        mode_str = tr("Schnell (OC + Undervolt)", "Quick (OC + undervolt)")
 
         mem_on = bool(self.v_mem_stage.get())
         fm = self._furmark_v2() if mem_on else ""
@@ -943,14 +921,16 @@ class GpuTunerTab(Page):
                f"Min power limit {self.v_pwr_min.get()} %  |  Temperature limit {self.v_max_temp.get()} °C\n"
                f"Test time per step {self.v_step_dur.get()} s  |  Final test {self.v_final_dur.get()} s\n")
             + f"{mem_line}\n"
-            + (tr("FurMark-Fenster gehen bei den Speicher-Schritten auf — nicht schließen.\n",
-                  "FurMark windows open during the memory steps — don't close them.\n") if fm else "")
+            + (tr("FurMark-Fenster gehen bei den Speicher-Schritten auf — nicht schließen und nicht "
+                  "anklicken (das Fenster vorne bekommt auf der GPU Vorrang).\n",
+                  "FurMark windows open during the memory steps — don't close or click them (the "
+                  "window in front gets priority on the GPU).\n") if fm else "")
             + tr(f"\nDauer ca. {'30-45' if mem_on else '20-35'} Minuten. Start?",
                  f"\nTakes about {'30-45' if mem_on else '20-35'} minutes. Start?")):
             return
 
         cfg = TunerConfig(
-            mode=mode,
+            mode=TuneMode.OC_UV,
             core_step_mhz=self.v_core_step.get(),
             core_max_mhz=self.v_core_max.get(),
             power_min_pct=self.v_pwr_min.get(),
@@ -970,7 +950,9 @@ class GpuTunerTab(Page):
         self.tuner.start()
 
     def _abort_tune(self):
-        if messagebox.askyesno("Abort", "Abort and reset GPU to stock?"):
+        if messagebox.askyesno(tr("Abbrechen", "Abort"), tr("Tune abbrechen und die GPU auf Standard "
+                                                            "zurücksetzen?",
+                                                            "Abort and reset the GPU to stock?")):
             # abort() waits for an in-flight Afterburner write and then resets
             # (Afterburner load ~1.5 s) — run it off the UI thread so the
             # window doesn't freeze.
@@ -1014,10 +996,12 @@ class GpuTunerTab(Page):
         """Run an Afterburner action off the UI thread — it closes and restarts
         Afterburner, which takes a few seconds. done(result) runs on the UI thread."""
         if getattr(self, "_ab_busy", False):
-            messagebox.showinfo("Afterburner", "An Afterburner action is still running.")
+            messagebox.showinfo("Afterburner", tr("Eine Afterburner-Aktion läuft noch.",
+                                                  "An Afterburner action is still running."))
             return False
         if self.tuner.is_running:
-            messagebox.showwarning("Afterburner", "Auto-Tune is running — abort it first.")
+            messagebox.showwarning("Afterburner", tr("Der Auto-Tune läuft — erst abbrechen.",
+                                                     "Auto-Tune is running — abort it first."))
             return False
         self._ab_busy = True
 
@@ -1038,33 +1022,105 @@ class GpuTunerTab(Page):
         return True
 
     def _apply_profile(self):
+        """The button: the slot menu right below it (which slot, and what is in it now)."""
         sel = self.tree.selection()
-        if not sel: return messagebox.showwarning("", "Select a profile first.")
-        p = self.pm.load(sel[0])
-        if not p: return
-        slot = self.v_ab_slot.get()
+        if not sel:
+            return messagebox.showwarning(tr("Profile", "Profiles"),
+                                          tr("Bitte zuerst ein Profil auswählen.", "Select a profile first."))
+        w = self.btn_apply_profile
+        self._post_slot_menu(sel[0], w.winfo_rootx(), w.winfo_rooty() + w.winfo_height())
+
+    def _on_profile_menu(self, e):
+        row = self.tree.identify_row(e.y)
+        if row:
+            self.tree.selection_set(row)
+            self._post_slot_menu(row, e.x_root, e.y_root)
+
+    def _on_history_menu(self, run, x: int, y: int):
+        """Right click on a run in the history: its saved profile into a slot."""
+        if run.profile_name:
+            return self._post_slot_menu(run.profile_name, x, y)
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label=tr("Kein Profil gespeichert", "No profile saved")
+                         + (f" — {run.reason}" if run.reason else ""), state="disabled")
+        self._post(menu, x, y)
+
+    # ── Afterburner slots ─────────────────────────────────────────────────────
+    # A profile goes into any of Afterburner's five slots, chosen right there —
+    # with what each slot holds now. (The user: "if I have 5 results from trying
+    # things and no free slot in Afterburner …")
+
+    def _slot_menu(self, name: str) -> tk.Menu:
+        menu = tk.Menu(self, tearoff=0)
+        p = self.pm.load(name)
+        if p is None:
+            menu.add_command(label=tr(f"Profil „{name}“ gibt es nicht mehr (gelöscht?)",
+                                      f"Profile '{name}' no longer exists (deleted?)"), state="disabled")
+            return menu
+        try:
+            sums = self.ab.slot_summaries(de=current_lang() == "de") if self.ab.available else {}
+        except Exception:
+            sums = {}
+        menu.add_command(label=tr(f"„{p.name}“ in Afterburner speichern + anwenden:",
+                                  f"Save '{p.name}' to Afterburner + apply:"), state="disabled")
+        menu.add_separator()
+        for slot in range(1, 6):
+            now = sums.get(slot, "?")
+            mine = tr("  (deine eigenen Einstellungen)", "  (your own settings)") if slot == 1 else ""
+            menu.add_command(label=tr(f"Platz {slot}:  {now}{mine}", f"Slot {slot}:  {now}{mine}"),
+                             command=lambda s=slot, n=now: self._export_to_slot(p, s, n))
+        return menu
+
+    def _post(self, menu: tk.Menu, x: int, y: int):
+        try:
+            menu.tk_popup(int(x), int(y))
+        finally:
+            menu.grab_release()
+
+    def _post_slot_menu(self, name: str, x: int, y: int):
+        if not self.ab.available:
+            return messagebox.showwarning("Afterburner", tr("MSI Afterburner nicht gefunden.",
+                                                            "MSI Afterburner not found."))
+        self._post(self._slot_menu(name), x, y)
+
+    def _export_to_slot(self, p: TuneProfile, slot: int, now: str = ""):
+        if not messagebox.askyesno("Afterburner", tr(
+                f"„{p.name}“ in Afterburner-Platz {slot} speichern und anwenden?\n\n"
+                f"Platz {slot} jetzt: {now or '?'}\n\nAfterburner startet dafür kurz neu.",
+                f"Save '{p.name}' to Afterburner slot {slot} and apply it?\n\n"
+                f"Slot {slot} now: {now or '?'}\n\nAfterburner restarts briefly for it.")):
+            return
 
         def done(res):
             ok, err = res
             if ok:
                 notes = "\n".join(self.ab.last_notes)
-                messagebox.showinfo("Applied", f"'{p.name}' applied (Afterburner slot {slot})."
+                messagebox.showinfo("Afterburner", tr(f"„{p.name}“ liegt jetzt auf Platz {slot} und ist aktiv.",
+                                                      f"'{p.name}' is in slot {slot} now and active.")
                                     + (f"\n\n{notes}" if notes else ""))
+                self.lbl_detail.config(text=tr(f"„{p.name}“ → Afterburner-Platz {slot} ✓",
+                                               f"'{p.name}' → Afterburner slot {slot} ✓"), fg=GREEN)
             else:
-                messagebox.showerror("Error", err)
+                messagebox.showerror("Afterburner", err)
+                self.lbl_detail.config(text=err, fg=ERR)
         if self._run_ab(lambda: self.ab.write_and_apply(slot, p), done):
-            self.lbl_detail.config(text=f"Applying '{p.name}' via Afterburner …", fg=DIM)
+            self.lbl_detail.config(text=tr(f"„{p.name}“ → Afterburner-Platz {slot} …",
+                                           f"'{p.name}' → Afterburner slot {slot} …"), fg=DIM)
 
     def _set_tray_default(self):
         sel = self.tree.selection()
         if not sel: return
         p = self.pm.load(sel[0])
-        if p: self.pm.set_tray_default(p); messagebox.showinfo("OK", "Tray default set.")
+        if p:
+            self.pm.set_tray_default(p)
+            messagebox.showinfo("OK", tr(f"„{p.name}“ ist jetzt der Tray-Standard.",
+                                         f"'{p.name}' is the tray default now."))
 
     def _delete_profile(self):
         sel = self.tree.selection()
         if not sel: return
-        if messagebox.askyesno("Delete", f"Delete '{sel[0]}'?"):
+        if messagebox.askyesno(tr("Löschen", "Delete"), tr(f"Profil „{sel[0]}“ löschen?",
+                                                          f"Delete profile '{sel[0]}'?")):
             self.pm.delete(sel[0]); self._refresh_profiles()
 
     def _manual_apply(self):
@@ -1076,11 +1132,13 @@ class GpuTunerTab(Page):
         def done(res):
             ok, err = res
             self.lbl_manual_st.config(
-                text=(f"{'Applied' if ok else f'Error: {err}'} — Core {p.core_offset_mhz:+d} "
+                text=(f"{tr('Angewendet', 'Applied') if ok else tr('Fehler: ', 'Error: ') + err} — "
+                      f"Core {p.core_offset_mhz:+d} "
                       f"Mem {p.mem_offset_mhz:+d} Pwr {p.power_limit_pct}% (slot {slot})"),
                 fg=GREEN if ok else ERR)
         if self._run_ab(lambda: self.ab.write_and_apply(slot, p), done):
-            self.lbl_manual_st.config(text="Applying via Afterburner …", fg=DIM)
+            self.lbl_manual_st.config(text=tr("Wird über Afterburner angewendet …",
+                                              "Applying via Afterburner …"), fg=DIM)
 
     def _manual_reset(self):
         self.v_m_core.set(0); self.v_m_mem.set(0)
@@ -1096,10 +1154,12 @@ class GpuTunerTab(Page):
 
         def done(res):
             ok, err = res
-            self.lbl_manual_st.config(text="Reset to stock." if ok else f"Error: {err}",
+            self.lbl_manual_st.config(text=tr("Auf Standard zurückgesetzt.", "Reset to stock.") if ok
+                                      else tr("Fehler: ", "Error: ") + err,
                                       fg=GREEN if ok else ERR)
         if self._run_ab(work, done):
-            self.lbl_manual_st.config(text="Resetting via Afterburner …", fg=DIM)
+            self.lbl_manual_st.config(text=tr("Wird über Afterburner zurückgesetzt …",
+                                              "Resetting via Afterburner …"), fg=DIM)
 
     def _manual_save(self):
         name = ctk.CTkInputDialog(title=tr("Profil speichern", "Save profile"),
@@ -1110,4 +1170,4 @@ class GpuTunerTab(Page):
                         power_limit_pct=self.v_m_pwr.get(), notes="Manual",
                         created_at=datetime.now().isoformat())
         self.pm.save(p); self._refresh_profiles()
-        messagebox.showinfo("Saved", f"'{name}' saved.")
+        messagebox.showinfo(tr("Gespeichert", "Saved"), tr(f"„{name}“ gespeichert.", f"'{name}' saved."))

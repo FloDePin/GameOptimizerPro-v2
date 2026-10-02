@@ -119,7 +119,7 @@ check(len(bk2) == 1, "only ONE backup per session (the original)")
 it = ProfileFile(open(gpu_path, "rb").read().decode("latin-1")).items("Profile2")
 check(it["coreclkboost"] == "30000" and it["memclkboost"] == "500000" and it["powerlimit"] == "95", "values")
 
-print("V/F curve (tuner Stage 3 path)")
+print("V/F curve lock (Rundum point search path)")
 ab.log.clear()
 ok, err = ab.write_and_apply(2, TuneProfile(core_offset_mhz=30, lock_voltage_mv=950, lock_freq_mhz=2400))
 it = ProfileFile(open(gpu_path, "rb").read().decode("latin-1")).items("Profile2")

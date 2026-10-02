@@ -77,32 +77,32 @@ def tune(mode, gpu, **cfg):
     shutil.rmtree(tmp, ignore_errors=True)
     return t, logs
 
-print("OC only: power limit active the whole time is NOT a failure")
+print("Quick, clock only (power limit kept): power limit active the whole time is NOT a failure")
 gpu = GPU()
-t, logs = tune(TuneMode.OC_ONLY, gpu, core_step_mhz=15, core_max_mhz=120)
+t, logs = tune(TuneMode.OC_UV, gpu, core_step_mhz=15, core_max_mhz=120, power_min_pct=100)
 bp = t.best_profile
 check(t.state == TunerState.DONE and bp and bp.core_offset_mhz == 52 - (52 % 1) and bp.core_offset_mhz in (50, 52),
       f"finds the edge of stability: +{bp.core_offset_mhz if bp else None} MHz (unstable above +52)")
 check(any("Rechenfehler" in m for m in logs), "failed steps name the compute error")
 check(any("TFLOPS" in m for m in logs), "work rate is logged")
 
-print("OC only on a thermally throttling card")
-t, logs = tune(TuneMode.OC_ONLY, GPU(thermal=True), core_step_mhz=15, core_max_mhz=120)
+print("Quick, clock only, on a thermally throttling card")
+t, logs = tune(TuneMode.OC_UV, GPU(thermal=True), core_step_mhz=15, core_max_mhz=120, power_min_pct=100)
 check(t.best_profile and t.best_profile.core_offset_mhz == 0 and
       any("Thermische/Hardware-Drosselung" in m for m in logs),
       "thermal/HW slowdown still stops the OC search (and says why)")
 
-print("UV only: lowest power limit with <= 3 % loss")
+print("Quick, power limit only (no clock gain): lowest power limit with <= 3 % loss")
 gpu = GPU()
-t, logs = tune(TuneMode.UV_ONLY, gpu, power_step_pct=5, power_min_pct=60)
+t, logs = tune(TuneMode.OC_UV, gpu, core_max_mhz=0, power_step_pct=5, power_min_pct=60)
 check(t.state == TunerState.DONE and t.best_profile.power_limit_pct == 88,
       f"power limit {t.best_profile.power_limit_pct}% (loss at 88 % = 2.8 %, at 87 % = 3.2 %)")
 check(any("Leistung -3.2%" in m or "Leistung −3.2%" in m or "-3.2%" in m for m in logs),
       "the too-expensive step is explained with its loss")
 check(gpu.runs[-1][3] == 88, "final verification ran at 88 %")
 
-print("UV only with a 5 % budget")
-t, logs = tune(TuneMode.UV_ONLY, GPU(), power_step_pct=5, power_min_pct=60, power_max_loss_pct=5.0)
+print("power limit only with a 5 % budget")
+t, logs = tune(TuneMode.OC_UV, GPU(), core_max_mhz=0, power_step_pct=5, power_min_pct=60, power_max_loss_pct=5.0)
 check(t.best_profile.power_limit_pct == 83, f"5 % budget -> {t.best_profile.power_limit_pct}% (83 % = 4.8 %)")
 
 print("OC+UV: Stage 2 compares against the OC result, not stock")
@@ -111,7 +111,7 @@ t, logs = tune(TuneMode.OC_UV, gpu, core_step_mhz=15, core_max_mhz=120, power_st
 check(t.best_profile.core_offset_mhz in (50, 52) and t.best_profile.power_limit_pct == 88,
       f"+{t.best_profile.core_offset_mhz} MHz @ {t.best_profile.power_limit_pct}%")
 
-print("MEM only: the whole card under load, +500 then 100-MHz steps (as in Rundum)")
+print("memory stage: the whole card under load, +500 then 100-MHz steps (as in Rundum)")
 class MemGPU(GPU):
     def run(self, duration_s, max_temp, on_tick=None, mode="gemm"):
         r = super().run(duration_s, max_temp, on_tick, mode)
@@ -120,7 +120,8 @@ class MemGPU(GPU):
             r.abort_reason = "Rechenfehler unter Last (GPU instabil)"
         return r
 gpu = MemGPU()
-t, logs = tune(TuneMode.MEM_ONLY, gpu, mem_oc_max_mhz=1000, crash_pause_s=0)
+t, logs = tune(TuneMode.OC_UV, gpu, core_max_mhz=0, power_min_pct=100, mem_stage=True,
+               mem_oc_max_mhz=1000, crash_pause_s=0)
 m = t.best_profile.mem_offset_mhz
 check(t.state == TunerState.DONE and m == 500, f"memory +{m} MHz (+600 passed, +700 failed -> 100 MHz safety)")
 check([r[2] for r in gpu.runs if r[0] == "mem"] == [500, 600, 700], "steps +500, +600, +700")
@@ -128,11 +129,12 @@ check(gpu.runs[-1][0] == "mixed", "the final test runs the mixed game-like load"
 check(any("+600 MHz bestanden, +700 nicht" in x or "+600 MHz passed, +700 did not" in x for x in logs),
       "the result is explained")
 
-print("MEM only without cupy (no bandwidth numbers) -> still checked for errors")
+print("memory stage without cupy (no bandwidth numbers) -> still checked for errors")
 class NoBW(GPU):
     def run(self, *a, **k):
         r = super().run(*a, **k); r.avg_bw_gbs = 0.0; return r
-t, logs = tune(TuneMode.MEM_ONLY, NoBW(), mem_oc_max_mhz=400, crash_pause_s=0)
+t, logs = tune(TuneMode.OC_UV, NoBW(), core_max_mhz=0, power_min_pct=100, mem_stage=True,
+               mem_oc_max_mhz=400, crash_pause_s=0)
 check(t.best_profile.mem_offset_mhz == 400 and not any("0 GB/s" in x for x in logs),
       "'Mem max' below the start value: +400 tested and kept, no '0 GB/s' noise")
 

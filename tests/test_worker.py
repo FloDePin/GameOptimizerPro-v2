@@ -54,6 +54,11 @@ check(rc not in (0, 3) and len(bws) >= 2 and all(b > 0 for b in bws), f"prints B
 rc, lines, err = run_worker("mem", {"FAKE_CORRUPT_COPY": "3"})
 check(rc == 3 and "ERR 1" in lines,
       f"corruption in the FIRST copy (copied back!) still caught via the reference (rc={rc})")
+t0 = time.time()
+rc, lines, err = run_worker("mem", {"FAKE_CORRUPT_COPY": "3", "FAKE_SLOW_COPY_S": "0.15"}, seconds=6)
+check(rc == 3 and "ERR 1" in lines and time.time() - t0 < 5,
+      f"starved copies (0.3 s per round trip, live: 13 GB/s next to FurMark): the error is still found "
+      f"within seconds — compared twice a second, not only every 50th round trip ({time.time() - t0:.1f} s)")
 
 print("worker: dead-man switch")
 dummy = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(1.5)"])

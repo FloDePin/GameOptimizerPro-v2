@@ -196,52 +196,66 @@ class NumberField(tk.Frame):
         self.var.set(max(self.lo, min(self.hi, self.value() + delta)))
 
 
-class HelpTip(tk.Label):
-    """A small "?" next to a setting: pointing at it (or a click) opens a little
-    window with the explanation; leaving it closes the window again."""
+class HoverTip:
+    """An explanation window for any widget: pointing at it (or a click) opens a
+    little window with the text, leaving it closes it again. `text` may be a
+    function — the window then says what holds right now (status dots)."""
 
     WRAP_PX = 330
 
-    def __init__(self, parent, text: str, bg: str = CARD_BG):
-        super().__init__(parent, text="?", font=("Segoe UI Semibold", 8), fg=TEXT,
-                         bg=mix(bg, "#ffffff", 0.14), padx=4, pady=0, cursor="question_arrow")
+    def __init__(self, widget, text, click: bool = True):
+        self.widget = widget
         self.text = text
         self._tip: tk.Toplevel | None = None
         self._job = None
-        self.bind("<Enter>", lambda e: self._schedule(), add="+")
-        self.bind("<Leave>", lambda e: self.hide(), add="+")
-        self.bind("<Button-1>", lambda e: self.show(), add="+")
+        widget.bind("<Enter>", lambda e: self._schedule(), add="+")
+        widget.bind("<Leave>", lambda e: self.hide(), add="+")
+        if click:
+            widget.bind("<Button-1>", lambda e: self.show(), add="+")
+
+    def _text(self) -> str:
+        try:
+            return str(self.text() if callable(self.text) else self.text)
+        except Exception:
+            return ""
 
     def _schedule(self):
         self._cancel()
-        self._job = self.after(300, self.show)
+        try:
+            self._job = self.widget.after(300, self.show)
+        except tk.TclError:
+            self._job = None
 
     def _cancel(self):
         if self._job is not None:
             try:
-                self.after_cancel(self._job)
+                self.widget.after_cancel(self._job)
             except tk.TclError:
                 pass
             self._job = None
 
     def show(self):
         self._cancel()
-        if self._tip is not None:
+        text = self._text()
+        if self._tip is not None or not text:
             return
+        w = self.widget
         try:
-            tip = tk.Toplevel(self)
+            tip = tk.Toplevel(w)
             tip.wm_overrideredirect(True)
             tip.attributes("-topmost", True)
             box = tk.Frame(tip, bg=BORDER2, padx=1, pady=1)
             box.pack()
-            tk.Label(box, text=self.text, font=F_S, fg=TEXT, bg=CARD_BG2, justify="left", anchor="w",
+            tk.Label(box, text=text, font=F_S, fg=TEXT, bg=CARD_BG2, justify="left", anchor="w",
                      wraplength=self.WRAP_PX, padx=10, pady=8).pack()
             tip.update_idletasks()
-            x = self.winfo_rootx() + self.winfo_width() + 6
-            y = self.winfo_rooty() - 4
-            sw = self.winfo_screenwidth()
-            if x + tip.winfo_reqwidth() > sw - 8:            # no room on the right: left of the "?"
-                x = max(8, self.winfo_rootx() - tip.winfo_reqwidth() - 6)
+            x = w.winfo_rootx() + w.winfo_width() + 6
+            y = w.winfo_rooty() - 4
+            sw, sh = w.winfo_screenwidth(), w.winfo_screenheight()
+            if x + tip.winfo_reqwidth() > sw - 8:            # no room on the right: left of it
+                x = max(8, w.winfo_rootx() - tip.winfo_reqwidth() - 6)
+            if y + tip.winfo_reqheight() > sh - 8:           # bottom of the screen: above it
+                y = max(8, w.winfo_rooty() - tip.winfo_reqheight() - 6)
             tip.geometry(f"+{x}+{y}")
             self._tip = tip
         except tk.TclError:
@@ -255,6 +269,33 @@ class HelpTip(tk.Label):
             except tk.TclError:
                 pass
             self._tip = None
+
+
+class HelpTip(tk.Label):
+    """A small "?" next to a setting with its explanation (HoverTip)."""
+
+    def __init__(self, parent, text: str, bg: str = CARD_BG):
+        super().__init__(parent, text="?", font=("Segoe UI Semibold", 8), fg=TEXT,
+                         bg=mix(bg, "#ffffff", 0.14), padx=4, pady=0, cursor="question_arrow")
+        self._hover = HoverTip(self, text)
+
+    @property
+    def text(self) -> str:
+        return self._hover.text
+
+    @text.setter
+    def text(self, value: str):
+        self._hover.text = value
+
+    @property
+    def _tip(self):
+        return self._hover._tip
+
+    def show(self):
+        self._hover.show()
+
+    def hide(self):
+        self._hover.hide()
 
     def destroy(self):
         self.hide()

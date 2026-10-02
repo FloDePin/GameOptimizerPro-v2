@@ -55,8 +55,13 @@ class FakeAB:
     available, exe, last_notes = True, r"C:\fake\MSIAfterburner.exe", []
     def check_ab_setup(self):
         return {"cfg_found": True, "voltage_control": True, "voltage_monitoring": True}
+    writes = []
     def find_gpu_profile(self): return r"C:\fake\VEN_10DE.cfg", ""
-    def write_and_apply(self, slot, p): return True, ""
+    def write_and_apply(self, slot, p):
+        FakeAB.writes.append((slot, p.name)); return True, ""
+    def slot_summaries(self, de=True):
+        return {1: "Core +0 · Speicher +0 · Power 100 %", 2: "Kurve · Speicher +1000 · Power 100 %",
+                3: "leer", 4: "leer", 5: "leer"}
     def reset_to_stock(self, slot=2): return True, ""
     def startup_apply_enabled(self): return False
 class FakeSL:
@@ -286,12 +291,13 @@ def s_gpu():
     check(g._views["profiles"].winfo_manager() and not g._views["auto"].winfo_manager(), "sub-pages switch")
     check(set(g.tree.get_children()) == {"P1", "P2"}, "profiles listed")
     g._show_view("auto")
-    g._select_mode("uv_only")
-    desc = g.lbl_mode_desc.cget("text")
-    check(g.v_mode.get() == "uv_only" and g.v_core_max.get() == 0 and not g.v_mem_stage.get()
-          and ("Power-Limit" in desc or "power limit" in desc),
-          "mode 'Undervolt' sets the parameters and explains itself")
+    check(g.v_mode.get() == "curve" and list(g._mode_labels.values()) == ["curve", "oc_uv"],
+          "two modes, Rundum first and selected")
     g._select_mode("oc_uv")
+    desc = g.lbl_mode_desc.cget("text")
+    check(g.v_mode.get() == "oc_uv" and g.v_mem_stage.get() and g.params_card.winfo_manager() == "pack"
+          and ("Power-Limit" in desc or "power limit" in desc),
+          "mode 'Schnell (OC + UV)' sets the parameters and explains itself")
     g.prog_var.set(50)
     check(abs(g.prog_bar.get() - 0.5) < 1e-6, "progress bar follows the tuner progress")
     w.update()
@@ -427,6 +433,53 @@ def s_history():
           f"mode, core, memory, result: {vals}")
     g.history.tree.selection_set(rows[0]); g.history._on_select(); g.history.log._drain()
     check("Profile saved" in g.history.log.txt.get("1.0", "end"), "selecting a run shows its log")
+
+    # right click: the run's saved profile into an Afterburner slot (the user: "5 results
+    # from trying things and no free slot in Afterburner")
+    import ui.tab_gpu as TG
+    pm.save(TuneProfile(name="GOP_CURVE_BAL_1001_1225", curve_points=[[1075, 2940], [925, 2560]],
+                        mem_offset_mhz=1000))
+    posted, asked_ab, shown = [], [], []
+    real_post, real_ask_ab, real_info = g._post, TG.messagebox.askyesno, TG.messagebox.showinfo
+    g._post = lambda menu, x, y: posted.append(menu)
+    run = g.history._runs[rows[0]]
+    check(run.profile_name == "GOP_CURVE_BAL_1001_1225", "the run knows its saved profile")
+    bbox = g.history.tree.bbox(rows[0])
+    if bbox:                                                          # the real binding
+        g.history.tree.event_generate("<Button-3>", x=bbox[0] + 5, y=bbox[1] + 3)
+    check(bbox and posted, "right click on the row opens the menu")
+    g._on_history_menu(run, 10, 10)
+    m = posted[-1]
+    entries = [(m.type(i), m.entrycget(i, "label") if m.type(i) == "command" else "")
+               for i in range(m.index("end") + 1)]
+    slots = [lbl for typ, lbl in entries if typ == "command"][1:]
+    check(len(slots) == 5 and "Kurve · Speicher +1000" in slots[1] and "leer" in slots[2]
+          and ("eigenen" in slots[0] or "own" in slots[0]),
+          f"menu: five slots with what they hold now, slot 1 marked as the user's: {slots}")
+    TG.messagebox.askyesno = lambda title, msg, **k: (asked_ab.append(msg), True)[1]
+    TG.messagebox.showinfo = lambda title, msg, **k: shown.append(msg)
+    FakeAB.writes.clear()
+    m.invoke(4)                                                       # slot 3
+    t_end = time.time() + 5
+    while not shown and time.time() < t_end:
+        w.update(); time.sleep(0.02)
+    check(FakeAB.writes == [(3, "GOP_CURVE_BAL_1001_1225")] and asked_ab and "leer" in asked_ab[-1]
+          and shown and "3" in shown[-1],
+          f"slot 3: asked first (with what is there now), written + applied: {FakeAB.writes}")
+    TG.messagebox.askyesno = lambda title, msg, **k: (asked_ab.append(msg), False)[1]
+    FakeAB.writes.clear()
+    g._export_to_slot(pm.load("P1"), 4, "leer")
+    check(FakeAB.writes == [], "'no' writes nothing")
+    from core.tune_history import TuneRun
+    g._on_history_menu(TuneRun("x.log", "", "Rundum", reason="Endtest fehlgeschlagen (TDR)"), 0, 0)
+    m2 = posted[-1]
+    check(m2.index("end") == 0 and "TDR" in m2.entrycget(0, "label")
+          and str(m2.entrycget(0, "state")) == "disabled",
+          "a run without a profile: no slots, the reason instead")
+    gone = g._slot_menu("GOP_DELETED")
+    check(gone.index("end") == 0 and str(gone.entrycget(0, "state")) == "disabled",
+          "a deleted profile: says so, no slots")
+    g._post, TG.messagebox.askyesno, TG.messagebox.showinfo = real_post, real_ask_ab, real_info
     import ui.tune_history_view as THV
     asked = []
     real_ask = THV.messagebox.askyesno

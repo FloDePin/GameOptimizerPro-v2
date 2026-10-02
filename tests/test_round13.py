@@ -369,6 +369,10 @@ class FakeProc:
     def kill(self):
         self.killed, self.returncode = True, -9
 
+    def wait(self, timeout=None):
+        self.waited = True
+        return self.returncode
+
 
 _real_popen = subprocess.Popen
 LAUNCHED = []
@@ -389,6 +393,27 @@ try:
     argv, kw, _p = LAUNCHED[-1]
     check(res["ok"] and res["score"] == 1918 and res["fps_avg"] == 127 and res["max_temp"] == 66,
           f"score and stats read from FurMark's own summary: {res}")
+    si = kw.get("startupinfo")
+    check(si is not None and si.wShowWindow == 4 and si.dwFlags & subprocess.STARTF_USESHOWWINDOW,
+          "the tuner's FurMark opens without taking the focus (SW_SHOWNOACTIVATE) — Windows gives the "
+          "window in front priority on the GPU")
+    locks = []
+    real_lock = FM._lock_foreground
+    FM._lock_foreground = lambda on: (locks.append(on), True)[1]
+    subprocess.Popen = fake_popen(OUT)
+    FM.run_benchmark(FAKE_FURMARK, 60)
+    check(locks == [True, False], f"foreground locked while FurMark starts, released after: {locks}")
+    locks.clear()
+    FM.run_benchmark(FAKE_FURMARK, 60, focus=True)
+    check(locks == [] and LAUNCHED[-1][1].get("startupinfo") is None, "focus=True: a normal window, no lock")
+    subprocess.Popen = lambda *a, **k: (_ for _ in ()).throw(OSError("denied"))
+    FM._lock_foreground = lambda on: (locks.append(on), True)[1]
+    res = FM.run_benchmark(FAKE_FURMARK, 60)
+    check(not res["ok"] and locks == [True, False], "start failed: the lock is released all the same")
+    FM._lock_foreground = real_lock
+    subprocess.Popen = fake_popen(OUT)
+    res = FM.run_benchmark(FAKE_FURMARK, 60)
+    argv, kw, _p = LAUNCHED[-1]
     check(kw.get("cwd") == fm_dir and kw.get("stdin") == subprocess.DEVNULL
           and kw.get("creationflags", 0) & getattr(subprocess, "CREATE_NO_WINDOW", 0) ==
           getattr(subprocess, "CREATE_NO_WINDOW", 0), "started in its folder, no console window")
@@ -408,6 +433,8 @@ try:
     subprocess.Popen = fake_popen(OUT, polls=10 ** 9)
     res = FM.run_benchmark(FAKE_FURMARK, 60, stop_event=ev)
     check(res["aborted"] and not res["ok"] and LAUNCHED[-1][2].killed, "abort kills FurMark at once")
+    check(getattr(LAUNCHED[-1][2], "waited", False) and getattr(LAUNCHED[-2][2], "waited", False),
+          "... and waits for it to be gone (abort and hang) — the next benchmark starts seconds later")
     res = FM.run_benchmark(os.path.join(TMP, "nope.exe"), 60)
     check(not res["ok"] and "nicht gefunden" in res["error"], "missing FurMark 2 -> clear error")
 finally:

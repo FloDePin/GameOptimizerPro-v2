@@ -34,6 +34,9 @@ def dot(a, b, out=None):
 
 def copyto(dst, src):
     _calls["copy"] += 1
+    if _os.environ.get("FAKE_SLOW_COPY_S"):          # starved copies (a FurMark in front)
+        import time as _t
+        _t.sleep(float(_os.environ["FAKE_SLOW_COPY_S"]))
     _np.copyto(dst, src)
     if _E("FAKE_CORRUPT_COPY") and _calls["copy"] == _E("FAKE_CORRUPT_COPY"):
         dst[7] += 1.0

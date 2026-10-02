@@ -26,7 +26,7 @@ from ui import theme
 from ui.theme import (ACC, AMBER, APP_BG, BORDER, CARD_BG, DIM, ERR, F_MONO, F_S, F_XS, GREEN,
                       HEADER_BG, HOVER, MUTED, PAGE_COLORS, RED, SIDEBAR_BG, TEXT, TEXT2, WHITE,
                       ctk_font, icon_image, tint, tr)
-from ui.components import WrapLabel
+from ui.components import HoverTip, WrapLabel
 
 APP_NAME    = "GameOptimizerPro"
 APP_VERSION = "v2.0"
@@ -284,6 +284,11 @@ class GameOptimizerWindow(ctk.CTk):
         self.lbl_mahm = tk.Label(ind, text="● MAHM", font=F_XS, fg=DIM, bg=SIDEBAR_BG)
         for w in (self.lbl_ab, self.lbl_nvml, self.lbl_mahm):
             w.pack(side="left", padx=(0, 8))
+        # What the dot says right now — pointing at it explains the colour (the
+        # user asked why MAHM turned blue during the tune).
+        self._ind_state = {"ab": "", "nvml": "", "mahm": ""}
+        for key, w in (("ab", self.lbl_ab), ("nvml", self.lbl_nvml), ("mahm", self.lbl_mahm)):
+            HoverTip(w, lambda k=key: self._indicator_text(k), click=False)
 
         bottom = tk.Frame(foot, bg=SIDEBAR_BG)
         bottom.pack(fill="x", pady=(8, 0))
@@ -598,16 +603,48 @@ class GameOptimizerWindow(ctk.CTk):
 
     # ── Updater ───────────────────────────────────────────────────────────────
 
+    INDICATOR_TEXT = {
+        ("ab", "ok"): ("MSI Afterburner gefunden — darüber setzt der GPU-Tuner Takt, Speicher und "
+                       "Kurve.",
+                       "MSI Afterburner found — the GPU tuner sets clock, memory and curve through it."),
+        ("ab", "off"): ("MSI Afterburner nicht gefunden — der GPU-Tuner braucht es (kostenlos von MSI).",
+                        "MSI Afterburner not found — the GPU tuner needs it (free from MSI)."),
+        ("nvml", "ok"): ("NVML (NVIDIA-Treiber): Temperatur, Takt, Leistung und Power-Limit werden "
+                         "gelesen.",
+                         "NVML (NVIDIA driver): temperature, clock, power and power limit are read."),
+        ("nvml", "off"): ("NVML nicht verfügbar — keine NVIDIA-Karte erkannt oder Treiberproblem.",
+                          "NVML not available — no NVIDIA card found or a driver problem."),
+        ("mahm", "ok"): ("MAHM (Afterburner-Monitoring) liefert die GPU-Spannung.",
+                         "MAHM (Afterburner monitoring) delivers the GPU voltage."),
+        ("mahm", "restart"): ("Blau: Afterburner startet gerade absichtlich neu — so übernimmt es jeden "
+                              "Testschritt des Tuners. Für diese paar Sekunden gibt es keine "
+                              "Spannungswerte, danach wird der Punkt wieder grün.",
+                              "Blue: Afterburner is restarting on purpose — that is how it takes over "
+                              "every test step of the tuner. No voltage for those few seconds, then the "
+                              "dot turns green again."),
+        ("mahm", "off"): ("Keine MAHM-Daten: Afterburner läuft nicht, oder im Afterburner-Monitoring "
+                          "ist „Spannung“ ausgeschaltet. Ohne Spannung schätzt der Tuner sie über den "
+                          "Takt.",
+                          "No MAHM data: Afterburner isn't running, or 'Voltage' is off in Afterburner's "
+                          "monitoring. Without it the tuner estimates the voltage from the clock."),
+    }
+
+    def _indicator_text(self, key: str) -> str:
+        de, en = self.INDICATOR_TEXT.get((key, self._ind_state.get(key, "")), ("", ""))
+        return tr(de, en)
+
     def _refresh_indicators(self):
-        def put(lbl, name, ok, bad_col):
+        def put(key, lbl, name, ok, bad_col, bad="off"):
             lbl.config(text=f"● {name}", fg=GREEN if ok else bad_col)
-        put(self.lbl_ab, "AB", self.ab.available, ERR)
-        put(self.lbl_nvml, "NVML", self.monitor.nvml.available, AMBER)
+            self._ind_state[key] = "ok" if ok else bad
+        put("ab", self.lbl_ab, "AB", self.ab.available, ERR)
+        put("nvml", self.lbl_nvml, "NVML", self.monitor.nvml.available, AMBER)
         # Blue while the tuner restarts Afterburner on purpose (every step) — the
         # orange warning made the user think the monitoring had failed.
         mahm = self.monitor.mahm
-        put(self.lbl_mahm, "MAHM", mahm.available,
-            ACC if getattr(mahm, "restarting", False) else AMBER)
+        restarting = bool(getattr(mahm, "restarting", False))
+        put("mahm", self.lbl_mahm, "MAHM", mahm.available, ACC if restarting else AMBER,
+            "restart" if restarting else "off")
 
     def _start_updater(self):
         # Runs entirely on the main thread. Tk is not thread-safe, and after()

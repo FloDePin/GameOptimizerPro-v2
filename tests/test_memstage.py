@@ -29,7 +29,9 @@ class GPU:
     """Core unstable above +175 (steps); memory errors above `mem_limit` under the
     whole-card load (the worker's verified copies), FurMark crashes above
     `fm_mem_limit`, the final test fails above `final_mem_limit`."""
-    def __init__(self, mem_limit=800, fm_mem_limit=None, final_mem_limit=None):
+    def __init__(self, mem_limit=800, fm_mem_limit=None, final_mem_limit=None, weak_from=None,
+                 weak_times=10 ** 6):
+        self.weak_from, self.weak_times = weak_from, weak_times    # copies starved from this offset on
         self.core = self.mem = 0; self.pwr = 100
         self.mem_limit, self.fm_mem_limit, self.final_mem_limit = mem_limit, fm_mem_limit, final_mem_limit
         self.mem_tests = []; self.finals = []; self.furmarks = []; self.applied = []
@@ -46,6 +48,9 @@ class GPU:
             self.mem_tests.append(m)
             r.avg_rate_tflops = 0.0
             r.avg_bw_gbs = 700 + 0.05 * m
+            if self.weak_from is not None and m >= self.weak_from and self.weak_times > 0:
+                self.weak_times -= 1
+                r.avg_bw_gbs = 13.0                 # live: FurMark in front, copies starved
             r.avg_mem_mhz = 11200 + m
             if m > self.mem_limit:
                 r.passed, r.crash_detected, r.compute_error = False, True, True
@@ -127,9 +132,27 @@ check(any("Mem+700MHz ✗" in m and "FurMark" in m for m in logs), "the failure 
 
 print("the start value fails: down from +500")
 g = GPU(mem_limit=300)
-t, logs = tune(g, mode=TuneMode.OC_ONLY, mem_stage=True, mem_oc_max_mhz=1000)
+t, logs = tune(g, mode=TuneMode.OC_UV, mem_stage=True, mem_oc_max_mhz=1000)
 check(g.mem_tests == [500, 400, 300] and t.best_profile and t.best_profile.mem_offset_mhz == 200,
       f"+500 / +400 failed, +300 passed -> +200: {g.mem_tests}")
+
+print("the copies get no GPU time next to FurMark: the check is too weak")
+g = GPU(mem_limit=5000, weak_from=700)
+t, logs = tune(g, furmark=True, mode=TuneMode.OC_UV, mem_stage=True, mem_oc_max_mhz=1000)
+check(g.mem_tests == [500, 600, 700, 700] and t.best_profile and t.best_profile.mem_offset_mhz == 600,
+      f"+700 weak, tried once more, still weak -> stays at +600 (last real check): {g.mem_tests}")
+check(any("Prüfung zu schwach" in m or "check too weak" in m for m in logs)
+      and any("keine aussagekräftige Prüfung" in m or "no meaningful check" in m for m in logs),
+      "the log says why")
+g = GPU(mem_limit=5000, weak_from=700, weak_times=1)
+t, logs = tune(g, furmark=True, mode=TuneMode.OC_UV, mem_stage=True, mem_oc_max_mhz=1000)
+check(g.mem_tests == [500, 600, 700, 700, 800, 900, 1000] and t.best_profile.mem_offset_mhz == 1000,
+      f"weak once (e.g. the FurMark window was clicked), fine on the repeat -> goes on: {g.mem_tests}")
+g = GPU(mem_limit=5000, weak_from=0)
+t, logs = tune(g, furmark=True, mode=TuneMode.OC_UV, mem_stage=True, mem_oc_max_mhz=1000)
+check(t.state == TunerState.DONE and t.best_profile and t.best_profile.mem_offset_mhz == 0
+      and g.mem_tests == [500, 500],
+      "weak from the start: memory stays at stock, the tune still finishes (not 'even +0 fails')")
 
 print("even +0 fails: no profile, back to stock")
 g = GPU(mem_limit=-1)
@@ -144,22 +167,23 @@ g = GPU()
 t, logs = tune(g, mode=TuneMode.OC_UV, mem_stage=False)
 check(g.mem_tests == [] and t.best_profile and t.best_profile.mem_offset_mhz == 0,
       "no memory steps, profile memory +0")
-check(any("Stage 4 skipped" in m for m in logs), "log says so")
+check(any("Stage 4 skipped" in m or "Stage 4 übersprungen" in m for m in logs), "log says so")
 
 print("'Mem Max' is respected")
 g = GPU(mem_limit=5000)
-t, logs = tune(g, mode=TuneMode.OC_ONLY, mem_stage=True, mem_oc_max_mhz=1100)
+t, logs = tune(g, mode=TuneMode.OC_UV, mem_stage=True, mem_oc_max_mhz=1100)
 check(g.mem_tests == [500, 600, 700, 800, 900, 1000, 1100] and t.best_profile.mem_offset_mhz == 1100,
       f"up to the limit, tested once, kept without a failure: {g.mem_tests}")
 
-print("MEM_ONLY uses the same stage")
+print("memory only (no clock gain, power limit kept) uses the same stage")
 g = GPU(mem_limit=800)
-t, logs = tune(g, mode=TuneMode.MEM_ONLY, mem_oc_max_mhz=1000)
-check(t.best_profile and t.best_profile.mem_offset_mhz == 700, "MEM_ONLY: +700 as well")
+t, logs = tune(g, mode=TuneMode.OC_UV, core_max_mhz=0, power_min_pct=100, mem_stage=True,
+               mem_oc_max_mhz=1000)
+check(t.best_profile and t.best_profile.mem_offset_mhz == 700, "memory only: +700 as well")
 
 print("final test fails on memory: one 100-MHz step back")
 g = GPU(mem_limit=5000, final_mem_limit=900)
-t, logs = tune(g, mode=TuneMode.OC_ONLY, mem_stage=True, mem_oc_max_mhz=1000)
+t, logs = tune(g, mode=TuneMode.OC_UV, mem_stage=True, mem_oc_max_mhz=1000)
 check(t.state == TunerState.DONE and t.best_profile and t.best_profile.mem_offset_mhz == 900
       and any("Speicher +1000→+900 MHz" in m for m in logs),
       f"memory +1000 → +900 (was: halved): {t.best_profile.mem_offset_mhz if t.best_profile else None}")
@@ -191,14 +215,15 @@ from ui.tab_gpu import GpuTunerTab
 gpu = GpuTunerTab(root, mon, ab, pm, tuner)
 name = mon.read().name
 from core.gpu_defaults import get_defaults
-check(gpu.v_mem_stage.get() is True, "'Speicher mit übertakten' is on by default (OC + UV)")
-check(gpu.v_mem_max.get() == get_defaults(name).mem_max_mhz,
-      f"'Mem Max' from the generation table for {name!r}: +{gpu.v_mem_max.get()} MHz")
+check(gpu.v_mode.get() == "curve" and gpu.v_mem_stage.get() is True,
+      "Rundum is the start mode, 'Speicher mit übertakten' on")
+check(gpu.v_mem_max.get() == min(1000, get_defaults(name).mem_max_mhz),
+      f"Rundum: memory up to +1000 (whole-card test): +{gpu.v_mem_max.get()} MHz")
 check(not hasattr(gpu, "v_mem_off"), "the fixed 'Mem Offset' field is gone")
-gpu._apply_mode_to_config("uv_only")
-check(gpu.v_mem_stage.get() is False, "'Nur UV' switches the memory stage off")
-gpu._apply_mode_to_config("oc_uv")
-check(gpu.v_mem_stage.get() is True, "'OC + UV' switches it back on")
+gpu.v_mem_stage.set(False)
+gpu._select_mode("oc_uv")
+check(gpu.v_mem_stage.get() is True and gpu.v_mem_max.get() == get_defaults(name).mem_max_mhz,
+      f"'Schnell (OC + UV)': memory on, 'Mem Max' from the generation table for {name!r}")
 gpu._start_tune()
 cfg = started[-1] if started else None
 check(cfg is not None and cfg.mem_stage and cfg.mem_oc_max_mhz == gpu.v_mem_max.get()

@@ -44,11 +44,18 @@ class AB:
         return True, ""
 
 
+# The Quick mode (OC + UV) is the classic path. "Only overclock" = power limit
+# kept at 100 % (power_min_pct=100), "only the power limit" = core_max_mhz=0.
+OC = dict(power_min_pct=100)
+UV = dict(core_max_mhz=0, power_min_pct=85)
+
+
 def run(mode, ab, mon, **cfg):
     tmp = tempfile.mkdtemp(prefix="gop_tun_")
     pm = NT.ProfileManager(os.path.join(tmp, "p"))
-    t = AutoTuner(mon, ab, pm, TunerConfig(mode=mode, core_step_mhz=15, core_max_mhz=45,
-                                           power_min_pct=85, **cfg), log_dir=os.path.join(tmp, "l"))
+    base = dict(core_step_mhz=15, core_max_mhz=45, power_min_pct=85)
+    base.update(cfg)
+    t = AutoTuner(mon, ab, pm, TunerConfig(mode=mode, **base), log_dir=os.path.join(tmp, "l"))
     logs, states = [], []
     t.on_log(lambda m, l: logs.append((l, m)))
     t.on_state(lambda s: states.append(s))
@@ -58,7 +65,7 @@ def run(mode, ab, mon, **cfg):
 
 print("apply fails in Stage 1 (2nd write)")
 ab, mon = AB(fail_on=2), Mon()
-t, logs, states = run(TuneMode.OC_ONLY, ab, mon)
+t, logs, states = run(TuneMode.OC_UV, ab, mon, **OC)
 check(states[-1] == TunerState.ERROR, f"tune ends in ERROR (states: {[s.name for s in states][-3:]})")
 check(any("Anwenden fehlgeschlagen" in m and "simulierter Fehler" in m for _, m in logs), "clear error logged")
 check(not any("+15MHz ✓" in m for _, m in logs), "the unapplied +15 MHz step was NOT recorded as stable")
@@ -67,38 +74,45 @@ check(mon.power_calls[-1] == 320.0, "NVML power back to stock")
 
 print("full OC run with a working Afterburner")
 ab, mon = AB(), Mon()
-t, logs, states = run(TuneMode.OC_ONLY, ab, mon)
+t, logs, states = run(TuneMode.OC_UV, ab, mon, **OC)
 check(states[-1] == TunerState.DONE, f"DONE ({[s.name for s in states][-2:]})")
 check([c[1] for c in ab.calls if c[0] == "__tuning__"][:4] == [0, 15, 30, 45], "steps 0/15/30/45 applied via Afterburner")
 
-print("UV only WITHOUT Afterburner -> NVML only")
+print("power limit only (no clock gain) WITHOUT Afterburner -> NVML only")
 ab, mon = AB(available=False), Mon()
-t, logs, states = run(TuneMode.UV_ONLY, ab, mon)
+t, logs, states = run(TuneMode.OC_UV, ab, mon, **UV)
 check(states[-1] == TunerState.DONE and ab.calls == [], "runs without Afterburner, no AB writes")
 check(320.0 in mon.power_calls and 304.0 in mon.power_calls and 288.0 in mon.power_calls or
       (320.0 in mon.power_calls and min(mon.power_calls) <= 288.0),
       f"power steps set via NVML: {sorted(set(mon.power_calls), reverse=True)}")
 
-print("UV only without Afterburner and NVML refuses (no admin)")
+print("power limit only without Afterburner and NVML refuses (no admin)")
 ab, mon = AB(available=False), Mon(); mon.nv_ok = False
-t, logs, states = run(TuneMode.UV_ONLY, ab, mon)
+t, logs, states = run(TuneMode.OC_UV, ab, mon, **UV)
 check(states[-1] == TunerState.ERROR and any("NVML nicht setzen" in m for _, m in logs),
       "error instead of 'testing' an unapplied power limit")
 
 print("OC without Afterburner -> refused")
 ab, mon = AB(available=False), Mon()
-t, logs, states = run(TuneMode.OC_ONLY, ab, mon)
+t, logs, states = run(TuneMode.OC_UV, ab, mon, **OC)
 check(states[-1] == TunerState.ERROR and any("für Core-/Speicher-Offsets nötig" in m for _, m in logs),
       "clear error: Afterburner needed for offsets")
 
-print("V/F stage: failed curve write ends the tune")
-ab, mon = AB(fail_on=3), Mon()
-t, logs, states = run(TuneMode.VF_ONLY, ab, mon)
-vf_calls = [c for c in ab.calls if c[0] == "__vf_tuning__"]
-check(states[-1] == TunerState.ERROR and any("V/F-Kurve" in m for _, m in logs),
-      f"ERROR with V/F message (calls: {ab.calls[:4]})")
-check(any("975mV ✓" in m for _, m in logs), "applied 975 mV step was tested and recorded")
-check(not any("950mV ✓" in m for _, m in logs), "the unapplied 950 mV step was NOT recorded as stable")
+print("Rundum point lock (_apply_vf): a failed write raises, nothing is written after an abort")
+ab, mon = AB(fail_on=1), Mon()
+tmp = tempfile.mkdtemp(prefix="gop_tun_")
+t = AutoTuner(mon, ab, NT.ProfileManager(os.path.join(tmp, "p")), TunerConfig(mode=TuneMode.CURVE),
+              log_dir=os.path.join(tmp, "l"))
+try:
+    t._apply_vf(0, 975, 2600, 0)
+    why = ""
+except NT.TunerApplyError as e:
+    why = str(e)
+check("V/F-Kurve" in why and "simulierter Fehler" in why, f"failed curve write -> TunerApplyError ({why!r})")
+t._stop.set()
+check(t._apply_vf(0, 950, 2550, 0) is False and len(ab.calls) == 1, "after an abort: no write at all")
+shutil.rmtree(tmp, ignore_errors=True)
+check(set(m.value for m in TuneMode) == {"oc_uv", "curve"}, "two modes: Quick (OC + UV) and Rundum")
 
 print("\n%d failure(s)" % len(FAILS))
 sys.exit(1 if FAILS else 0)

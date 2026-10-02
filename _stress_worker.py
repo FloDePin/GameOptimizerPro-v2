@@ -198,6 +198,7 @@ def mem_stress(parent_pid):
     cp.cuda.Stream.null.synchronize()   # copied back into a and go unnoticed
     try:
         last, moved, busy, k = time.time(), 0, 0.0, 0
+        checked = time.time()
         while True:
             t = time.time()
             cp.copyto(b, a)
@@ -206,9 +207,14 @@ def mem_stress(parent_pid):
             busy += time.time() - t
             moved += 4 * a.nbytes               # 2 copies x (read + write)
             k += 1
-            if k % 50 == 0 and not bool(cp.array_equal(a, ref)):
-                _emit("ERR 1")
-                sys.exit(EXIT_COMPUTE_ERROR)
+            # Every 50th round trip — and at least twice a second: next to a
+            # foreground FurMark the copies got little GPU time (live: 13 GB/s
+            # instead of 231), and "every 50th" was then one compare every ~8 s.
+            if k % 50 == 0 or time.time() - checked >= 0.5:
+                checked = time.time()
+                if not bool(cp.array_equal(a, ref)):
+                    _emit("ERR 1")
+                    sys.exit(EXIT_COMPUTE_ERROR)
             now = time.time()
             if now - last >= 1.0 and busy > 0:
                 _emit(f"BW {moved / busy / 1e9:.1f}")

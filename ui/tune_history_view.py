@@ -30,11 +30,14 @@ def _fmt(v, kind: str) -> str:
 
 
 class TuneHistoryView(tk.Frame):
-    def __init__(self, parent, logs_dir: str, **kw):
+    def __init__(self, parent, logs_dir: str, on_menu=None, **kw):
+        """on_menu(run, x_root, y_root): right click on a run (the GPU page puts
+        its saved profile into an Afterburner slot)."""
         super().__init__(parent, bg=APP_BG, **kw)
         self.history = TuneHistory(logs_dir)
         self._runs: dict = {}
         self._loaded = False
+        self._on_menu = on_menu
         self._build()
 
     def _build(self):
@@ -53,11 +56,12 @@ class TuneHistoryView(tk.Frame):
         button(head, tr("Aktualisieren", "Refresh"), self.refresh, kind="ghost", height=28,
                image=icon_image("refresh", TEXT2, 14), compound="left").pack(side="right", padx=(0, 6))
         WrapLabel(head, text=tr("Alle Auto-Tune-Läufe — Zeile auswählen, um das Protokoll zu sehen "
-                                "(Strg-/Umschalt-Klick: mehrere). Bei Läufen ohne Profil stehen die zuletzt "
+                                "(Strg-/Umschalt-Klick: mehrere), Rechtsklick: Ergebnis in einen "
+                                "Afterburner-Platz. Bei Läufen ohne Profil stehen die zuletzt "
                                 "getesteten Werte da, der Grund unter „Hinweis“.",
                                 "All Auto-Tune runs — select a row to see its log (Ctrl / Shift click: "
-                                "several). Runs without a profile show the values tested last, the reason "
-                                "under 'Note'."),
+                                "several), right click: the result into an Afterburner slot. Runs "
+                                "without a profile show the values tested last, the reason under 'Note'."),
                   font=F_S, fg=TEXT2, bg=CARD_BG).pack(side="left", fill="x", expand=True)
 
         tbl = Table(inner, [
@@ -85,6 +89,16 @@ class TuneHistoryView(tk.Frame):
         self.lbl_status.pack(fill="x", pady=(6, 0))
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
         self.tree.bind("<Delete>", lambda e: self.delete_selected())
+        self.tree.bind("<Button-3>", self._context)
+
+    def _context(self, e):
+        row = self.tree.identify_row(e.y)
+        run = self._runs.get(row)
+        if run is None or self._on_menu is None:
+            return
+        if row not in self.tree.selection():
+            self.tree.selection_set(row)
+        self._on_menu(run, e.x_root, e.y_root)
 
     def ensure_loaded(self):
         """Read the logs the first time the view is opened (not at app start)."""

@@ -65,16 +65,21 @@ def build(lang):
 print("GPU tab — German")
 root, tab, tuner, pm, started = build("de")
 labels = list(tab._mode_labels)
-check(labels == ["Übertakten", "Undervolten", "OC + UV", "Rundum"], f"modes: {labels}")
-tab.seg_mode.winfo_width = lambda: 250          # window at its minimum size
+check(labels == ["Rundum", "Schnell (OC + UV)"] and tab.seg_mode.get() == "Rundum",
+      f"two modes, Rundum first and selected: {labels}")
+tab.seg_mode.winfo_width = lambda: 120          # very narrow (large font scaling)
 tab._fit_mode_labels()
-check(list(tab._mode_labels) == ["OC", "UV", "OC + UV", "Rundum"] and tab.seg_mode.get() == "OC + UV",
-      f"narrow: short button texts, selection kept: {list(tab._mode_labels)}")
+check(list(tab._mode_labels) == ["Rundum", "Schnell"] and tab.seg_mode.get() == "Rundum",
+      f"narrow: short button text, selection kept: {list(tab._mode_labels)}")
 tab.seg_mode.winfo_width = lambda: 600
 tab._fit_mode_labels()
-check(list(tab._mode_labels) == labels and tab.seg_mode.get() == "OC + UV", "wide again: long texts")
+check(list(tab._mode_labels) == labels and tab.seg_mode.get() == "Rundum", "wide again: long texts")
+check(tab.params_card.winfo_manager() == "" and tab.goal_card.winfo_manager() == "pack"
+      and tab.curve_card.winfo_manager() == "pack", "start: goal + Rundum parameters")
+tab._select_mode("oc_uv")
+root.update_idletasks()
 check(tab.params_card.winfo_manager() == "pack" and tab.goal_card.winfo_manager() == ""
-      and tab.curve_card.winfo_manager() == "", "classic mode: classic parameters, no goal card")
+      and tab.curve_card.winfo_manager() == "", "Schnell: classic parameters, no goal card")
 tab._select_mode("curve")
 root.update_idletasks()
 check(tab.v_mode.get() == "curve" and tab.params_card.winfo_manager() == ""
@@ -171,6 +176,8 @@ check(cfg and cfg.mem_stage and cfg.curve_anchor_step_mv == 25 and "alle 25 mV" 
 check(title == "Rundum-Tuner starten" and "Ziel: Effizienz" in msg and "+179 MHz" in msg
       and "5 min FurMark" in msg and "Minuten" in msg and "nicht spielen" in msg,
       "start dialog explains goal, start value, final test, duration")
+check("FurMark-Fenster nicht anklicken" in msg and "Vorrang" in msg,
+      "... and not to click the FurMark windows (live: FurMark in front left the memory check 13 GB/s)")
 check("Speicher: +500 bis +1000 MHz in 100er-Schritten, ganze Karte unter Last" in msg
       and cfg.mem_oc_max_mhz == 1000 and cfg.mem_curve_start_mhz == 500 and cfg.mem_curve_step_mhz == 100,
       "memory plan in the dialog and the config: +500 … +1000, 100-MHz steps, whole card")
@@ -188,10 +195,10 @@ tab.v_point_mv.set(25)
 tab._select_mode("oc_uv")
 root.update_idletasks()
 check(tab.params_card.winfo_manager() == "pack" and tab.curve_card.winfo_manager() == ""
-      and tab.goal_card.winfo_manager() == "", "back to OC + UV: classic parameters again")
-check(tab.v_core_max.get() == 250, "classic modes keep their 'Core max' (+250)")
+      and tab.goal_card.winfo_manager() == "", "back to Schnell: classic parameters again")
+check(tab.v_core_max.get() == 250, "Schnell keeps its 'Core max' (+250)")
 tab._start_tune()
-check(started[-1].mode == TuneMode.OC_UV and "Modus: OC + Undervolt" in ASKED[-1][1]
+check(started[-1].mode == TuneMode.OC_UV and "Modus: Schnell (OC + Undervolt)" in ASKED[-1][1]
       and "Takt-Schritt" in ASKED[-1][1] and "Testdauer je Schritt" in ASKED[-1][1],
       "classic start unchanged")
 c2 = started[-1]
@@ -267,7 +274,7 @@ root3.destroy()
 
 print("GPU tab — English")
 root, tab, tuner, pm, started = build("en")
-check(list(tab._mode_labels)[-1] == "All-round" and
+check(list(tab._mode_labels) == ["All-round", "Quick (OC + UV)"] and
       list(tab._goal_labels) == ["Max performance", "Balanced", "Efficiency"], "English labels")
 tab._select_mode("curve")
 tab._start_tune()
@@ -295,18 +302,24 @@ class _Lbl:
 
 
 mahm = types.SimpleNamespace(available=False, restarting=True)
-win = types.SimpleNamespace(lbl_ab=_Lbl(), lbl_nvml=_Lbl(), lbl_mahm=_Lbl(),
+win = types.SimpleNamespace(lbl_ab=_Lbl(), lbl_nvml=_Lbl(), lbl_mahm=_Lbl(), _ind_state={},
+                            INDICATOR_TEXT=MW.GameOptimizerWindow.INDICATOR_TEXT,
                             ab=types.SimpleNamespace(available=True),
                             monitor=types.SimpleNamespace(nvml=types.SimpleNamespace(available=True),
                                                           mahm=mahm))
 MW.GameOptimizerWindow._refresh_indicators(win)
-check(win.lbl_mahm.kw.get("fg") == ACC, "MAHM dot blue while Afterburner is restarted on purpose")
+tip = MW.GameOptimizerWindow._indicator_text(win, "mahm")
+check(win.lbl_mahm.kw.get("fg") == ACC and "absichtlich" in tip and "grün" in tip,
+      f"MAHM dot blue while Afterburner is restarted on purpose — pointing at it says why: {tip[:60]}…")
 mahm.restarting = False
 MW.GameOptimizerWindow._refresh_indicators(win)
-check(win.lbl_mahm.kw.get("fg") == AMBER, "orange when it is really gone")
+check(win.lbl_mahm.kw.get("fg") == AMBER and "Spannung" in MW.GameOptimizerWindow._indicator_text(win, "mahm"),
+      "orange when it is really gone (and what to check)")
 mahm.available = True
 MW.GameOptimizerWindow._refresh_indicators(win)
-check(win.lbl_mahm.kw.get("fg") == GREEN, "green when it delivers")
+check(win.lbl_mahm.kw.get("fg") == GREEN and all(MW.GameOptimizerWindow._indicator_text(win, k)
+                                                 for k in ("ab", "nvml", "mahm")),
+      "green when it delivers; every dot explains itself")
 
 dash = mock.MagicMock()
 dash.hw.gpu_vram_mb = 16376

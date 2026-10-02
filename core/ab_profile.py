@@ -592,6 +592,32 @@ def slot_equivalent(old_text: str, new_text: str, slot: int) -> bool:
         for x, y in zip(pa, pb))
 
 
+def slot_summary(pf: ProfileFile, slot: int, de: bool = True) -> str:
+    """What slot `slot` holds, short — for the "save to slot" menu:
+    "leer", "Kurve · Speicher +1000 · Power 100 %", "Core +135 · Speicher +0 · Power 96 %"."""
+    it = pf.items(f"Profile{int(slot)}")
+    if not it:
+        return "leer" if de else "empty"
+
+    def num(key):                       # None = not in the slot (nothing to show)
+        try:
+            return int(it[key]) if it.get(key, "").strip() else None
+        except ValueError:
+            return None
+    core = num("coreclkboost")
+    parts = []
+    if core == CORE_CURVE_MARKER:
+        parts.append("Kurve" if de else "curve")
+    elif core is not None:
+        parts.append(f"Core {round(core / 1000):+d}")
+    mem = num("memclkboost")
+    if mem is not None:
+        parts.append(f"{'Speicher' if de else 'memory'} {round(mem / 1000):+d}")
+    if it.get("powerlimit"):
+        parts.append(f"Power {it['powerlimit']} %")
+    return " · ".join(parts) or ("belegt" if de else "used")
+
+
 def describe_slot(pf: ProfileFile, section: str) -> str:
     """One line per slot for diagnostics."""
     it = pf.items(section)
