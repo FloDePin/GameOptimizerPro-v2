@@ -19,10 +19,36 @@ Profil übernommen (NVML las **288 W** zurück), gleiche Werte gingen ohne Neust
 | 7b | Neue Funktionen prüfen (Dashboard, Dienste, Deep Clean, 26H2-Tweaks) | teils | 10 min | ✅ erledigt — Befunde siehe unten |
 | 8 | Erster Auto-Tune | ja, Abbruch setzt zurück | 20–30 min | ✅ zweimal gelaufen (+179 MHz / 97 %; 2. Lauf mit Mem +1000 im Endtest durchgefallen) |
 | 8b | Nach dem Update (Runde 12): neue Oberfläche, FurMark/3DMark, Audio | ja | 30 min | ✅ erledigt |
-| 8c | **Rundum-Tuner (Runde 13) — Punkte unten** | ja, Abbruch setzt zurück | 50–80 min | ✅ Lauf 3 bestanden (+3,7 % FurMark) |
+| 8c | **Rundum-Tuner (Runde 13) — Punkte unten** | ja, Abbruch setzt zurück | 50–80 min | ✅ Lauf 3 bestanden (+3,7 % FurMark); Runde 15 bestanden: 7415 → 7542 Punkte, 925 mV +16 MHz, 900–850 mV übersprungen |
 | 9 | Danach: im Alltag prüfen und als Standard setzen | ja | — | offen |
 
 **Wichtig für alle Schritte ab 3:** Kein Spiel und keine 3D-Anwendung offen lassen.
+
+---
+
+## Jetzt (nach dem Update von Runde 15) — zwei Modi, Slots, erklärte Punkte
+
+App einmal **schließen** (Tray → Beenden) und als **Administrator** neu starten.
+
+1. **GPU-Tuner → Auto-Tune:** nur noch zwei Modi — **Rundum** (vorausgewählt) und **Schnell
+   (OC + UV)**. Übertakten / Undervolten gibt es als Rundum-Ziel *Max. Leistung* / *Effizienz*.
+2. **Verlauf → Rechtsklick** auf deinen Lauf von heute → das Menü zeigt die fünf
+   Afterburner-Plätze mit dem, was dort liegt (z. B. „Platz 2: Kurve · Speicher +1000 ·
+   Power 100 %“). Einen Platz wählen → Rückfrage → Afterburner startet kurz neu und hat das
+   Profil auf diesem Platz. Dasselbe geht unter **Profile** (Rechtsklick oder Knopf „In
+   Afterburner-Platz … ▾“).
+3. **Mit der Maus auf AB / NVML / MAHM** (links unten) zeigen: Jeder Punkt erklärt seine Farbe.
+   Während eines Tunes ist MAHM zwischendurch **blau** — Afterburner startet für jeden
+   Testschritt absichtlich neu.
+4. Die Meldung **„Disable Nagle's Algorithm … nicht mehr aktiv“** kommt nicht mehr (sie kam
+   wegen des unbenutzten Bluetooth-Netzwerkadapters).
+5. **Profile → „Umbenennen …“** (oder Rechtsklick): z. B. `GOP_CURVE_BAL_1002_1628` → „Rundum heute“.
+   Der Verlauf findet es weiter. **„Löschen“** hat jetzt einen Rahmen. Im **Profilvergleich**
+   stehen jetzt beide Rundum-Profile (gestern + heute) und kein „Default“ mehr.
+6. **Bei einem neuen Tune die FurMark-Fenster nicht anklicken** — sie gehen jetzt ohne Fokus auf.
+   Das Fenster vorne bekommt auf der GPU Vorrang (live gemessen: Speicherprüfung 244 → 13 GB/s).
+   Würde es trotzdem passieren, merkt der Tuner das („Prüfung zu schwach“) und erhöht den Speicher
+   nicht weiter.
 
 ---
 

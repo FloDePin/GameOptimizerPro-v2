@@ -1,5 +1,5 @@
 {
-  "build": 17,
+  "build": 18,
   "date": "2026-10-02",
-  "notes": "Tune-Verlauf: alle Werte (auch Standardwerte und abgebrochene Läufe), Grund bei Läufen ohne Profil, Löschen einzeln oder alle."
+  "notes": "Zwei Tune-Modi (Rundum + Schnell), Ergebnisse per Rechtsklick in jeden Afterburner-Platz, Profile umbenennen, Profilvergleich immer aktuell, Speicherprüfung kann neben FurMark nicht mehr verhungern, erklärte Status-Punkte, lückenlose Treiber-Reset-Prüfung, Nagle-Meldung behoben."
 }

@@ -1041,6 +1041,74 @@ verifiers (VERIFY_MAP stays 1:1) and full English descriptions.
     lines, stopped run), deleting one / all / nothing outside logs, the view's
     question and buttons — 853 checks in 23 suites, all green.
 
+- **Round 15 — two modes, a memory check that can't starve, results into any
+  Afterburner slot, renaming profiles, gap-free driver-reset check** (build 18; the user during the live All-round test: "we have 4 modes and
+  'balanced' is basically OC + UV — do we need all of them?", "why is MAHM blue now?",
+  "with 5 results from trying things and no free Afterburner slot — right click in the
+  history, 'export to slot 3'?", and: fix whatever the test shows, look at everything
+  critically, then a synthetic test and push):
+  - **Two modes:** Rundum (now the default) and Schnell (OC + UV). "Übertakten" and
+    "Undervolten" are gone — the Rundum goals *Max. Leistung* / *Effizienz* cover them per
+    voltage point (the old "undervolt" only lowered the power limit). The never-shown
+    FULL / V/F-only / memory-only modes went with them: Stage 3 (V/F undervolt),
+    `core/vf_curve.py`, the `vf_*` / `mem_oc_enabled` settings; the memory stage is
+    `mem_stage` in both modes; `_final_backoff` lost its V/F voltage. The point lock the
+    Rundum search uses (`_apply_vf`) stays.
+  - **Results into any Afterburner slot:** right click a run in the tune history (it now
+    knows its saved profile, `TuneRun.profile_name`) or a profile → slot 1–5. The menu
+    shows what each slot holds (`AfterburnerController.slot_summaries` /
+    `ab_profile.slot_summary`, read-only), asks before overwriting, marks slot 1 as the
+    user's; a run without a profile shows its reason instead. The profiles' button opens
+    the same menu (it used to write into the tuner's slot setting from another view).
+  - **Status dots explain themselves** (`HoverTip`, also behind every "?"): blue MAHM =
+    Afterburner restarts on purpose for a tuner step, orange = really gone (what to
+    check), AB / NVML likewise.
+  - **Driver-reset check without gaps:** the event log was read at "elapsed % 10 == 0"
+    — a look takes 1–2 s itself, so later looks were skipped now and then, and a reset
+    in a step's last seconds was never looked for in that step (the next step got the
+    blame). Now each look starts where the last one ended, and a last look closes every
+    step.
+  - **Memory check that can't starve** (found in the live test): every memory step
+    logged "13 GB/s, FurMark 123 FPS" instead of round 13's "231 GB/s, 67 FPS" — 123 FPS
+    is FurMark alone. The FurMark window was in front; Windows gives the window in front
+    priority on the GPU, and the verified copies (the only thing that SEES a memory
+    error) got one compare every ~8 s. Measured live with the user clicking: copies
+    alone ~640 GB/s, next to a FurMark in the background ~244, FurMark clicked to the
+    front 12.6, back ~244. Now: the tuner starts FurMark without the focus
+    (SW_SHOWNOACTIVATE + LockSetForegroundWindow while it starts; `furmark.run_benchmark
+    (focus=False)`), the worker compares at least twice a second (a starved copy with an
+    error: found in 0.7 s, was > 6 s), and a step whose copies stay below 50 GB/s
+    counts as "check too weak" — repeated once, then the memory is not raised any further
+    (+0 if nothing was checked properly; never "even +0 fails"). The start dialogs say
+    not to click the FurMark windows. (Today's +1000 had passed the full check the day
+    before, and the 5-min final test passed.)
+  - FurMark is killed **and waited for** on a stop / hang (the next benchmark starts
+    seconds later). The remaining English-only texts of the GPU tuner (abort question,
+    Afterburner busy, manual offsets, profiles) speak German too.
+  - **Profiles** (the user: "renaming the profiles would be nice", "Delete should have a
+    frame too", and: today's profile was missing in the comparison, a "Default" was in
+    it): "Umbenennen …" (button + right click, `ProfileManager.rename`; a pre-filled
+    `TextDialog` that refuses taken / reserved names; the old name keeps finding the
+    profile through `renamed.map`, so the tune history's link survives; a case-only
+    rename is not "already exists" on Windows); "Löschen" is a framed button; the
+    comparison page refreshes its lists every time it is shown (`on_show` — it is built
+    in the background at start and only read them then); `list_all` / `load` accept only
+    real profiles — `profiles/language.json` and the old `game_profiles.json` were read
+    as a profile without a name, i.e. "Default" (the files stay, they're just not
+    profiles).
+  - Nagle tweak: only connected adapters count — Windows had created the interface key
+    of an unused Bluetooth PAN adapter without the values, and the tweak was reported
+    "no longer active" at every start.
+  - Live All-round run with the round-14 changes (25-mV points, floor skip, Core max
+    +350 per point, whole-card memory stage): Round 15 (points every 25 mV, max clock gain +350 per point): 7415 → 7542 points (+1.7 % — the stock run was 2 % higher than the day before; the tuned result is the same, 7542 vs 7538), 2790 → 2880 MHz, 925 mV now 2576 MHz (was capped at 2560), 900–850 mV skipped (the card runs ≥ 925 mV under this load), memory +1000, final test passed.
+  - Tests: test_round15 (driver-reset looks with a fake clock and event log, both modes,
+    slot summaries against a real-format profile file, history → profile), the slot menu
+    in the UI test (right click → slot 3 → asked → written), the dots' explanations, the
+    stage tests on the Quick mode, a starved memory copy with an error (found in 0.7 s,
+    the old worker: not within 6 s), the weak-check rule, FurMark without focus,
+    renaming (old names, case-only, refused names, the dialog) and the comparison
+    refresh — 918 checks in 24 suites, all green.
+
 ### 🔎 Reviewed, verified NOT a bug
 
 Some reported items were checked against the actual code and left unchanged
