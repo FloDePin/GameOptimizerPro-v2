@@ -1,5 +1,5 @@
 {
-  "build": 18,
-  "date": "2026-10-02",
-  "notes": "Zwei Tune-Modi (Rundum + Schnell), Ergebnisse per Rechtsklick in jeden Afterburner-Platz, Profile umbenennen, Profilvergleich immer aktuell, Speicherprüfung kann neben FurMark nicht mehr verhungern, erklärte Status-Punkte, lückenlose Treiber-Reset-Prüfung, Nagle-Meldung behoben."
+  "build": 19,
+  "date": "2026-10-04",
+  "notes": "Tests, die finden, was ein Spiel findet: Spiel-Endtest (Abkühlen, Lastwechsel, Boost), Hänger-Erkennung, größere Sicherheitsabzüge, Speicher −200 mit EDC-Prüfung, GPU-Wächter beim Start, „Entschärfen“ per Klick, angewendete Profile werden vermerkt."
 }

@@ -26,6 +26,22 @@ Profil übernommen (NVML las **288 W** zurück), gleiche Werte gingen ohne Neust
 
 ---
 
+## Jetzt (nach dem Update von Runde 16) — Tests, die finden, was ein Spiel findet
+
+Afterburner läuft schon mit dem **sicheren Profil** (`GOP_CURVE_BAL_1002_1628_sicher`: Kurve
+−30 MHz, Speicher +500, Platz 4 + Start-Einstellung). App einmal **schließen** und als
+**Administrator** neu starten.
+
+1. **Hunt / Tarkov spielen wie immer.** Hängt ein Spiel, meldet die App das beim nächsten Start
+   („GPU-Wächter“) und bietet „Entschärfen“ an.
+2. **GPU-Tuner → Profile:** neu „Entschärfen …“ (Kurve −30 MHz, Speicher −200 MHz → danach
+   Afterburner-Platz wählen).
+3. **Ein neuer Tune** dauert länger (Rundum 60–95 min): nach dem Endtest kommt der
+   **Spiel-Endtest** (1 min abkühlen, 5 min Lastwechsel, 4 min Boost-Punkt). Abzüge jetzt 45 MHz,
+   oben 60 MHz; Speicher −200 MHz. Erst neu tunen, wenn das sichere Profil im Spiel hält.
+
+---
+
 ## Jetzt (nach dem Update von Runde 15) — zwei Modi, Slots, erklärte Punkte
 
 App einmal **schließen** (Tray → Beenden) und als **Administrator** neu starten.

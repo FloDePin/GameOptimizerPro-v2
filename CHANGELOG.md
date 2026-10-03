@@ -1109,6 +1109,62 @@ verifiers (VERIFY_MAP stays 1:1) and full English descriptions.
     renaming (old names, case-only, refused names, the dialog) and the comparison
     refresh — 918 checks in 24 suites, all green.
 
+- **Round 16 — tests that find what a game finds** (build 19; Hunt: Showdown hung
+  after 2 h on the round-15 profile, the user: "our tests must get more precise and
+  robust so we find these errors — 6 h of Tarkov yesterday, nothing; now 2 h of Hunt
+  and it hung"):
+  - **What happened** (read from the logs, not guessed): Hunt's own log says `D3D12
+    Device Removed: Reason 0x887A0006 (DXGI_ERROR_DEVICE_HUNG)` on the render thread;
+    the System log has 3x nvlddmkm 153 (an engine reset) and no 4101. The card ran at
+    the top of the curve — 1050 mV / 2909 MHz, where the search had found failures at
+    2944 MHz in 45-s steps: about 35 MHz of real margin for a 2-hour D3D12 game. (A
+    pasted analysis read the 153 events as tuner damage: they also appear at the end
+    of every passed tune step — the driver logs 153 when a process with GPU work is
+    ended — so they prove nothing alone; Hunt's own log does.)
+  - **Game test** after the final test, both modes (`AutoTuner._game_test`): 60 s
+    cool-down with the settings applied (a cold card runs its curve higher — the stock
+    clock at 925 mV read 49 MHz higher cold than in the test), 5 min of **load changes
+    at the top clock** (new worker mode `transient`: bursts of 5–250 ms, light or full
+    size, with random pauses — the load step at a high clock is where the voltage
+    dips), 4 min at the boost point. A failure steps back like a failed final test
+    (Rundum: the curve where the card ran; Quick: core / memory) and runs the final
+    test again. Rundum 60–95 min, Quick 30–55 min.
+  - **Hang detection** (`StressTester.HANG_S` = 8 s): a load that stops delivering
+    results fails as "GPU hängt" at once (it used to count as passed until a driver
+    reset killed the worker — TdrDelay is 10 s on the user's PC); a hang at a point
+    adds the reset margin there.
+  - **Margins**: 45 MHz, **60 MHz at the top points** (within 75 mV of the highest
+    measured point — where games boost), +30 where a driver reset or a hang happened
+    at that point (`curve_tune.apply_margins`; the report shows each point's cut).
+    Quick mode: 60 MHz off the core offset after Stage 1 (it had none).
+  - **Memory**: 200 MHz off the highest step that passed (`mem_safety_mhz`); a
+    bandwidth drop > 2 % with more clock is the edge (GDDR6X retries bad transfers —
+    EDC — before errors show).
+  - **GPU watchdog** (`core/gpu_watchdog.py`, 5 s after every app start): nvlddmkm
+    13 / 14 / 153 and Display 4101 since the applied profile was set; own tunes (tune
+    logs) and stress sessions (recorded by the stress tab — only by the app, never by
+    tests) are left out. Found something → "make safer and apply" / "stock" / "keep"
+    (quiet until the next event). Run against the user's real event log it finds the
+    Hunt events and leaves the tune's own out.
+  - **Make safer** (`ProfileManager.derate`, profiles: button + right click; also the
+    watchdog's choice): '<name>_sicher' (…2, …) with every curve point / the core
+    offset −30 MHz and memory −200 MHz, then the slot menu.
+  - **The applied profile is recorded everywhere** (slot menu, manual offsets, reset
+    to stock): the app's start-up profile is "the last applied one" — after applying
+    through the slot menu it would have put the OLD profile back at its next start
+    (found while switching the user to the safe profile).
+  - For the user right away: `GOP_CURVE_BAL_1002_1628_sicher` (curve −30 MHz, memory
+    +500 by request) in Afterburner slot 4 and as Afterburner's start-up settings;
+    recorded as the app's start-up profile.
+  - Not ours: a blue screen 0x7E in BEDaisy.sys (BattlEye, Tarkov) on 04.10. — the
+    same stop code on 27.09., before any tuning or tweak; no WHEA errors in 60 days.
+  - Tests: test_round16 (transient worker, a really hung worker process, Quick margin +
+    game test, memory −200 / EDC / starved copies, make safer, watchdog against a fake
+    event log with the user's timeline, the app's dialog), Rundum scenarios E21–E23 (a
+    card weaker under load changes: caught by the game test on 30 MHz, covered by 60;
+    a hang in the game test), the margins on the user's real run — 960 checks in
+    25 suites, all green.
+
 ### 🔎 Reviewed, verified NOT a bug
 
 Some reported items were checked against the actual code and left unchanged
