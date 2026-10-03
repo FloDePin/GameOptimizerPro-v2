@@ -344,6 +344,59 @@ src = open(os.path.join(ROOT, "GameOptimizerPro.py"), encoding="utf-8").read()
 check("gpu_watchdog.SESSIONS_FILE = Path(logs_dir)" in src and "after(5000, self._watchdog_start)" in src,
       "the app records its own stress sessions and checks 5 s after the start")
 
+# ── 8) one instance at a time ────────────────────────────────────────────────
+print("one instance at a time")
+# "close to tray" only hides the window; a second start ran a second instance next
+# to it (seen live: two pythonw, both wrote Afterburner). Test lock name: never the
+# user's running app.
+NAME = f"Local\\GOP_r16_{os.getpid()}"
+G.INSTANCE_NAME = NAME
+CHILD = ("import sys; sys.path.insert(0, {root!r}); import GameOptimizerPro as G; "
+         "print('ONLY' if G.single_instance({wait}) else 'SECOND', flush=True)")
+
+
+def second_start(wait=0.0, timeout=60):
+    return subprocess.run([sys.executable, "-c", CHILD.format(root=ROOT, wait=wait)], capture_output=True,
+                          text=True, timeout=timeout, cwd=ROOT,
+                          env=dict(os.environ, GOP_INSTANCE_NAME=NAME)).stdout.strip()
+
+
+check(G.single_instance(0) is True, "the first start holds the instance lock")
+k = G._kernel32()
+show = k.CreateEventW(None, False, False, NAME + "_show")      # what _listen_for_show() creates
+out = second_start()
+check(out.endswith("SECOND") and k.WaitForSingleObject(show, 3000) == 0,
+      f"a second start ends and asks the first one to show its window ({out!r})")
+res = {}
+th = threading.Thread(target=lambda: res.update(out=second_start(wait=20)), daemon=True)
+th.start()
+time.sleep(4)                                                    # the 'old' instance is still exiting ...
+G.release_single_instance()                                      # ... and goes
+th.join(60)
+check(res.get("out", "").endswith("ONLY"),
+      f"an update restart ({G.AFTER_RESTART}) waits for the old instance and then starts: {res.get('out')!r}")
+check(G.single_instance(0) is True, "nobody holds it: a normal start gets it at once")
+G.release_single_instance()
+k.CloseHandle(show)
+# the running app shows its window when asked
+shown = []
+app = object.__new__(G.GameOptimizerApp)
+app._window = FakeWin()
+app._show_window = lambda: shown.append(1)
+app._listen_for_show()
+ev = k.OpenEventW(0x0002, False, NAME + "_show")
+k.SetEvent(ev)
+k.CloseHandle(ev)
+for _ in range(3):
+    if app._window.q:
+        app._window.q.pop(0)()
+check(shown == [1], "the running app polls the request and shows its window")
+src = open(os.path.join(ROOT, "GameOptimizerPro.py"), encoding="utf-8").read()
+upd = open(os.path.join(ROOT, "tools", "apply_update.py"), encoding="utf-8").read()
+check("single_instance(20.0 if AFTER_RESTART in sys.argv else 0.0)" in src
+      and src.count("AFTER_RESTART]") == 1 and '"--after-restart"]' in upd,
+      "both update restarts (git pull, installer) pass the 'wait for me' flag")
+
 W.SESSIONS_FILE = None
 shutil.rmtree(TMP, ignore_errors=True)
 print("\n%d failure(s)" % len(FAILS))

@@ -164,7 +164,7 @@ def main(argv=None):
         exe = Path(sys.executable)
         w = exe.with_name("pythonw.exe")
         try:
-            subprocess.Popen([str(w if w.exists() else exe), str(dst / "GameOptimizerPro.py")], cwd=str(dst),
+            subprocess.Popen([str(w if w.exists() else exe), str(dst / "GameOptimizerPro.py"), "--after-restart"], cwd=str(dst),
                              close_fds=True)
         except OSError as e:
             log(dst, f"Neustart fehlgeschlagen: {e}")

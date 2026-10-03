@@ -90,6 +90,62 @@ def relaunch_admin():
 
 NO_ADMIN_PROMPT = "--no-admin-prompt"
 
+# ── One instance at a time ────────────────────────────────────────────────────
+# Closing the window only hides the app in the tray ("close to tray"); starting
+# it again ran a SECOND instance next to it — both could write Afterburner's
+# profile and both loaded the start-up profile (seen live, round 16). A second
+# start now asks the running one to show its window and ends. An update restart
+# passes AFTER_RESTART: the old instance may still be exiting — wait for it.
+INSTANCE_NAME = os.environ.get("GOP_INSTANCE_NAME", "Local\\GameOptimizerPro_v2")
+AFTER_RESTART = "--after-restart"
+_instance_mutex = []                 # held for the life of the process
+
+
+def _kernel32():
+    k = ctypes.WinDLL("kernel32", use_last_error=True)
+    for fn in ("CreateMutexW", "CreateEventW", "OpenEventW"):
+        getattr(k, fn).restype = ctypes.c_void_p
+    k.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+    k.SetEvent.argtypes = k.CloseHandle.argtypes = k.ReleaseMutex.argtypes = [ctypes.c_void_p]
+    return k
+
+
+def single_instance(wait_s: float = 0.0) -> bool:
+    """True = this is the only instance (it holds the named mutex from now on).
+    False = another one runs; it was asked to show its window. Never blocks a
+    start when the check itself fails."""
+    if os.name != "nt":
+        return True
+    try:
+        k = _kernel32()
+        h = k.CreateMutexW(None, False, INSTANCE_NAME)
+        if not h:
+            return True
+        r = k.WaitForSingleObject(h, int(max(0.0, wait_s) * 1000))
+        if r in (0, 0x80):                    # WAIT_OBJECT_0 / WAIT_ABANDONED: ours now
+            _instance_mutex.append(h)
+            return True
+        ev = k.OpenEventW(0x0002, False, INSTANCE_NAME + "_show")    # EVENT_MODIFY_STATE
+        if ev:
+            k.SetEvent(ev)
+            k.CloseHandle(ev)
+        k.CloseHandle(h)
+        return False
+    except Exception:
+        return True
+
+
+def release_single_instance():
+    """Let go of the mutex (tests; an exiting process lets go anyway)."""
+    try:
+        k = _kernel32()
+        while _instance_mutex:
+            h = _instance_mutex.pop()
+            k.ReleaseMutex(h)
+            k.CloseHandle(h)
+    except Exception:
+        pass
+
 
 def relaunch_windowless(extra_args=()):
     """Same app via pythonw.exe, then end this instance — its console window
@@ -195,6 +251,29 @@ class GameOptimizerApp:
             self._window.lift()
             self._window.focus_force()
 
+    def _listen_for_show(self):
+        """A second start (single_instance) signals this event: show the window.
+        Polled on the main thread."""
+        try:
+            k = _kernel32()
+            self._show_evt = k.CreateEventW(None, False, False, INSTANCE_NAME + "_show")
+        except Exception:
+            self._show_evt = None
+        if not self._show_evt:
+            return
+
+        def poll():
+            try:
+                if k.WaitForSingleObject(self._show_evt, 0) == 0:
+                    self._show_window()
+            except Exception:
+                pass
+            try:
+                self._window.after(700, poll)
+            except Exception:
+                pass
+        self._window.after(700, poll)
+
     def _hide(self):
         if self._window:
             try:
@@ -263,7 +342,8 @@ class GameOptimizerApp:
             if relaunch:                      # after a git-pull update
                 try:
                     import subprocess
-                    subprocess.Popen([gui_python(), str(BASE / "GameOptimizerPro.py")], cwd=str(BASE))
+                    subprocess.Popen([gui_python(), str(BASE / "GameOptimizerPro.py"), AFTER_RESTART],
+                                     cwd=str(BASE))
                 except Exception:
                     pass
             os._exit(0)
@@ -515,6 +595,7 @@ class GameOptimizerApp:
             self._window.after(8000, self._window.update_flow.start)
         # GPU watchdog: did a game hang / crash on the applied profile since it was set?
         self._window.after(5000, self._watchdog_start)
+        self._listen_for_show()             # a second start shows this window instead
 
         # 3. Tray icon in its own background thread
         try:
@@ -568,6 +649,8 @@ def main():
             sys.exit(0)
     except Exception:
         pass
+    if not single_instance(20.0 if AFTER_RESTART in sys.argv else 0.0):
+        sys.exit(0)                     # the running instance shows its window
     GameOptimizerApp().run()
 
 

@@ -86,7 +86,9 @@ if os.name == "nt" and os.path.exists(os.path.join(ROOT, "tests", "run_hidden_de
         f.write(code)
     cmd = [sys.executable, os.path.join(ROOT, "tests", "run_hidden_desktop.py"), script]
 r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
-                   env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+                   env=dict(os.environ, PYTHONIOENCODING="utf-8",
+                            # never the user's running app's instance lock
+                            GOP_INSTANCE_NAME=f"Local\\GOP_test_{os.getpid()}"))
 out = r.stdout + r.stderr
 line = next((l for l in out.splitlines() if l.startswith("STARTED ")), "")
 check(bool(line), "the app starts: main() -> tray menu -> main window" + ("" if line else ":\n" + out[-2500:]))
