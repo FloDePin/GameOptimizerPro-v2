@@ -1165,6 +1165,33 @@ verifiers (VERIFY_MAP stays 1:1) and full English descriptions.
     a hang in the game test), the margins on the user's real run — 960 checks in
     25 suites, all green.
 
+- **Round 16 — live phase 1, two more fixes** (build 20; the to-do list "what can we
+  test in real time, with admin rights"):
+  - Live on the RTX 4080: the new `transient` load (it had only run on fake cupy)
+    passes on the safe profile — up to 2850 MHz, the voltage jumping 925 → 1050 mV with
+    the load changes (what a game does), the longest gap between results 1.3 s (hang
+    limit 8 s, no false alarm); the steady boost load sits at 1050 mV / 2850 MHz.
+  - Live: the app's start applied the SAFE profile (the recorded "last applied"); a
+    stress test from the stress tab was recorded and its nvlddmkm 153 left out by the
+    watchdog; an event from a test run outside the app was not (as intended).
+  - **Found live, fixed — a profile with a safer copy was applied over it:** the tune
+    history's runs point to the profile the tune saved then; the user's right click on
+    the 02.10. run put the original (the one that hung Hunt) into slot 1 and made it
+    the start-up profile. Applying a profile for which a made-safer copy exists now
+    asks first (Yes = the safer copy, recommended; No = the original anyway;
+    `ProfileManager.safer_version`). The user re-applied the safe profile; slot 1's
+    old values are in the Afterburner backups.
+  - **Found live, fixed — two instances:** "close to tray" only hides the window, a
+    second start ran a second app next to it (two pythonw; both could write
+    Afterburner, both load the start-up profile). A named mutex: a second start asks
+    the running one to show its window (named event, polled on the main thread) and
+    ends; the git-pull and the installer restart pass `--after-restart` and wait up to
+    20 s for the old instance. Tests use their own lock name (the start test never
+    meets the user's running app).
+  - Tests: the safer-copy question (cancel / safer / original), real second processes
+    against the lock (second start -> shown; restart waits; free lock), the running
+    app's show poll — 968 checks in 25 suites, all green.
+
 ### 🔎 Reviewed, verified NOT a bug
 
 Some reported items were checked against the actual code and left unchanged

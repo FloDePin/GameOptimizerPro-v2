@@ -1,5 +1,5 @@
 {
-  "build": 19,
+  "build": 20,
   "date": "2026-10-04",
-  "notes": "Tests, die finden, was ein Spiel findet: Spiel-Endtest (Abkühlen, Lastwechsel, Boost), Hänger-Erkennung, größere Sicherheitsabzüge, Speicher −200 mit EDC-Prüfung, GPU-Wächter beim Start, „Entschärfen“ per Klick, angewendete Profile werden vermerkt."
+  "notes": "Nur eine Instanz (ein zweiter Start holt das Fenster nach vorne), Nachfrage beim Anwenden eines Profils mit entschärfter Version, Live-Tests von Phase 1."
 }

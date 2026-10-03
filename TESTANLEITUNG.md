@@ -39,6 +39,16 @@ Afterburner läuft schon mit dem **sicheren Profil** (`GOP_CURVE_BAL_1002_1628_s
 3. **Ein neuer Tune** dauert länger (Rundum 60–95 min): nach dem Endtest kommt der
    **Spiel-Endtest** (1 min abkühlen, 5 min Lastwechsel, 4 min Boost-Punkt). Abzüge jetzt 45 MHz,
    oben 60 MHz; Speicher −200 MHz. Erst neu tunen, wenn das sichere Profil im Spiel hält.
+4. **Phase 1 (live, 04.10.):** Start lädt das sichere Profil ✓ · Stresstest vom Wächter ausgenommen ✓ ·
+   Lastwechsel-Last auf der echten Karte ✓ (bis 2850 MHz, 925 ↔ 1050 mV, keine Fehlalarme) ·
+   Wächter-Dialog: beim nächsten App-Start → „Profil behalten“ (das Ereignis kam von einem Test).
+   **Im Verlauf** steht zu jedem Lauf das Profil, das der Tune *damals* gespeichert hat — für den Lauf
+   vom 02.10. ist das das alte. Die App fragt jetzt nach, wenn es eine entschärfte Version gibt.
+5. **Nur eine Instanz:** Das X versteckt die App im Tray. Ein zweiter Start holt jetzt das laufende
+   Fenster nach vorne (vorher lief eine zweite App daneben). **Vor dem ersten Start mit Build 20 alle
+   alten Instanzen beenden** (Tray → Beenden, ggf. Task-Manager „pythonw“).
+6. **Nächster Live-Test: Modus Schnell (OC + UV)** — 30–55 min, Spiel aus, Speicherkopien sollten bei
+   ~240 GB/s liegen (FurMark ohne Fokus).
 
 ---
 
