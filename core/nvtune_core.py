@@ -235,6 +235,39 @@ class ProfileManager:
         self._write_aliases(aliases)
         return True, ""
 
+    DERATE_CORE_MHZ = 30
+    DERATE_MEM_MHZ = 200
+
+    def derate(self, name: str, core_mhz: int = DERATE_CORE_MHZ,
+               mem_mhz: int = DERATE_MEM_MHZ) -> Optional[TuneProfile]:
+        """A safer copy (round 16 — a tuned profile hung Hunt: Showdown after 2 h):
+        every curve point (or the core offset) −core_mhz, memory −mem_mhz, never
+        below 0. Saved as '<name>_sicher' ('…_sicher2', … when that exists; a copy
+        of a copy counts on from its base). -> the copy, None if `name` is unknown."""
+        import re
+        src = self.load(name)
+        if src is None:
+            return None
+        base = re.sub(r"_sicher\d*$", "", src.name)
+        new_name, i = f"{base}_sicher", 2
+        while self._read(new_name) is not None:
+            new_name, i = f"{base}_sicher{i}", i + 1
+        p = TuneProfile.from_dict(src.to_dict())
+        p.name = new_name
+        if p.curve_points:
+            p.curve_points = [[int(mv), int(f) - int(core_mhz)] for mv, f in p.curve_points]
+        p.core_offset_mhz = int(p.core_offset_mhz) - int(core_mhz)
+        if p.lock_freq_mhz:
+            p.lock_freq_mhz = max(0, int(p.lock_freq_mhz) - int(core_mhz))
+        p.mem_offset_mhz = max(0, int(p.mem_offset_mhz) - int(mem_mhz))
+        p.created_at = datetime.now().isoformat()
+        p.notes = (_t(f"[Entschärft aus {src.name}: Kurve/Takt −{core_mhz} MHz, Speicher "
+                      f"+{src.mem_offset_mhz}→+{p.mem_offset_mhz}] ",
+                      f"[Made safer from {src.name}: curve/clock −{core_mhz} MHz, memory "
+                      f"+{src.mem_offset_mhz}→+{p.mem_offset_mhz}] ") + (src.notes or ""))[:400]
+        self.save(p)
+        return p
+
     def delete(self, name: str) -> bool:
         path = self.dir / f"{self._safe_name(name)}.json"
         if path.exists():

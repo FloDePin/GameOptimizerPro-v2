@@ -87,14 +87,18 @@ check(r.best_mhz == 0 and len(calls) == 4, "nothing stable within the downward b
 print("A  margins, measured points, cap voltages")
 rs = [CT.AnchorResult(1050, 2805, best_mhz=2977), CT.AnchorResult(1000, 2690, best_mhz=2995, tdr=True),
       CT.AnchorResult(950, 2575, best_mhz=2784), CT.AnchorResult(900, 2460, reachable=False)]
-CT.apply_margins(rs, 30, 60)
-check([x.target_mhz for x in rs] == [2947, 2935, 2754, 0],
-      f"−30 MHz safety, −60 where a driver reset happened: {[x.target_mhz for x in rs]}")
+CT.apply_margins(rs)
+check([x.target_mhz for x in rs] == [2917, 2905, 2739, 0] and [x.margin_mhz for x in rs] == [60, 90, 45, 0],
+      f"−60 at the top points (within 75 mV of the highest: where games boost), −45 below, +30 where "
+      f"a driver reset happened: {[x.target_mhz for x in rs]}")
 rs2 = [CT.AnchorResult(1050, 2805, best_mhz=2977), CT.AnchorResult(1000, 2690, best_mhz=3010)]
 CT.apply_margins(rs2)
-check(rs2[1].target_mhz == rs2[0].target_mhz == 2947, "never faster than a point above (monotonic)")
-check(CT.curve_anchors(rs) == [(950, 2754), (1000, 2935), (1050, 2947)],
+check(rs2[1].target_mhz == rs2[0].target_mhz == 2917, "never faster than a point above (monotonic)")
+check(CT.curve_anchors(rs) == [(950, 2739), (1000, 2905), (1050, 2917)],
       "the curve uses only points with a result, sorted by voltage")
+rs3 = [CT.AnchorResult(1050, 2805, best_mhz=2977), CT.AnchorResult(950, 2575, best_mhz=2784)]
+CT.apply_margins(rs3, 30, 30, 30)
+check([x.target_mhz for x in rs3] == [2947, 2754], "the old flat 30 MHz is still possible (all three settable)")
 VOLTS = [600 + 5 * i for i in range(91)] + [1060 + 10 * i for i in range(19)]   # like a real RTX 40
 check(CT.anchor_voltages(VOLTS, 1052, 850, 50) == [1050, 1000, 950, 900, 850],
       "measured points: from the highest voltage reached, every 50 mV down to 850")
@@ -190,8 +194,9 @@ rep = CT.build_report("balanced", rs, stock, cands[1], cands[1], 1000, cands=can
 txt = "\n".join(rep["lines"])
 check(rep["title"] == "Rundum-Tuner — Ziel: Ausgewogen" and "Regel: mindestens die Hälfte" in txt,
       "German title and the goal's rule")
-check("1050 mV: 2977 MHz (+172 ggü. Stock 2805) → 2947 MHz" in txt and "Treiber-Reset" in txt,
-      "per point: found, offset, used, reset note")
+check("1050 mV: 2977 MHz (+172 ggü. Stock 2805) → 2917 MHz (−60)" in txt
+      and "1000 mV: 2995 MHz (+305 ggü. Stock 2690) → 2905 MHz (−90) — Treiber-Reset" in txt,
+      "per point: found, offset, used with the margin taken off, reset note")
 check("900 mV: unter der Mindestspannung der Karte unter Last" in txt,
       "unreachable point below the measured ones named as such")
 check("flach ab 1025 mV: 1965 Punkte, 280 W" in txt and "← gewählt" in txt,
@@ -495,7 +500,7 @@ class SimGPU:
 
     def __init__(self, folder, pl_w=320.0, boost_factor=0.78, tdr_volts=(), long_margin=0,
                  voltage=True, fm_broken=False, mem_limit=5000, fm_mem_limit=None,
-                 check_crash_once=False, short_once=False, floor_mv=0.0):
+                 check_crash_once=False, short_once=False, floor_mv=0.0, game_margin=0):
         self.folder, self.pl_w, self.boost_factor = folder, pl_w, boost_factor
         self.floor_mv = floor_mv              # lowest voltage the card runs at under load
         self.tdr_volts, self.long_margin, self.voltage = tdr_volts, long_margin, voltage
@@ -503,6 +508,9 @@ class SimGPU:
         self.mem_limit = mem_limit            # memory errors above this (any load)
         self.fm_mem_limit = fm_mem_limit      # ... and above this in a 60-s FurMark candidate run
         self.check_crash_once = check_crash_once
+        # round 16: weaker under LOAD CHANGES than under the steady boost load (what
+        # Hunt: Showdown found after 2 h) — only the game test's "transient" phase sees it
+        self.game_margin = game_margin
         self.short_once = short_once
         self.curve = [(float(v), float(stock_mhz(v))) for v in VOLTS]
         self.mem, self.pwr_pct = 0, 100
@@ -556,7 +564,8 @@ class SimGPU:
     def run(self, d, max_temp, on_tick=None, mode="gemm"):
         if self.on_run:
             self.on_run(self, mode)
-        factor = {"gemm": 1.25, "mixed": 1.25, "boost": self.boost_factor, "mem": 0.7}[mode]
+        factor = {"gemm": 1.25, "mixed": 1.25, "boost": self.boost_factor, "transient": self.boost_factor,
+                  "mem": 0.7}[mode]
         v, f, w, capped = self.point(factor)
         r = StressResult(passed=True)
         r.avg_gpu_usage = 64.0 if mode == "boost" else 99.0
@@ -580,7 +589,15 @@ class SimGPU:
         if mode == "mixed":
             bv, bf, _w, _c = self.point(self.boost_factor)
             pts.append((bv, bf))                 # boost phase: the top of the curve
-        bad = [(pv, pf_) for pv, pf_ in pts if pf_ > self.limit(pv)]
+        if getattr(self, "force_hang", False):
+            self.force_hang = False
+            self.runs.append((mode, d, v, f, False))
+            r.passed, r.crash_detected, r.hang_detected = False, True, True
+            r.abort_reason = "GPU hängt — seit 8 s keine Ergebnisse der Last"
+            r.last_voltage_mv = vv
+            return r
+        weaker = self.game_margin if mode == "transient" else 0
+        bad = [(pv, pf_) for pv, pf_ in pts if pf_ > self.limit(pv) - weaker]
         self.runs.append((mode, d, v, f, not bad))
         if bad:
             r.passed = r.crash_detected = True
@@ -694,7 +711,12 @@ def tune(gpu_kw=None, furmark=True, on_run=None, lang="de", **cfg):
     conf = dict(mode=TuneMode.CURVE, goal="balanced", core_max_mhz=300, max_temp_c=85,
                 mem_stage=False, furmark_path=FAKE_FURMARK if furmark else "", ab_slot=2,
                 crash_pause_s=0, mem_oc_max_mhz=1000,
-                curve_anchor_step_mv=50)       # the E scenarios were built on 50 mV; E19/E20: 25
+                curve_anchor_step_mv=50,       # the E scenarios were built on 50 mV; E19/E20: 25
+                # ... and on round 13's margins (30 everywhere, +30 after a reset); round 16's
+                # 45 / 60 / +30 are checked in test_round16
+                curve_safety_mhz=30, curve_safety_top_mhz=30, curve_reset_extra_mhz=30,
+                game_test=False,               # round 16's game test: test_round16
+                mem_safety_mhz=0)              # round 13's memory rule (round 16: −200, EDC)
     conf.update(cfg)
     t = AutoTuner(SimMon(gpu), ab, ProfileManager(os.path.join(folder, "profiles")),
                   TunerConfig(**conf), log_dir=os.path.join(folder, "logs"))
@@ -923,6 +945,44 @@ check("lief bei 920 mV" in L and "→ 900 mV: unter Last nicht erreichbar" in L
 rep = "\n".join(t.last_report["lines"] + t.last_report["recommendations"])
 check("875 mV: unter der Mindestspannung der Karte unter Last" in rep
       and "900 mV liegt unter der Mindestspannung" in rep, "the report says why")
+
+# E21 round 16: the game test finds what the steady tests can't. The card is 40 MHz
+# weaker under load changes; on round 13's 30-MHz margins the transient phase fails ->
+# one step back (−15 where the card ran) -> passes; the report says so.
+t, gpu, ab, logs, folder = tune({"game_margin": 40}, game_test=True)
+bp = t.best_profile
+L = "\n".join(logs)
+modes = [m for m, *_ in gpu.runs]
+check(t.state == TunerState.DONE and bp is not None
+      and "Spiel-Endtest ✗ (Lastwechsel)" in L and "Endtest ✗" in L,
+      "E21: the game test's load changes fail on 30-MHz margins, the tune steps back")
+check(modes.count("transient") >= 2 and modes[-2:] == ["transient", "boost"]
+      and modes.index("transient") > modes.index("mixed"),
+      f"after FurMark + compute check: load changes, then the boost point — again after the step back: "
+      f"{modes[-6:]}")
+rep = "\n".join(t.last_report["lines"])
+check("Spiel-Endtest (60 s abkühlen, 5 min Lastwechsel, 4 min Boost-Punkt): bestanden" in rep
+      and "Kurve −15 MHz" in rep, "the report: game test passed, after a curve step back")
+top = max(bp.curve_points)
+check(top[1] <= gpu.limit(top[0]) - 40, f"saved top point below the load-change limit: {top}")
+
+# E22 round 16's margins (45, 60 at the top) cover that weakness at once
+t, gpu, ab, logs, folder = tune({"game_margin": 40}, game_test=True, curve_safety_mhz=45,
+                                curve_safety_top_mhz=60, curve_reset_extra_mhz=30)
+L = "\n".join(logs)
+check(t.state == TunerState.DONE and "Spiel-Endtest ✗" not in L and "Spiel-Endtest Boost-Punkt ✓" in L,
+      "E22: with 60 MHz at the top the game test passes the first time")
+check("−60 an den oberen Punkten" in L, "the log names the margins")
+
+# E23 a hang in the game test (no results any more) is a failure like a crash
+def hang_once(g, mode, box={"n": 0}):
+    if mode == "transient" and box["n"] == 0:
+        box["n"] = 1
+        g.force_hang = True
+t, gpu, ab, logs, folder = tune(game_test=True, on_run=hang_once)
+L = "\n".join(logs)
+check(t.state == TunerState.DONE and "GPU hängt" in L and "Endtest wird wiederholt" in L,
+      "E23: a hung GPU in the game test -> step back, final test again")
 
 # E12 old modes are untouched by the new mode
 check(TunerConfig().mode == TuneMode.OC_UV and TunerConfig().goal == "balanced", "defaults unchanged")

@@ -32,19 +32,19 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 # power limit. Quick stays: half the time, and it needs no curve.
 MODES = [
     ("curve", "Rundum", "All-round",
-     "Empfohlen, am gründlichsten (50–80 min) — misst die V/F-Kurve alle 25 mV Punkt für Punkt "
+     "Empfohlen, am gründlichsten (60–95 min) — misst die V/F-Kurve alle 25 mV Punkt für Punkt "
      "(wie HYDRA), baut daraus eine eigene Kurve, vergleicht per FurMark-Benchmark und wählt nach "
      "dem Ziel: Max. Leistung, Ausgewogen oder Effizienz (Undervolting). Endtest: 5 min FurMark + "
      "Rechenprüfung, danach ein Bericht.",
-     "Recommended, the most thorough (50–80 min) — measures the V/F curve point by point every "
+     "Recommended, the most thorough (60–95 min) — measures the V/F curve point by point every "
      "25 mV (like HYDRA), builds an own curve from it, compares with FurMark benchmarks and picks "
      "by the goal: max performance, balanced or efficiency (undervolting). Final test: 5 min "
      "FurMark + compute check, then a report."),
     ("oc_uv", "Schnell (OC + UV)", "Quick (OC + UV)",
-     "Halb so lang (20–45 min) — ein Takt-Offset für die ganze Kurve plus das niedrigste "
+     "Etwa halb so lang (30–55 min) — ein Takt-Offset für die ganze Kurve plus das niedrigste "
      "Power-Limit, das höchstens 3 % Leistung kostet: mehr Takt, weniger Verbrauch. Weniger genau "
      "als Rundum, braucht aber keine Kurven-Messung.",
-     "Half the time (20–45 min) — one clock offset for the whole curve plus the lowest power "
+     "About half the time (30–55 min) — one clock offset for the whole curve plus the lowest power "
      "limit that costs at most 3 % performance: more clock, less power. Less precise than "
      "All-round, but needs no curve measurement."),
 ]
@@ -82,11 +82,14 @@ H_STEP_TIME = ("Testdauer je Schritt (s)", "Test time per step (s)",
 H_MEM_MAX = ("Speicher-Plus max. (MHz)", "Max memory gain (MHz)",
              "Höchster Speicher-Offset, der getestet wird. Ablauf: Start mit einem vorsichtigen Wert "
              "(RTX 40: +500), dann in 100er-Schritten bis zu diesem Wert — jeder Schritt mit FurMark und "
-             "geprüften Speicherkopien gleichzeitig. Übernommen wird der höchste bestandene Schritt, "
-             "100 MHz darunter, wenn ein Schritt scheiterte.",
+             "geprüften Speicherkopien gleichzeitig. Sinkt die Bandbreite trotz mehr Takt, korrigiert der "
+             "Speicher schon Fehler — das gilt als Grenze. Übernommen wird der höchste bestandene Schritt "
+             "minus 200 MHz (Speicherfehler zeigen sich in Spielen oft erst nach Stunden).",
              "Highest memory offset that is tested. It starts at a cautious value (RTX 40: +500) and goes "
              "up in 100-MHz steps to this value — every step with FurMark and verified memory copies at "
-             "once. Used: the highest step that passed, 100 MHz lower if a step failed.")
+             "once. If the bandwidth drops despite more clock, the memory is already correcting errors — "
+             "that counts as the edge. Used: the highest step that passed minus 200 MHz (memory errors "
+             "often show in games only after hours).")
 H_SLOT = ("Afterburner-Profilplatz (2–5)", "Afterburner profile slot (2–5)",
           "In welchen der fünf Profilplätze von MSI Afterburner das Ergebnis geschrieben wird. Platz 1 "
           "bleibt für deine eigenen Einstellungen.",
@@ -203,7 +206,7 @@ class GpuTunerTab(Page):
         # Rundum-Tuner
         self.v_goal      = tk.StringVar(value="balanced")
         self.v_fm_final  = tk.IntVar(value=5)      # FurMark final test (min)
-        self.v_safety    = tk.IntVar(value=30)     # MHz taken off every measured point
+        self.v_safety    = tk.IntVar(value=45)     # MHz taken off every measured point (+15 at the top)
         self.v_point_mv  = tk.IntVar(value=25)     # voltage point spacing: 25 = finer, 50 = faster
 
         self._build_curve_cards(left)
@@ -383,12 +386,16 @@ class GpuTunerTab(Page):
               "card's minimum voltage are skipped."),
              self.v_point_mv, 25, 50, 25),
             (("Sicherheitsabzug (MHz)", "Safety margin (MHz)",
-              "Wird vom höchsten stabil gefundenen Takt jedes Punkts abgezogen — Reserve für Spiele, die "
-              "anders belasten, und für kalte Starts. Wo der Treiber während der Suche neu starten "
-              "musste, doppelt so viel.",
-              "Taken off the highest stable clock found at every point — headroom for games that load "
-              "the card differently and for cold starts. Doubled where the driver had to restart "
-              "during the search."),
+              "Wird vom höchsten stabil gefundenen Takt jedes Punkts abgezogen — Reserve für Stunden "
+              "Spielzeit, Spiele, die anders belasten, und kalte Starts. An den oberen Punkten (bis "
+              "75 mV unter dem höchsten), wo Spiele boosten, 15 MHz mehr; wo der Treiber während der "
+              "Suche neu starten musste oder die GPU hing, 30 MHz mehr. (Mit 30 MHz hing Hunt: "
+              "Showdown nach 2 Stunden.)",
+              "Taken off the highest stable clock found at every point — headroom for hours of play, "
+              "games that load the card differently and cold starts. At the top points (up to 75 mV "
+              "below the highest), where games boost, 15 MHz more; where the driver had to restart "
+              "during the search or the GPU hung, 30 MHz more. (With 30 MHz, Hunt: Showdown hung "
+              "after 2 hours.)"),
              self.v_safety, 15, 90, 15),
             (("Endtest: FurMark (min)", "Final test: FurMark (min)",
               "Zum Schluss läuft die gewählte Einstellung so lange unter FurMark (volle Grafiklast, mit "
@@ -456,19 +463,23 @@ class GpuTunerTab(Page):
             f"1. Standard messen: Boost-Last + 60 s FurMark-Benchmark (der Vergleichswert)\n"
             f"2. Kurve: alle {pmv} mV ein Punkt, von der höchsten erreichten Spannung bis 850 mV. "
             f"Je Punkt +15 MHz, bis ein Fehler kommt, dann +7 / +5 MHz (höchstens +{cmax} MHz), "
-            f"{step_s} s je Schritt. Übernommen: gefundener Takt − {safety} MHz\n"
+            f"{step_s} s je Schritt. Übernommen: gefundener Takt − {safety} MHz (oben, wo Spiele "
+            f"boosten, − {safety + 15}; nach einem Treiber-Reset/Hänger − 30 mehr)\n"
             f"3. Kurven-Check: 30 s FurMark mit der neuen Kurve\n"
             f"{mem_de}\n"
             f"5. Vergleich: 60 s FurMark je Kurven-Variante — Auswahl nach dem Ziel\n"
-            f"6. Endtest: {fm} min FurMark + {ver} s Rechenprüfung → Profil + Bericht",
+            f"6. Endtest: {fm} min FurMark + {ver} s Rechenprüfung + Spiel-Endtest: 1 min abkühlen, 5 min Lastwechsel, 4 min Boost-Punkt "
+            f"→ Profil + Bericht",
             f"1. Measure stock: boost load + 60 s FurMark benchmark (the reference)\n"
             f"2. Curve: a point every {pmv} mV, from the highest voltage reached down to 850 mV. "
             f"Per point +15 MHz until a failure, then +7 / +5 MHz (at most +{cmax} MHz), "
-            f"{step_s} s per step. Used: the clock found − {safety} MHz\n"
+            f"{step_s} s per step. Used: the clock found − {safety} MHz (at the top, where games "
+            f"boost, − {safety + 15}; after a driver reset / hang − 30 more)\n"
             f"3. Curve check: 30 s FurMark on the new curve\n"
             f"{mem_en}\n"
             f"5. Compare: 60 s FurMark per curve variant — picked by the goal\n"
-            f"6. Final test: {fm} min FurMark + {ver} s compute check → profile + report"))
+            f"6. Final test: {fm} min FurMark + {ver} s compute check + game test: 1 min cool-down, 5 min load changes, 4 min boost point "
+            f"→ profile + report"))
 
     def _select_goal(self, goal_id: str):
         self.v_goal.set(goal_id)
@@ -702,6 +713,8 @@ class GpuTunerTab(Page):
         self.btn_apply_profile = button(act, tr("In Afterburner-Platz … ▾", "To Afterburner slot … ▾"),
                                         self._apply_profile, kind="primary", color=CYAN, height=30)
         self.btn_apply_profile.pack(side="left", padx=(0, 6))
+        self.btn_derate = button(act, tr("Entschärfen …", "Make safer …"), self._derate_profile, height=30)
+        self.btn_derate.pack(side="left", padx=(0, 6))
         button(act, tr("Umbenennen …", "Rename …"), self._rename_profile,
                height=30).pack(side="left", padx=(0, 6))
         button(act, tr("Als Tray-Standard", "Set as tray default"), self._set_tray_default,
@@ -826,7 +839,7 @@ class GpuTunerTab(Page):
         per_pt = 5 if pmv >= 50 else 4
         mem_start = self._mem_start()
         mem_steps = max(1, (self.v_mem_max.get() - mem_start) // 100 + 1)
-        est = (150 + n_pts * per_pt * (step_s + 10) + 45
+        est = (150 + n_pts * per_pt * (step_s + 10) + 45 + 600   # + 600: game test (round 16)
                + (mem_steps * (step_s + 15) if mem_on else 0) + 330 + fm_s + ver_s + 60)
         lo, hi = int(est * 0.8 / 60), int(est * 1.3 / 60 + 0.999)
         gname = next(tr(de, en) for gid, de, en, _d, _e in GOALS if gid == goal)
@@ -844,9 +857,9 @@ class GpuTunerTab(Page):
                          f", starting at +{prior} MHz (cautious start value of this card generation)")
                  if prior else tr(", grobe Suche ab Standard", ", coarse search from stock"))
         mem_line = (tr(f"Speicher: +{mem_start} bis +{self.v_mem_max.get()} MHz in 100er-Schritten, "
-                       f"ganze Karte unter Last (FurMark + Datenprüfung), 100 MHz Sicherheit",
+                       f"ganze Karte unter Last (FurMark + Datenprüfung), 200 MHz Sicherheit",
                        f"Memory: +{mem_start} to +{self.v_mem_max.get()} MHz in 100-MHz steps, whole "
-                       f"card under load (FurMark + data check), 100 MHz safety") if mem_on else
+                       f"card under load (FurMark + data check), 200 MHz safety") if mem_on else
                     tr("Speicher: wird nicht übertaktet", "Memory: not overclocked"))
         volt_line = ("" if volt_ok else "\n" + tr(
             "Hinweis: keine Spannungsanzeige (Afterburner-Monitoring 'GPU-Spannung') — die "
@@ -879,7 +892,8 @@ class GpuTunerTab(Page):
         cfg = TunerConfig(
             mode=TuneMode.CURVE, goal=goal, core_max_mhz=self.v_core_max.get(),
             max_temp_c=self.v_max_temp.get(), step_test_s=step_s, final_test_s=ver_s,
-            final_bench_s=fm_s, curve_safety_mhz=self.v_safety.get(), curve_prior_mhz=prior,
+            final_bench_s=fm_s, curve_safety_mhz=self.v_safety.get(),
+            curve_safety_top_mhz=self.v_safety.get() + 15, curve_prior_mhz=prior,
             mem_offset_mhz=0, mem_stage=mem_on, mem_oc_max_mhz=max(100, self.v_mem_max.get()),
             ab_slot=slot, furmark_path=fm, bench_msaa=8, mem_curve_start_mhz=mem_start,
             curve_anchor_step_mv=pmv,
@@ -908,32 +922,37 @@ class GpuTunerTab(Page):
         load = (tr("FurMark + Datenprüfung", "FurMark + data check") if fm else
                 tr("Datenprüfung — FurMark 2 nicht gefunden", "data check — FurMark 2 not found"))
         mem_line = (tr(f"Speicher: +{mem_start} bis +{self.v_mem_max.get()} MHz in 100er-Schritten, "
-                       f"ganze Karte unter Last ({load}), 100 MHz Sicherheit",
+                       f"ganze Karte unter Last ({load}), 200 MHz Sicherheit",
                        f"Memory: +{mem_start} to +{self.v_mem_max.get()} MHz in 100-MHz steps, whole "
-                       f"card under load ({load}), 100 MHz safety")
+                       f"card under load ({load}), 200 MHz safety")
                     if mem_on else tr("Speicher: wird nicht übertaktet", "Memory: not overclocked"))
         if not messagebox.askyesno(tr("Tune starten", "Start tune"),
             tr(f"Modus: {mode_str}\n"
                f"Afterburner-Profilplatz: {slot}\n"
                f"Takt-Schritt {self.v_core_step.get()} MHz  |  Takt-Plus max. +{self.v_core_max.get()} MHz  |  "
                f"Power-Limit min. {self.v_pwr_min.get()} %  |  Temperatur-Grenze {self.v_max_temp.get()} °C\n"
-               f"Testdauer je Schritt {self.v_step_dur.get()} s  |  Endtest {self.v_final_dur.get()} s\n",
+               f"Testdauer je Schritt {self.v_step_dur.get()} s  |  Endtest {self.v_final_dur.get()} s "
+               f"+ Spiel-Endtest: 1 min abkühlen, 5 min Lastwechsel, 4 min Boost-Punkt\n"
+               f"Sicherheitsabzug: {self.v_safety.get() + 15} MHz vom gefundenen Takt-Offset\n",
                f"Mode: {mode_str}\n"
                f"Afterburner profile slot: {slot}\n"
                f"Clock step {self.v_core_step.get()} MHz  |  Max clock gain +{self.v_core_max.get()} MHz  |  "
                f"Min power limit {self.v_pwr_min.get()} %  |  Temperature limit {self.v_max_temp.get()} °C\n"
-               f"Test time per step {self.v_step_dur.get()} s  |  Final test {self.v_final_dur.get()} s\n")
+               f"Test time per step {self.v_step_dur.get()} s  |  Final test {self.v_final_dur.get()} s "
+               f"+ game test: 1 min cool-down, 5 min load changes, 4 min boost point\n"
+               f"Safety margin: {self.v_safety.get() + 15} MHz off the clock offset found\n")
             + f"{mem_line}\n"
             + (tr("FurMark-Fenster gehen bei den Speicher-Schritten auf — nicht schließen und nicht "
                   "anklicken (das Fenster vorne bekommt auf der GPU Vorrang).\n",
                   "FurMark windows open during the memory steps — don't close or click them (the "
                   "window in front gets priority on the GPU).\n") if fm else "")
-            + tr(f"\nDauer ca. {'30-45' if mem_on else '20-35'} Minuten. Start?",
-                 f"\nTakes about {'30-45' if mem_on else '20-35'} minutes. Start?")):
+            + tr(f"\nDauer ca. {'40-55' if mem_on else '30-45'} Minuten. Start?",
+                 f"\nTakes about {'40-55' if mem_on else '30-45'} minutes. Start?")):
             return
 
         cfg = TunerConfig(
             mode=TuneMode.OC_UV,
+            core_safety_mhz=self.v_safety.get() + 15,   # a uniform offset moves the top point too
             core_step_mhz=self.v_core_step.get(),
             core_max_mhz=self.v_core_max.get(),
             power_min_pct=self.v_pwr_min.get(),
@@ -1046,9 +1065,51 @@ class GpuTunerTab(Page):
         else:
             menu = self._slot_menu(row)
         menu.add_separator()
+        menu.add_command(label=tr(f"Entschärfen (Kurve −{ProfileManager.DERATE_CORE_MHZ} MHz, Speicher "
+                                  f"−{ProfileManager.DERATE_MEM_MHZ} MHz) …",
+                                  f"Make safer (curve −{ProfileManager.DERATE_CORE_MHZ} MHz, memory "
+                                  f"−{ProfileManager.DERATE_MEM_MHZ} MHz) …"),
+                         command=lambda: self._derate_profile(e.x_root, e.y_root))
         menu.add_command(label=tr("Umbenennen …", "Rename …"), command=self._rename_profile)
         menu.add_command(label=tr("Löschen", "Delete"), command=self._delete_profile)
         self._post(menu, e.x_root, e.y_root)
+
+    def _derate_profile(self, x=None, y=None):
+        """A safer copy of the selected profile (curve −30 MHz, memory −200 MHz) —
+        then the slot menu to apply it. Round 16: a tuned profile hung Hunt:
+        Showdown after 2 h; this is the one-click way back to safe ground."""
+        sel = self.tree.selection()
+        if not sel:
+            return messagebox.showwarning(tr("Profile", "Profiles"),
+                                          tr("Bitte zuerst ein Profil auswählen.", "Select a profile first."))
+        p = self.pm.derate(sel[0])
+        if p is None:
+            return messagebox.showerror(tr("Entschärfen", "Make safer"),
+                                        tr("Profil nicht gefunden.", "Profile not found."))
+        self._refresh_profiles()
+        if self.tree.exists(p.name):
+            self.tree.selection_set(p.name)
+            self.tree.see(p.name)
+        self.lbl_detail.config(text=tr(f"„{p.name}“ angelegt: Kurve/Takt −{ProfileManager.DERATE_CORE_MHZ} MHz, "
+                                       f"Speicher +{p.mem_offset_mhz} — jetzt einen Afterburner-Platz wählen.",
+                                       f"'{p.name}' created: curve/clock −{ProfileManager.DERATE_CORE_MHZ} MHz, "
+                                       f"memory +{p.mem_offset_mhz} — now pick an Afterburner slot."), fg=GREEN)
+        if self.ab.available:
+            if x is None:
+                w = self.btn_derate
+                x, y = w.winfo_rootx(), w.winfo_rooty() + w.winfo_height()
+            self._post_slot_menu(p.name, x, y)
+
+    def _note_applied(self, p: TuneProfile):
+        """What runs on the card now — the app's start-up profile and the GPU
+        watchdog read it. (The slot menu and the manual offsets didn't record it:
+        the app would have put an older profile back at its next start.)"""
+        cr = getattr(self.tuner, "cr", None)
+        if cr is not None:
+            try:
+                cr.save_last_applied(p.to_dict())
+            except Exception:
+                pass
 
     def _rename_profile(self):
         sel = self.tree.selection()
@@ -1140,6 +1201,7 @@ class GpuTunerTab(Page):
         def done(res):
             ok, err = res
             if ok:
+                self._note_applied(p)
                 notes = "\n".join(self.ab.last_notes)
                 messagebox.showinfo("Afterburner", tr(f"„{p.name}“ liegt jetzt auf Platz {slot} und ist aktiv.",
                                                       f"'{p.name}' is in slot {slot} now and active.")
@@ -1177,6 +1239,8 @@ class GpuTunerTab(Page):
 
         def done(res):
             ok, err = res
+            if ok:
+                self._note_applied(p)
             self.lbl_manual_st.config(
                 text=(f"{tr('Angewendet', 'Applied') if ok else tr('Fehler: ', 'Error: ') + err} — "
                       f"Core {p.core_offset_mhz:+d} "
@@ -1200,6 +1264,8 @@ class GpuTunerTab(Page):
 
         def done(res):
             ok, err = res
+            if ok:
+                self._note_applied(TuneProfile(name="__stock__"))
             self.lbl_manual_st.config(text=tr("Auf Standard zurückgesetzt.", "Reset to stock.") if ok
                                       else tr("Fehler: ", "Error: ") + err,
                                       fg=GREEN if ok else ERR)

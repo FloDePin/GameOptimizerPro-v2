@@ -70,7 +70,7 @@ def tune(mode, gpu, **cfg):
     NT.StressTester.run = lambda self, d, m, on_tick=None, mode="gemm": gpu.run(d, m, on_tick, mode)
     tmp = tempfile.mkdtemp(prefix="gop_st_")
     t = AutoTuner(Mon(), AB(gpu), NT.ProfileManager(os.path.join(tmp, "p")),
-                  TunerConfig(mode=mode, **cfg), log_dir=os.path.join(tmp, "l"))
+                  TunerConfig(mode=mode, **{**dict(game_test=False, core_safety_mhz=0, mem_safety_mhz=0), **cfg}), log_dir=os.path.join(tmp, "l"))
     logs = []
     t.on_log(lambda m, l: logs.append(m))
     t._run_safe()

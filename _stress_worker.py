@@ -22,6 +22,14 @@ argv[2] = mode:
                     at the TOP point of its V/F curve (below the power limit) —
                     with the curve flattened at a voltage point, exactly that
                     point is tested. Prints "RATE <TFLOPS>" (duty-cycled work).
+  "transient"       load CHANGES at the top of the curve: verified products in
+                    bursts of random length (5–250 ms, light or full size) with
+                    random idle gaps — the GPU jumps between idle and load at its
+                    highest clock, as in games (scene changes, menus, uneven
+                    frames). The load step at a high clock is where the supply
+                    voltage dips; a steady load never shows that. (Added after a
+                    D3D12 "device hung" in Hunt: Showdown on a profile that had
+                    passed every steady test.) Prints "RATE <TFLOPS>".
   "mem"             copies two large buffers back and forth and prints
                     "BW <GB/s>". GDDR6X corrects transfer errors by retrying, so a
                     memory overclock past its limit shows up as LOST bandwidth, not
@@ -147,6 +155,39 @@ def boost_stress(parent_pid):
             if now - last >= 1.0:
                 _emit(f"RATE {flop * iters / (now - last) / 1e12:.3f}")
                 last, iters = now, 0
+                if not _parent_alive(parent_pid):
+                    return
+    except SystemExit:
+        raise
+    except Exception as e:
+        raise _GpuStarted(str(e)) from e
+
+
+TRANS_MAX_S = float(os.environ.get("GOP_STRESS_TRANS_MAX_S", "0.25"))
+
+
+def transient_stress(parent_pid):
+    """Load changes at the top of the curve (see module docstring)."""
+    import random
+    import cupy as cp
+    heavy, light = _gemm_set(cp, N), _gemm_set(cp, BOOST_N)
+    cp.cuda.Stream.null.synchronize()
+    rnd = random.Random(1)
+    try:
+        last, flops = time.time(), 0.0
+        while True:
+            s, n = (heavy, N) if rnd.random() < 0.3 else (light, BOOST_N)
+            burst_end = time.perf_counter() + rnd.uniform(0.005, TRANS_MAX_S)
+            while True:                                   # at least one product per burst
+                _gemm_checked(cp, s)
+                flops += 2.0 * n ** 3
+                if time.perf_counter() >= burst_end:
+                    break
+            time.sleep(rnd.uniform(0.005, TRANS_MAX_S))   # idle: the clock stays up
+            now = time.time()
+            if now - last >= 1.0:
+                _emit(f"RATE {flops / (now - last) / 1e12:.3f}")
+                last, flops = now, 0.0
                 if not _parent_alive(parent_pid):
                     return
     except SystemExit:
@@ -291,8 +332,8 @@ if __name__ == "__main__":
         parent_pid = os.getppid()
     mode = sys.argv[2] if len(sys.argv) > 2 else "gemm"
     try:
-        {"mem": mem_stress, "mixed": mixed_stress,
-         "boost": boost_stress}.get(mode, cuda_stress)(parent_pid)
+        {"mem": mem_stress, "mixed": mixed_stress, "boost": boost_stress,
+         "transient": transient_stress}.get(mode, cuda_stress)(parent_pid)
     except ImportError:
         cpu_stress(parent_pid)            # kein cupy → CPU-Last
     except _GpuStarted as e:

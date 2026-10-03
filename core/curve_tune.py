@@ -64,6 +64,7 @@ class AnchorResult:
     reachable: bool = True
     limit_hit: bool = False      # stopped by 'Core max', not by a failure
     ran_mv: float = 0.0          # not reachable: the voltage the card ran at instead
+    margin_mhz: int = 0          # what apply_margins took off
     steps: list = field(default_factory=list)   # (mhz, passed, reason)
 
     @property
@@ -142,12 +143,27 @@ def search_anchor(test: Callable[[int, int], PointTest], mv: int, base_mhz: floa
     return r
 
 
-def apply_margins(results: list[AnchorResult], safety: int = 30, recovery: int = 60) -> list[AnchorResult]:
-    """target = best - safety (recovery where a driver reset happened), and no
-    point faster than a point above it (monotonic from the top, only lowering)."""
-    for r in results:
-        if r.best_mhz:
-            r.target_mhz = int(r.best_mhz - (recovery if r.tdr else safety))
+# Round 16: Hunt: Showdown hung (D3D12 "device hung") after 2 h on a profile with
+# 30 MHz taken off — at 1050 mV, the top of the curve, where games boost. A 45-s
+# step finds where a point fails within seconds; hours of a game find less.
+SAFETY_MHZ = 45          # every measured point
+TOP_SAFETY_MHZ = 60      # the points where games boost (TOP_BAND_MV below the highest)
+RESET_EXTRA_MHZ = 30     # + where the search caused a driver reset / a hang
+TOP_BAND_MV = 75
+
+
+def apply_margins(results: list[AnchorResult], safety: int = SAFETY_MHZ, top_safety: int = TOP_SAFETY_MHZ,
+                  reset_extra: int = RESET_EXTRA_MHZ, top_band_mv: int = TOP_BAND_MV) -> list[AnchorResult]:
+    """target = best − margin: `top_safety` at the points within top_band_mv of
+    the highest measured point (where games boost), `safety` below, +reset_extra
+    where a driver reset or a hang happened at that point. No point faster than
+    a point above it (monotonic from the top, only lowering)."""
+    found = [r for r in results if r.best_mhz]
+    top_mv = max((r.mv for r in found), default=0)
+    for r in found:
+        r.margin_mhz = ((top_safety if r.mv >= top_mv - top_band_mv else safety)
+                        + (reset_extra if r.tdr else 0))
+        r.target_mhz = int(r.best_mhz - r.margin_mhz)
     usable = sorted((r for r in results if r.best_mhz), key=lambda r: r.mv)
     for hi, lo in zip(reversed(usable), list(reversed(usable))[1:]):
         if lo.target_mhz > hi.target_mhz:
@@ -373,7 +389,8 @@ def build_report(goal: str, results: list[AnchorResult], stock: Optional[Candida
                  after: Optional[Candidate], chosen: Optional[Candidate], mem_offset: int,
                  cands: Optional[list] = None, endurance: Optional[Candidate] = None,
                  endurance_s: int = 0, verify_s: int = 0, bench_name: str = "FurMark",
-                 mem_note: str = "", max_temp_limit: int = 85, safety_mhz: int = 30,
+                 mem_note: str = "", max_temp_limit: int = 85, safety_mhz: int = SAFETY_MHZ,
+                 top_safety_mhz: int = TOP_SAFETY_MHZ,
                  retries: Optional[list] = None, saved: Optional[Candidate] = None,
                  notes: Optional[list] = None, core_max: int = 0,
                  lang: str = "de") -> dict:
@@ -406,15 +423,16 @@ def build_report(goal: str, results: list[AnchorResult], stock: Optional[Candida
                 why = "unter dieser Last nicht erreichbar" if de else "not reachable under this load"
             lines.append(f"  {r.mv} mV: {why}")
             continue
-        extra = ((" — Treiber-Reset bei der Suche, 60 MHz Abstand" if de
-                  else " — driver reset while searching, 60 MHz margin") if r.tdr else "")
+        extra = ((" — Treiber-Reset/Hänger bei der Suche, mehr Abstand" if de
+                  else " — driver reset / hang while searching, more margin") if r.tdr else "")
         if r.limit_hit:
             extra += (" — Grenze „Takt-Plus max. je Punkt“ erreicht" if de
                       else " — 'max clock gain per point' limit reached")
+        cut = f" (−{r.margin_mhz})" if r.margin_mhz else ""
         lines.append(f"  {r.mv} mV: {r.best_mhz} MHz ({r.offset:+d} ggü. Stock {r.base_mhz:.0f}) → "
-                     f"{r.target_mhz} MHz{extra}" if de else
+                     f"{r.target_mhz} MHz{cut}{extra}" if de else
                      f"  {r.mv} mV: {r.best_mhz} MHz ({r.offset:+d} vs stock {r.base_mhz:.0f}) → "
-                     f"{r.target_mhz} MHz{extra}")
+                     f"{r.target_mhz} MHz{cut}{extra}")
 
     if cands:
         lines += ["", (f"Kandidaten ({bench_name}-Benchmark):" if de
@@ -519,11 +537,13 @@ def build_report(goal: str, results: list[AnchorResult], stock: Optional[Candida
                         "(tight voltage, the card runs slower internally). The safety margin usually "
                         "covers it; otherwise re-run with a larger margin."))
     rec.append((f"Kalt taktet die Karte etwas höher als im warmen Test — die {safety_mhz} MHz "
-                f"Sicherheitsabstand decken das ab. Stürzt ein Spiel trotzdem ab: den Tune mit "
-                f"größerem Sicherheitsabstand wiederholen." if de else
+                f"Sicherheitsabstand ({top_safety_mhz} MHz an den oberen Punkten, wo Spiele boosten) "
+                f"und der Spiel-Endtest nach einer Abkühlpause decken das ab. Hängt ein Spiel trotzdem: "
+                f"GPU-Tuner → Profile → „Entschärfen“." if de else
                 f"A cold card boosts a little higher than in the warm test — the {safety_mhz} MHz "
-                f"safety margin covers that. If a game still crashes: re-run the tune with a larger "
-                f"safety margin."))
+                f"safety margin ({top_safety_mhz} MHz at the top points, where games boost) and the "
+                f"game test after a cool-down cover that. If a game still hangs: GPU tuner → Profiles "
+                f"→ 'Make safer'."))
     summary = ""
     if stock and after and stock.score and after.score:
         summary = (f"{_pct(after.score, stock.score)} {pts}, "

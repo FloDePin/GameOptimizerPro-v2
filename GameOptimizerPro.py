@@ -156,6 +156,10 @@ class GameOptimizerApp:
             log_dir=logs_dir, crash_recovery=self.cr,
         )
         self.runner  = TweakRunner(log_dir=logs_dir)
+        # GPU watchdog: own stress sessions are recorded (only by the app, never by tests)
+        from core import gpu_watchdog
+        gpu_watchdog.SESSIONS_FILE = Path(logs_dir) / "gpu_sessions.json"
+        self._logs_dir = logs_dir
         self.sl      = StartupLoader(logs_dir, self.ab, self.pm, self.cr)
 
         # State (read from any thread, written carefully)
@@ -396,6 +400,95 @@ class GameOptimizerApp:
         except Exception as e:
             print(f"[GameOptimizerPro] Startup error: {e}")
 
+    # ── GPU watchdog (round 16) ───────────────────────────────────────────────
+    # Hunt: Showdown hung (D3D12 "device hung") on a tuned profile and nothing told
+    # the user. At every start: GPU hang / reset events since the applied profile
+    # was set (own tunes and stress tests left out) -> make it safer / stock / keep.
+    # The check runs in a worker; everything Tk happens on the main thread (a poll
+    # via after() — after() from a worker raises on Python 3.14).
+
+    def _watchdog_start(self):
+        from core import app_settings, gpu_watchdog
+        box: dict = {}
+
+        def work():
+            try:
+                box["found"] = gpu_watchdog.check(self.cr, self._logs_dir,
+                                                  float(app_settings.get("watchdog_seen_until", 0) or 0))
+            except Exception:
+                box["found"] = None
+        th = threading.Thread(target=work, daemon=True)
+        th.start()
+
+        def poll():
+            if th.is_alive():
+                self._window.after(400, poll)
+                return
+            if box.get("found") and not self.tuner.is_running:
+                self._watchdog_dialog(box["found"])
+        self._window.after(400, poll)
+
+    def _watchdog_dialog(self, found: dict):
+        from core import app_settings, gpu_watchdog
+        from core.i18n import current_lang
+        from ui.components import ChoiceDialog
+        from ui.theme import AMBER, tr
+        de = current_lang() == "de"
+        choice = ChoiceDialog(
+            self._window, tr("GPU-Wächter", "GPU watchdog"), gpu_watchdog.describe(found, de),
+            [("safer", tr("Profil entschärfen und anwenden (empfohlen)", "Make the profile safer and apply it "
+                                                                          "(recommended)")),
+             ("stock", tr("Grafikkarte auf Standard setzen", "Put the graphics card back to stock")),
+             ("keep", tr("Profil behalten — erst beim nächsten Ereignis wieder fragen",
+                         "Keep the profile — ask again only after the next event"))],
+            current="safer", ok_text="OK", accent=AMBER).show()
+        if choice is None:
+            return                                   # closed: ask again at the next start
+        app_settings.set("watchdog_seen_until", found["last"])
+        if choice == "keep":
+            return
+        if choice == "safer":
+            if self.pm.load(found["profile"]) is None and found.get("data"):
+                from core.nvtune_core import TuneProfile          # e.g. manual offsets: no saved profile
+                self.pm.save(TuneProfile.from_dict(found["data"]))
+            p = self.pm.derate(found["profile"])
+            if p is None:
+                messagebox.showerror("GameOptimizerPro", tr(f"Profil „{found['profile']}“ nicht gefunden.",
+                                                            f"Profile '{found['profile']}' not found."),
+                                     parent=self._window)
+                return
+            work = lambda: self.ab.write_and_apply(2, p)       # noqa: E731 — the start-up profile's slot
+            applied = p
+        else:
+            from core.nvtune_core import TuneProfile
+
+            def work():
+                res = self.ab.reset_to_stock(2)
+                watts = self.monitor.power_pct_to_watts(100)
+                if watts > 0:
+                    self.monitor.set_power_limit(watts)
+                return res
+            applied = TuneProfile(name="__stock__")
+        box: dict = {}
+        th = threading.Thread(target=lambda: box.update(r=work()), daemon=True)
+        th.start()
+
+        def poll():
+            if th.is_alive():
+                self._window.after(400, poll)
+                return
+            ok, err = box.get("r", (False, "?"))
+            if ok:
+                self.cr.save_last_applied(applied.to_dict())
+                messagebox.showinfo("GameOptimizerPro", tr(
+                    f"„{applied.name}“ ist jetzt aktiv (Afterburner-Platz 2)." if choice == "safer" else
+                    "Die Grafikkarte läuft jetzt mit Standardwerten.",
+                    f"'{applied.name}' is active now (Afterburner slot 2)." if choice == "safer" else
+                    "The graphics card runs at stock now."), parent=self._window)
+            else:
+                messagebox.showerror("GameOptimizerPro", str(err), parent=self._window)
+        self._window.after(400, poll)
+
     # ── Main run ──────────────────────────────────────────────────────────────
 
     def run(self):
@@ -420,6 +513,8 @@ class GameOptimizerApp:
         self._window.update_flow = UpdateFlow(self._window)
         if app_settings.get("check_updates", True):
             self._window.after(8000, self._window.update_flow.start)
+        # GPU watchdog: did a game hang / crash on the applied profile since it was set?
+        self._window.after(5000, self._watchdog_start)
 
         # 3. Tray icon in its own background thread
         try:

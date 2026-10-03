@@ -40,6 +40,7 @@ G.StartupLoader.load_startup_profile = lambda self: (False, "test: not loaded")
 G.StartupLoader.check_and_handle_crash = lambda self, on_crash_detected=None: False
 G.StartupLoader.repair_autostart_task = lambda self: None
 G.TempMonitor.start = lambda self: None
+G.GameOptimizerApp._watchdog_start = lambda self: None     # reads the real event log; test_round16
 try:
     import pystray
     pystray.Icon.run = lambda self, setup=None: None       # built and validated, never shown

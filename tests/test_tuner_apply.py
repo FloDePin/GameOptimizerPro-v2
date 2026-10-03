@@ -53,7 +53,7 @@ UV = dict(core_max_mhz=0, power_min_pct=85)
 def run(mode, ab, mon, **cfg):
     tmp = tempfile.mkdtemp(prefix="gop_tun_")
     pm = NT.ProfileManager(os.path.join(tmp, "p"))
-    base = dict(core_step_mhz=15, core_max_mhz=45, power_min_pct=85)
+    base = dict(core_step_mhz=15, core_max_mhz=45, power_min_pct=85, game_test=False, core_safety_mhz=0, mem_safety_mhz=0)
     base.update(cfg)
     t = AutoTuner(mon, ab, pm, TunerConfig(mode=mode, **base), log_dir=os.path.join(tmp, "l"))
     logs, states = [], []

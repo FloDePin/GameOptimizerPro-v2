@@ -513,6 +513,29 @@ def s_history():
     check(dele and tray and dele[0].cget("fg_color") == tray[0].cget("fg_color") != "transparent"
           and any(b.cget("text") in ("Umbenennen …", "Rename …") for b in btns),
           "'Löschen' has a frame like 'Als Tray-Standard' (was a borderless ghost button); 'Umbenennen …' is there")
+    # round 16: "make safer" + what the app applied is recorded (start-up profile, GPU watchdog)
+    class _CR:
+        saved = []
+        def save_last_applied(self, d): _CR.saved.append(d["name"])
+    real_cr, g.tuner.cr = g.tuner.cr, _CR()
+    posted2 = []
+    g._post = lambda menu, x, y: posted2.append(menu)
+    g.tree.selection_set("Rundum gestern")
+    g._derate_profile()
+    sp = pm.load("Rundum gestern_sicher")
+    check(sp is not None and g.tree.selection() == ("Rundum gestern_sicher",) and posted2
+          and sp.mem_offset_mhz == pm.load("Rundum gestern").mem_offset_mhz - 200,
+          "'Entschärfen': a safer copy, selected, the slot menu opens to apply it")
+    TG.messagebox.askyesno = lambda *a, **k: True
+    TG.messagebox.showinfo = lambda *a, **k: None
+    g._export_to_slot(sp, 4, "leer")
+    t_end = time.time() + 5
+    while not _CR.saved and time.time() < t_end:
+        w.update(); time.sleep(0.02)
+    check(_CR.saved == ["Rundum gestern_sicher"],
+          "applied via the slot menu -> recorded (the app put the OLD profile back at its next start)")
+    g.tuner.cr, g._post = real_cr, real_post
+    TG.messagebox.askyesno, TG.messagebox.showinfo = real_ask_ab, real_info
     from ui.components import TextDialog
     dlg = TextDialog(w, "Profil umbenennen", "Neuer Name:", initial="Alt",
                      check=lambda t: "gibt es schon" if t == "P1" else "")

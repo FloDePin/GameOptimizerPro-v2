@@ -184,7 +184,7 @@ def tune(gpu, **cfg):
     tmp = tempfile.mkdtemp(prefix="gop_r10t_")
     ab = AB(gpu)
     pm = NT.ProfileManager(os.path.join(tmp, "p"))
-    t = AutoTuner(Mon(), ab, pm, TunerConfig(mode=TuneMode.OC_UV, core_step_mhz=15, core_max_mhz=300,
+    t = AutoTuner(Mon(), ab, pm, TunerConfig(mode=TuneMode.OC_UV, core_step_mhz=15, core_max_mhz=300, game_test=False, core_safety_mhz=0, mem_safety_mhz=0,
                                              power_min_pct=100, **cfg), log_dir=os.path.join(tmp, "l"))
     logs = []
     t.on_log(lambda m, l: logs.append(m))

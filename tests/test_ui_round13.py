@@ -87,7 +87,7 @@ check(tab.v_mode.get() == "curve" and tab.params_card.winfo_manager() == ""
       "'Rundum': goal + Rundum parameters instead of the classic card")
 order = [w for w in tab.mode_card.master.pack_slaves() if w.winfo_manager() == "pack"]
 check(order[:3] == [tab.mode_card, tab.goal_card, tab.curve_card], "order: mode, goal, parameters")
-check("HYDRA" in tab.lbl_mode_desc.cget("text") and "50–80 min" in tab.lbl_mode_desc.cget("text")
+check("HYDRA" in tab.lbl_mode_desc.cget("text") and "60–95 min" in tab.lbl_mode_desc.cget("text")
       and "25 mV" in tab.lbl_mode_desc.cget("text"), "mode description")
 from core.gpu_defaults import get_defaults as _gd
 check(tab.v_core_max.get() == _gd("NVIDIA GeForce RTX 4080").curve_core_max_mhz == 350,

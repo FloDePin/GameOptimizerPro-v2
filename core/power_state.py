@@ -1,7 +1,7 @@
 """
 GameOptimizerPro v2.0 — keep the PC awake while a test runs
 
-An Auto-Tune takes 20–45 minutes; on a plan with sleep after 30 minutes Windows
+An Auto-Tune takes 30–95 minutes; on a plan with sleep after 30 minutes Windows
 would suspend the PC in the middle of a stress step (and turn the screen off
 while the live graph is running). SetThreadExecutionState is per thread: call
 keep_awake(True) in the thread that runs the test and keep_awake(False) in the

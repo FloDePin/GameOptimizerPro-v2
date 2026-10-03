@@ -12,7 +12,7 @@ from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
 
-from core import furmark, threedmark
+from core import furmark, gpu_watchdog, threedmark
 from core.nvtune_core import GpuMonitor
 from ui.components import (Card, GaugeBar, LogView, NumberField, Page, ResponsiveGrid, WrapLabel,
                            button, tile)
@@ -229,6 +229,7 @@ class StressTab(Page):
         gen = self._run_gen
         self.btn_int_start.configure(state="disabled")
         self.btn_int_stop.configure(state="normal")
+        self._int_t0 = time.time()           # own GPU load: the GPU watchdog leaves it out
         self.log.append("Internal stress test started.", "header")
         self.log.append(f"Duration: {self.v_int_dur.get()}s | Max temp: {self.v_max_temp.get()}°C")
 
@@ -302,6 +303,7 @@ class StressTab(Page):
         self.lbl_int_status.config(text=f"Running: {elapsed}/{dur}s", fg=ACC)
 
     def _int_done(self, reason, peak_temp, avg_usage, max_t):
+        gpu_watchdog.record_own_load(getattr(self, "_int_t0", time.time()), time.time())
         self._running_internal = False
         self.btn_int_start.configure(state="normal")
         self.btn_int_stop.configure(state="disabled")
@@ -330,6 +332,7 @@ class StressTab(Page):
                             "oder FurMark / 3DMark starten.", "warning")
 
     def _stop_internal(self):
+        gpu_watchdog.record_own_load(getattr(self, "_int_t0", time.time()), time.time())
         self._running_internal = False
         self._run_gen += 1                   # the running thread stops reporting
         self._stop_internal_worker()
@@ -528,6 +531,7 @@ class StressTab(Page):
             self._ext["stopped"] = True
 
     def _session_done(self, s):
+        gpu_watchdog.record_own_load(s["t0"], time.time())   # FurMark / 3DMark from the app
         self.btn_rec_stop.pack_forget()
         self._ext = None
         dur = int(time.time() - s["t0"])

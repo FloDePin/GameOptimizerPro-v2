@@ -95,7 +95,7 @@ def tune(gpu, furmark=False, **cfg):
     NT.StressTester.run = lambda self, d, m, on_tick=None, mode="gemm": gpu.run(d, m, on_tick, mode)
     FMOD.run_benchmark = gpu.furmark
     tmp = tempfile.mkdtemp(prefix="gop_mem_")
-    conf = dict(core_step_mhz=15, core_max_mhz=300, power_min_pct=90, crash_pause_s=0,
+    conf = dict(core_step_mhz=15, core_max_mhz=300, power_min_pct=90, crash_pause_s=0, game_test=False, core_safety_mhz=0, mem_safety_mhz=0,
                 furmark_path=r"C:\fake\FurMark_win64\furmark.exe" if furmark else "",
                 mem_curve_start_mhz=500)
     conf.update(cfg)
@@ -231,7 +231,7 @@ check(cfg is not None and cfg.mem_stage and cfg.mem_oc_max_mhz == gpu.v_mem_max.
       and cfg.furmark_path == gpu._furmark_v2() and cfg.mem_offset_mhz == 0,
       "tuner config: whole-card memory stage (cautious start, 100-MHz steps, FurMark), no fixed offset")
 check(ASKED and f"Speicher: +{gpu._mem_start()} bis +{gpu.v_mem_max.get()} MHz in 100er-Schritten, "
-      f"ganze Karte unter Last" in ASKED[-1] and "30-45" in ASKED[-1],
+      f"ganze Karte unter Last" in ASKED[-1] and "40-55" in ASKED[-1],
       "start dialog names the memory stage and the longer duration")
 gpu.v_mem_stage.set(False)
 gpu._start_tune()
