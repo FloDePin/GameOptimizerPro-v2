@@ -1191,7 +1191,24 @@ class GpuTunerTab(Page):
         self._post(self._slot_menu(name), x, y)
 
     def _export_to_slot(self, p: TuneProfile, slot: int, now: str = ""):
-        if not messagebox.askyesno("Afterburner", tr(
+        safer = self.pm.safer_version(p.name)
+        if safer:
+            # Round 16: the history offered the profile that had hung Hunt — and it was
+            # applied over the safe one. Offer the safer copy first.
+            ans = messagebox.askyesnocancel("Afterburner", tr(
+                f"Für „{p.name}“ gibt es eine entschärfte Version: „{safer}“.\n\n"
+                f"Ja = „{safer}“ in Platz {slot} anwenden (empfohlen)\n"
+                f"Nein = trotzdem „{p.name}“\nAbbrechen = nichts ändern\n\n"
+                f"Platz {slot} jetzt: {now or '?'} — Afterburner startet dafür kurz neu.",
+                f"There is a safer version of '{p.name}': '{safer}'.\n\n"
+                f"Yes = apply '{safer}' to slot {slot} (recommended)\n"
+                f"No = '{p.name}' anyway\nCancel = change nothing\n\n"
+                f"Slot {slot} now: {now or '?'} — Afterburner restarts briefly for it."))
+            if ans is None:
+                return
+            if ans:
+                p = self.pm.load(safer) or p
+        elif not messagebox.askyesno("Afterburner", tr(
                 f"„{p.name}“ in Afterburner-Platz {slot} speichern und anwenden?\n\n"
                 f"Platz {slot} jetzt: {now or '?'}\n\nAfterburner startet dafür kurz neu.",
                 f"Save '{p.name}' to Afterburner slot {slot} and apply it?\n\n"

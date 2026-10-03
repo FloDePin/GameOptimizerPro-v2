@@ -528,6 +528,21 @@ def s_history():
           "'Entschärfen': a safer copy, selected, the slot menu opens to apply it")
     TG.messagebox.askyesno = lambda *a, **k: True
     TG.messagebox.showinfo = lambda *a, **k: None
+    asked3 = []
+    real_ync = TG.messagebox.askyesnocancel
+    TG.messagebox.askyesnocancel = lambda title, msg, **k: (asked3.append(msg), None)[1]
+    FakeAB.writes.clear()
+    g._export_to_slot(pm.load("Rundum gestern"), 4, "leer")
+    check(asked3 and "Rundum gestern_sicher" in asked3[-1] and FakeAB.writes == [],
+          "the original that has a safer copy: asked first (Cancel = nothing written)")
+    TG.messagebox.askyesnocancel = lambda title, msg, **k: True
+    g._export_to_slot(pm.load("Rundum gestern"), 4, "leer")
+    t_end = time.time() + 5
+    while not FakeAB.writes and time.time() < t_end:
+        w.update(); time.sleep(0.02)
+    check(FakeAB.writes == [(4, "Rundum gestern_sicher")], f"'Yes': the safer copy goes into the slot: {FakeAB.writes}")
+    TG.messagebox.askyesnocancel = real_ync
+    _CR.saved.clear()
     g._export_to_slot(sp, 4, "leer")
     t_end = time.time() + 5
     while not _CR.saved and time.time() < t_end:

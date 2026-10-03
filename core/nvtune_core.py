@@ -268,6 +268,30 @@ class ProfileManager:
         self.save(p)
         return p
 
+    @staticmethod
+    def _safer_level(name: str, base: str) -> int:
+        """0 = the original, 1 = '<base>_sicher', n = '<base>_sicher<n>'."""
+        rest = name[len(base):]
+        if not rest:
+            return 0
+        return int(rest[len("_sicher"):] or 1)
+
+    def safer_version(self, name: str) -> Optional[str]:
+        """The safest made-safer copy of `name` that is safer than `name` itself
+        ('X' -> 'X_sicher2' if it exists), else None. Round 16: the tune history
+        offered the original profile that had hung a game — and it was applied."""
+        import re
+        base = re.sub(r"_sicher\d*$", "", name)
+        pat = re.compile(re.escape(base) + r"(_sicher\d*)?$")
+        mine = self._safer_level(name, base) if pat.match(name) else 0
+        best, level = None, mine
+        for p in self.list_all():
+            if pat.match(p.name) and p.name != base:
+                lv = self._safer_level(p.name, base)
+                if lv > level:
+                    best, level = p.name, lv
+        return best
+
     def delete(self, name: str) -> bool:
         path = self.dir / f"{self._safe_name(name)}.json"
         if path.exists():

@@ -226,6 +226,11 @@ pm.save(TuneProfile(name="Manual", core_offset_mhz=20, mem_offset_mhz=100))
 p3 = pm.derate("Manual")
 check(p3.core_offset_mhz == -10 and p3.mem_offset_mhz == 0, "an offset profile: core −30, memory not below 0")
 check(pm.derate("nope") is None, "unknown profile: None")
+check(pm.safer_version("GOP_CURVE_BAL_1002_1628") == "GOP_CURVE_BAL_1002_1628_sicher2"
+      and pm.safer_version("GOP_CURVE_BAL_1002_1628_sicher") == "GOP_CURVE_BAL_1002_1628_sicher2"
+      and pm.safer_version("GOP_CURVE_BAL_1002_1628_sicher2") is None
+      and pm.safer_version("Manual_sicher") is None and pm.safer_version("P1") is None,
+      "the safest made-safer copy of a profile (none for the safest one itself)")
 
 # ── 6) GPU watchdog ──────────────────────────────────────────────────────────
 print("GPU watchdog")
