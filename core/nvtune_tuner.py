@@ -875,6 +875,24 @@ class AutoTuner:
             self._run_curve(stress, base)
             return
 
+        # The same short benchmark at stock and at the end (FurMark 2 only): how the
+        # profile compares in performance and efficiency (profile comparison page).
+        q_stock = None
+        self._stock_rate = 0.0             # points per second at stock (plausibility of the end run)
+        if cfg.furmark_path:
+            q_stock = self._bench(stress, cfg.bench_s, T("Standard-Benchmark", "Stock benchmark"), 13, 2)
+            if q_stock is None:
+                return
+            if q_stock.passed:
+                self._stock_rate = q_stock.score / max(cfg.bench_s, 1)
+                self._log(T(f"  Standard: {q_stock.score:.0f} Punkte, Ø {q_stock.power_w:.0f} W, "
+                            f"max. {q_stock.temp_c:.0f} °C (FurMark, Vergleichswert)",
+                            f"  Stock: {q_stock.score:.0f} points, avg {q_stock.power_w:.0f} W, "
+                            f"max {q_stock.temp_c:.0f} °C (FurMark, the reference)"))
+            else:
+                self._log(T(f"  Standard-Benchmark ✗ ({q_stock.note}) — kein Vergleich mit Standard",
+                            f"  Stock benchmark ✗ ({q_stock.note}) — no comparison with stock"), "warning")
+
         # ── Stage 1: Core Clock Offset ─────────────────────────────────────────
         best_core = cfg.core_start_mhz
         ref_result = base          # last passing run at (best_core, 100 %) — Stage 2's yardstick
@@ -1183,6 +1201,12 @@ class AutoTuner:
             attempt += 1
             self._set_state(TunerState.FINAL_TEST)
 
+        q_after = None
+        if final.passed and q_stock is not None and q_stock.passed:
+            q_after = self._bench(stress, cfg.bench_s, T("Nachher-Benchmark", "After benchmark"), 98, 1)
+            if q_after is None:
+                return
+
         # ── Save ───────────────────────────────────────────────────────────────
         self._set_state(TunerState.SAVING)
         mode_tag = "OC+UV"
@@ -1215,6 +1239,20 @@ class AutoTuner:
                 created_at=datetime.now().isoformat(),
                 gpu_name=gpu_name,
             )
+            if q_after is not None and q_after.passed and min(q_after.power_w, q_stock.power_w) > 0:
+                from core import profile_score as PS
+                profile.bench = PS.bench_record("FurMark", cfg.bench_s, q_after.score, q_after.power_w,
+                                                q_stock.score, q_stock.power_w, at=profile.created_at)
+                sc = PS.score_of(profile)
+                self._log(T(f"Vorher → nachher (FurMark {cfg.bench_s} s): {q_stock.score:.0f} → "
+                            f"{q_after.score:.0f} Punkte ({sc['perf_pct']:+.1f} %), {q_stock.power_w:.0f} → "
+                            f"{q_after.power_w:.0f} W, Effizienz {sc['eff_pct']:+.1f} %",
+                            f"Before → after (FurMark {cfg.bench_s} s): {q_stock.score:.0f} → "
+                            f"{q_after.score:.0f} points ({sc['perf_pct']:+.1f} %), {q_stock.power_w:.0f} → "
+                            f"{q_after.power_w:.0f} W, efficiency {sc['eff_pct']:+.1f} %"))
+            elif q_after is not None:
+                self._log(T(f"Nachher-Benchmark ✗ ({q_after.note}) — kein Vergleich mit Standard",
+                            f"After benchmark ✗ ({q_after.note}) — no comparison with stock"), "warning")
             self.best_profile = profile
             self.pm.save(profile)
             self._persist(profile)            # what the PC boots with (Afterburner [Startup])
@@ -2143,6 +2181,10 @@ class AutoTuner:
             created_at=datetime.now().isoformat(),
             gpu_name=gpu_name,
         )
+        if min(stock.score, after.score, stock.power_w, after.power_w) > 0:
+            from core import profile_score as PS
+            profile.bench = PS.bench_record(bench_name, cfg.bench_s, after.score, after.power_w,
+                                            stock.score, stock.power_w, at=profile.created_at)
         self.best_profile = profile
         self.pm.save(profile)
         self._persist(profile)                # what the PC boots with (Afterburner [Startup])

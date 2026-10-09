@@ -763,6 +763,10 @@ check(pf2.get("Profile2", "CoreClkBoost") == "1000000" and top.voltage_mv == 102
       f"the saved curve is what Afterburner's slot holds: top {top.voltage_mv:.0f} mV / {top.effective_mhz:.0f} MHz")
 check(t.last_report and t.last_report["summary"].startswith("+3.2 % Punkte"),
       f"report summary: {t.last_report and t.last_report['summary']}")
+from core import profile_score as PS
+_sc = PS.score_of(bp)
+check(bp.bench and bp.bench["seconds"] == 60 and _sc and _sc["perf_pct"] == 3.2 and _sc["source"] == "measured",
+      f"round 18: the before/after benchmark is stored with the profile (profile comparison): {_sc}")
 rep_files = [f for f in os.listdir(os.path.join(folder, "logs")) if f.startswith("curve_report_")]
 check(len(rep_files) == 1 and "Empfehlungen:" in open(os.path.join(folder, "logs", rep_files[0]),
                                                        encoding="utf-8").read(),

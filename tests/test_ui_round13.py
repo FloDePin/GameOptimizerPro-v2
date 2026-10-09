@@ -204,7 +204,7 @@ check(started[-1].mode == TuneMode.OC_UV and "Modus: Schnell (OC + Undervolt)" i
 c2 = started[-1]
 check(c2.mem_stage and c2.mem_curve_start_mhz == 500 and c2.furmark_path == FM and c2.bench_msaa == 8
       and "ganze Karte unter Last (FurMark + Datenprüfung)" in ASKED[-1][1]
-      and "FurMark-Fenster gehen bei den Speicher-Schritten auf" in ASKED[-1][1],
+      and "FurMark-Fenster gehen auf" in ASKED[-1][1] and "Vergleich mit Standard" in ASKED[-1][1],
       "classic memory stage: the whole card under load as in Rundum (+500, FurMark 2)")
 
 pm.save(TuneProfile(name="GOP_CURVE_BAL_1001_2130", core_offset_mhz=142, is_stable=True,

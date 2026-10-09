@@ -124,8 +124,11 @@ check(len(cores) == 1 and min(cores) > 0, f"every memory step on the found core 
 print("with FurMark 2: it runs during every memory step")
 g = GPU(mem_limit=5000, fm_mem_limit=650)
 t, logs = tune(g, furmark=True, mode=TuneMode.OC_UV, mem_stage=True, mem_oc_max_mhz=1000)
-check([m for m, s, a in g.furmarks] == [500, 600, 700] and all(a == 8 for m, s, a in g.furmarks),
+steps = [m for m, s, a in g.furmarks[1:-1]]
+check(steps == [500, 600, 700] and all(a == 8 for m, s, a in g.furmarks),
       f"FurMark (8x MSAA) with each memory step: {g.furmarks}")
+check(g.furmarks[0][:2] == (0, 60) and g.furmarks[-1][1] == 60,
+      "round 18: the comparison with stock — 60 s of FurMark at stock first and with the result at the end")
 check(t.best_profile and t.best_profile.mem_offset_mhz == 500,
       "FurMark crashed at +700 while the copies passed -> +500")
 check(any("Mem+700MHz ✗" in m and "FurMark" in m for m in logs), "the failure names FurMark")

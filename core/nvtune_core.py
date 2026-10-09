@@ -104,6 +104,9 @@ class TuneProfile:
     notes:              str   = ""
     created_at:         str   = ""
     gpu_name:           str   = ""
+    # The same benchmark at stock and with this profile (core/profile_score.py):
+    # {name, seconds, score, power_w, stock_score, stock_seconds, stock_power_w, at}
+    bench:              dict  = field(default_factory=dict)
 
     def to_dict(self):
         return asdict(self)

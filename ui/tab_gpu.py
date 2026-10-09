@@ -933,7 +933,7 @@ class GpuTunerTab(Page):
         mode_str = tr("Schnell (OC + Undervolt)", "Quick (OC + undervolt)")
 
         mem_on = bool(self.v_mem_stage.get())
-        fm = self._furmark_v2() if mem_on else ""
+        fm = self._furmark_v2()           # memory steps + the comparison with stock (60 s at start and end)
         mem_start = self._mem_start()
         load = (tr("FurMark + Datenprüfung", "FurMark + data check") if fm else
                 tr("Datenprüfung — FurMark 2 nicht gefunden", "data check — FurMark 2 not found"))
@@ -958,12 +958,18 @@ class GpuTunerTab(Page):
                f"+ game test: 1 min cool-down, 5 min load changes, 4 min boost point\n"
                f"Safety margin: {self.v_safety.get() + 15} MHz off the clock offset found\n")
             + f"{mem_line}\n"
-            + (tr("FurMark-Fenster gehen bei den Speicher-Schritten auf — nicht schließen und nicht "
-                  "anklicken (das Fenster vorne bekommt auf der GPU Vorrang).\n",
-                  "FurMark windows open during the memory steps — don't close or click them (the "
-                  "window in front gets priority on the GPU).\n") if fm else "")
-            + tr(f"\nDauer ca. {'40-55' if mem_on else '30-45'} Minuten. Start?",
-                 f"\nTakes about {'40-55' if mem_on else '30-45'} minutes. Start?")):
+            + (tr("Vergleich mit Standard: je 60 s FurMark am Anfang und am Ende (Leistung und "
+                  "Effizienz im Profilvergleich).\n"
+                  "FurMark-Fenster gehen auf — nicht schließen und nicht anklicken (das Fenster vorne "
+                  "bekommt auf der GPU Vorrang).\n",
+                  "Comparison with stock: 60 s of FurMark at the start and at the end (performance "
+                  "and efficiency in the profile comparison).\n"
+                  "FurMark windows open — don't close or click them (the window in front gets "
+                  "priority on the GPU).\n") if fm else "")
+            + tr(f"\nDauer ca. {('43-58' if fm else '40-55') if mem_on else ('33-48' if fm else '30-45')} "
+                 f"Minuten. Start?",
+                 f"\nTakes about {('43-58' if fm else '40-55') if mem_on else ('33-48' if fm else '30-45')} "
+                 f"minutes. Start?")):
             return
 
         cfg = TunerConfig(
@@ -979,7 +985,7 @@ class GpuTunerTab(Page):
             mem_stage=mem_on,
             mem_oc_max_mhz=max(100, self.v_mem_max.get()),
             mem_curve_start_mhz=mem_start,   # whole-card stage: cautious start, 100-MHz steps
-            furmark_path=fm, bench_msaa=8,   # FurMark during every memory step
+            furmark_path=fm, bench_msaa=8,   # FurMark: memory steps, comparison with stock
             ab_slot=slot,
         )
         self.tuner.config = cfg

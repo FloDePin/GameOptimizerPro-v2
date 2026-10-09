@@ -692,8 +692,36 @@ def s_bios():
           f"comparison: refreshed every time it is shown, only real profiles: {vals}")
     c._sel_vars[0].set("P1"); c._on_select(0)
     c._sel_vars[1].set("P2"); c._on_select(1)
-    check(len(c.detail_tree.get_children()) == 9, "detail table")
-    check(len(c._metric_rows["core"]._bars.winfo_children()) == 3, "one bar per chosen profile (+ hidden hint)")
+    check(len(c.detail_tree.get_children()) == 12, "detail table")
+    check(len(c._metric_rows["perf"]._bars.winfo_children()) == 3, "one bar per chosen profile (+ hidden hint)")
+    # round 18: performance / efficiency against stock instead of "100/100" for every profile
+    import ui.tab_compare as TC
+    import ui.tab_gpu as TG
+    from core import profile_score as PS
+    pm.save(TuneProfile(name="Rundum alt", curve_points=[[925, 2564], [1050, 2879], [1075, 2924]],
+                        curve_cap_mv=1050, mem_offset_mhz=500, is_stable=True,
+                        notes="[Rundum Ausgewogen] Kurve 7 Punkte | Mem+500MHz | Pwr 100% | FurMark 7295→7446 "
+                              "(+2.1 %) | 252→257 W | MaxTemp 65°C | Score 100/100"))
+    pm.save(TuneProfile(name="Schnell neu", core_offset_mhz=119, mem_offset_mhz=700, power_limit_pct=96,
+                        is_stable=True, bench=PS.bench_record("FurMark", 300, 37522, 266.1, 7295, 252,
+                                                               stock_seconds=60)))
+    c._refresh_list()
+    for k, n in enumerate(("Rundum alt", "Schnell neu", "P1")):
+        c._sel_vars[k].set(n); c._on_select(k)
+    rows = {str(c.detail_tree.item(r)["values"][0]): [str(v) for v in c.detail_tree.item(r)["values"][1:]]
+            for r in c.detail_tree.get_children()}
+    perf = rows[TG.tr("Leistung ggü. Standard", "Performance vs stock")]
+    eff = rows[TG.tr("Effizienz ggü. Standard", "Efficiency vs stock")]
+    clock = rows[TG.tr("Takt", "Clock")]
+    nm = TG.tr("nicht gemessen", "not measured")
+    check(perf[:3] == [TC._pct(2.1), TC._pct(2.9) + TC.BEST, nm] and eff[:3] == [TC._pct(0.1) + TC.BEST, TC._pct(-2.6), nm],
+          f"performance / efficiency vs stock, the best marked, an unmeasured profile says so: {perf[:3]} {eff[:3]}")
+    check(clock[:2] == [TG.tr("Kurve: 2879 MHz ab 1050 mV", "Curve: 2879 MHz from 1050 mV"), "+119 MHz"]
+          and rows["Name"][:2] == ["Rundum alt", "Schnell neu"],
+          f"clock: a curve's top under its cap, an offset as offset; full names: {clock[:2]}")
+    check(c._metric_rows["perf"].shown == [TC._pct(2.1), TC._pct(2.9), nm]
+          and c._metric_rows["watt"].shown[:2] == ["257 W", "266 W"],
+          f"bars: {c._metric_rows['perf'].shown}, {c._metric_rows['watt'].shown}")
 
     s = w._tab_frames["startup"]
     check(len(s.tree.get_children()) == 3, "startup entries listed")

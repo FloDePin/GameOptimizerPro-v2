@@ -1,5 +1,5 @@
 {
-  "build": 24,
+  "build": 25,
   "date": "2026-10-09",
-  "notes": "Nach einem bestandenen Tune fragt die App nach einem Namen für das Profil. GPU-Fehler zusammen mit einem Rechenfehler zählen jetzt für die zusätzliche Sicherheit. Zahlenfelder werden vor dem Start geprüft. Texte neutral."
+  "notes": "Profilvergleich mit echten Werten: Leistung und Effizienz gegenüber Standard aus demselben FurMark-Test. Der Schnell-Modus misst das jetzt auch (je 60 s am Anfang und am Ende)."
 }

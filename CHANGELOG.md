@@ -383,6 +383,20 @@ verifiers (VERIFY_MAP stays 1:1) and full English descriptions.
   - The app-start test no longer writes into the app's logs folder; texts in the
     app, the code and the docs are neutral.
 
+- **Round 18 — profiles compared against stock** (build 25):
+  - The profile comparison shows what tells profiles apart: **performance** (points vs
+    stock) and **efficiency** (points per watt vs stock) from the same benchmark, the
+    best marked; unmeasured profiles say so instead of showing a made-up number. The
+    stability score (100 for every saved profile) became "passed". Also clock (an own
+    curve's top point under its cap, or the offset), memory, power limit, power draw in
+    the test, mode and date; full names; German labels.
+  - Both modes store the benchmark with the profile (`TuneProfile.bench`,
+    `core/profile_score.py`): the All-round mode its stock and after runs, the Quick mode
+    now 60 s of FurMark 2 at stock and with the result (needs FurMark 2; about 3 min
+    more). Older All-round profiles are read from their notes; runs of different length
+    are compared per second.
+  - 1031 checks in 27 suites, all green.
+
 ### 🔎 Reviewed, verified NOT a bug
 
 Some reported items were checked against the actual code and left unchanged
