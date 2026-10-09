@@ -2,8 +2,11 @@
 GameOptimizerPro v2.0 — Profile comparison page (up to 4 GPU profiles side by side)
 
 What tells profiles apart is how they do against stock in the same benchmark —
-performance and efficiency (core/profile_score.py). The stability score is 100 for
-every saved profile (a tune saves only what passed), so it is shown as "passed".
+performance and efficiency (core/profile_score.py). Stock is a column of its own (point 0:
+the mean of the stock runs the chosen profiles were measured against — every tune measures
+stock right before); ▲ / ▼ = better / worse than stock, ≈ within the run-to-run noise.
+The stability score is 100 for every saved profile (a tune saves only what passed), so it
+is shown as "passed".
 """
 
 import tkinter as tk
@@ -13,13 +16,17 @@ from typing import Optional
 import customtkinter as ctk
 
 from core.nvtune_core import ProfileManager, TuneProfile
-from core.profile_score import score_of
+from core.profile_score import score_of, stock_of
 from ui.components import Card, GaugeBar, Page, ResponsiveGrid, Table, button
-from ui.theme import ACC, AMBER, CARD_BG, DIM, F_BB, F_XS, GREEN, TEXT2, VIOLET, icon_image, tr
+from ui.theme import ACC, AMBER, CARD_BG, DIM, F_BB, F_XS, GREEN, SLATE, TEXT2, VIOLET, icon_image, tr
 
 COMPARE_COLORS = [ACC, VIOLET, GREEN, AMBER]
 NONE = tr("(keins)", "(none)")
 BEST = " ★"
+STOCK_COLOR = SLATE
+# Two stock runs of the same card differ by about this much (FurMark 2, 60 s): closer to
+# stock than that is "the same", not better or worse
+NOISE_PCT = 0.5
 
 
 def _pct(v: float) -> str:
@@ -27,6 +34,25 @@ def _pct(v: float) -> str:
     from core.i18n import current_lang
     s = f"{v:+.1f} %"
     return s.replace(".", ",") if current_lang() == "de" else s
+
+
+def _mark(v: float) -> str:
+    """▲ better than stock, ▼ worse, ≈ within the noise."""
+    return "▲" if v >= NOISE_PCT else "▼" if v <= -NOISE_PCT else "≈"
+
+
+def _pct_mark(v: float) -> str:
+    return f"{_pct(v)} {_mark(v)}"
+
+
+def _dec(v: float) -> str:
+    """28.76 (German: 28,76)."""
+    from core.i18n import current_lang
+    s = f"{v:.2f}"
+    return s.replace(".", ",") if current_lang() == "de" else s
+
+
+BASE = tr("0 % (Basis)", "0 % (base)")
 
 
 def describe_mode(p: TuneProfile) -> str:
@@ -101,10 +127,16 @@ class CompareTab(Page):
                          "Against stock (same FurMark test)"), accent=VIOLET)
         met.pack(fill="x", padx=10, pady=(0, 14))
         tk.Label(met.body, text=tr(
-            "Leistung = Punkte gegenüber Standard, Effizienz = Punkte pro Watt gegenüber Standard. "
-            "Profile ohne Messung: ein neuer Tune misst es (Rundum und Schnell mit FurMark 2).",
-            "Performance = points vs stock, efficiency = points per watt vs stock. Profiles "
-            "without a measurement: a new tune measures it (All-round and Quick with FurMark 2)."),
+            "Standard = die Karte ab Werk (0 %). Jeder Tune misst sie direkt vorher im gleichen Test, "
+            "jedes Profil wird mit seiner eigenen Messung verglichen; die Spalte Standard zeigt deren "
+            "Durchschnitt. Leistung = Punkte, Effizienz = Punkte pro Watt. ▲ besser als Standard, "
+            "▼ schlechter, ≈ gleich (innerhalb der Messschwankung von ±0,5 %). Profile ohne Messung: "
+            "ein neuer Tune misst es (Rundum und Schnell mit FurMark 2).",
+            "Stock = the card as it comes (0 %). Every tune measures it right before in the same test, "
+            "every profile is compared with its own measurement; the stock column shows their mean. "
+            "Performance = points, efficiency = points per watt. ▲ better than stock, ▼ worse, "
+            "≈ the same (within the run-to-run noise of ±0.5 %). Profiles without a measurement: "
+            "a new tune measures it (All-round and Quick with FurMark 2)."),
             font=F_XS, fg=DIM, bg=CARD_BG, anchor="w", justify="left", wraplength=900).pack(fill="x", pady=(0, 8))
         self._metric_rows: dict[str, "MetricRow"] = {}
         for label, key in [
@@ -119,9 +151,9 @@ class CompareTab(Page):
 
         det = Card(b, tr("Alle Details", "Full details"), accent=VIOLET)
         det.pack(fill="x", padx=10, pady=(0, 10))
-        cols = [("metric", tr("Wert", "Metric"), 150, "w")] + \
-               [(f"p{i + 1}", f"● {tr('Profil', 'Profile')} {i + 1}", 170, "center") for i in range(4)]
-        tbl = Table(det.body, cols, height=12, selectmode="none")
+        cols = [("metric", tr("Wert", "Metric"), 150, "w"), ("stock", tr("Standard", "Stock"), 130, "center")] + \
+               [(f"p{i + 1}", f"● {tr('Profil', 'Profile')} {i + 1}", 160, "center") for i in range(4)]
+        tbl = Table(det.body, cols, height=13, selectmode="none")
         tbl.pack(fill="x")
         self.detail_tree = tbl.tree
         self._refresh_list()
@@ -156,13 +188,14 @@ class CompareTab(Page):
                 r.set_values([])
             return
         scores = {i: score_of(p) for i, p in active}
+        stock = stock_of(scores.values())
         unmeasured = tr("nicht gemessen", "not measured")
 
         def bars(key, fmt, higher_better=True):
             vals = [scores[i][key] for i, _p in active if scores[i]]
             lo = min(vals + [0.0]) - 1.0 if vals else 0.0
             hi = max(vals + [0.0]) if vals else 1.0
-            out = []
+            out = [(tr("Standard", "Stock"), 0.0 - lo, (hi - lo) or 1.0, STOCK_COLOR, BASE)]
             for i, p in active:
                 s = scores[i]
                 label = f"{tr('Profil', 'Profile')} {i + 1}"
@@ -172,16 +205,19 @@ class CompareTab(Page):
                     out.append((label, s[key] - lo, (hi - lo) or 1.0, COMPARE_COLORS[i], fmt(s[key])))
             return out
 
-        self._metric_rows["perf"].set_values(bars("perf_pct", _pct))
-        self._metric_rows["eff"].set_values(bars("eff_pct", _pct))
-        watts = [(f"{tr('Profil', 'Profile')} {i + 1}",
-                  float(scores[i]["power_w"]) if scores[i] else 0.0,
-                  float(max((s["power_w"] for s in scores.values() if s), default=1) or 1),
-                  COMPARE_COLORS[i],
-                  (f"{scores[i]['power_w']} W" if scores[i] else unmeasured)) for i, _p in active]
+        self._metric_rows["perf"].set_values(bars("perf_pct", _pct_mark))
+        self._metric_rows["eff"].set_values(bars("eff_pct", _pct_mark))
+        mx_w = float(max([s["power_w"] for s in scores.values() if s] + ([stock["power_w"]] if stock else []),
+                         default=1) or 1)
+        watts = [(tr("Standard", "Stock"), float(stock["power_w"]) if stock else 0.0, mx_w, STOCK_COLOR,
+                  f"{stock['power_w']} W" if stock else "—")]
+        watts += [(f"{tr('Profil', 'Profile')} {i + 1}",
+                   float(scores[i]["power_w"]) if scores[i] else 0.0, mx_w, COMPARE_COLORS[i],
+                   (f"{scores[i]['power_w']} W" if scores[i] else unmeasured)) for i, _p in active]
         self._metric_rows["watt"].set_values(watts)
         mx_mem = max((p.mem_offset_mhz or 0 for _i, p in active), default=1) or 1
         self._metric_rows["mem"].set_values(
+            [(tr("Standard", "Stock"), 0.0, float(mx_mem), STOCK_COLOR, "+0")] +
             [(f"{tr('Profil', 'Profile')} {i + 1}", float(p.mem_offset_mhz or 0), float(mx_mem), COMPARE_COLORS[i],
               f"+{int(p.mem_offset_mhz or 0)}") for i, p in active])
 
@@ -192,11 +228,21 @@ class CompareTab(Page):
 
         def cell_perf(i, p):
             s = scores.get(i)
-            return (_pct(s["perf_pct"]) + (BEST if i == b_perf else "")) if s else unmeasured
+            return (_pct_mark(s["perf_pct"]) + (BEST if i == b_perf else "")) if s else unmeasured
 
         def cell_eff(i, p):
             s = scores.get(i)
-            return (_pct(s["eff_pct"]) + (BEST if i == b_eff else "")) if s else unmeasured
+            return (_pct_mark(s["eff_pct"]) + (BEST if i == b_eff else "")) if s else unmeasured
+
+        def cell_points(i, p):
+            s = scores.get(i)
+            return (tr(f"{s['points']} (Standard {s['stock_points']})", f"{s['points']} (stock {s['stock_points']})")
+                    if s else unmeasured)
+
+        def cell_ppw(i, p):
+            s = scores.get(i)
+            return (tr(f"{_dec(s['ppw'])} (Standard {_dec(s['stock_ppw'])})",
+                       f"{_dec(s['ppw'])} (stock {_dec(s['stock_ppw'])})") if s else unmeasured)
 
         def cell_watt(i, p):
             s = scores.get(i)
@@ -207,22 +253,29 @@ class CompareTab(Page):
             s = scores.get(i)
             return s["label"] if s else "—"
 
+        if stock:
+            measured = (tr("vor jedem Tune", "before every tune") +
+                        (tr(f" (Ø aus {stock['n']})", f" (mean of {stock['n']})") if stock["n"] > 1 else ""))
+        # (label, stock column, per profile)
         row_defs = [
-            ("Name",                                         lambda i, p: p.name),
-            (tr("Modus", "Mode"),                            lambda i, p: describe_mode(p)),
-            (tr("Takt", "Clock"),                            lambda i, p: describe_clock(p)),
-            (tr("Speicher", "Memory"),                       lambda i, p: f"+{int(p.mem_offset_mhz or 0)} MHz"),
-            (tr("Power-Limit", "Power limit"),               lambda i, p: f"{int(p.power_limit_pct or 100)} %"),
-            (tr("Leistung ggü. Standard", "Performance vs stock"), cell_perf),
-            (tr("Effizienz ggü. Standard", "Efficiency vs stock"),  cell_eff),
-            (tr("Leistungsaufnahme", "Power draw"),          cell_watt),
-            (tr("Gemessen mit", "Measured with"),            cell_bench),
-            (tr("Stabilitätstests", "Stability tests"),
+            ("Name", tr("Standard (ab Werk)", "Stock (as it comes)"), lambda i, p: p.name),
+            (tr("Modus", "Mode"), tr("ohne Tuning", "no tuning"), lambda i, p: describe_mode(p)),
+            (tr("Takt", "Clock"), tr("ab Werk", "as it comes"), lambda i, p: describe_clock(p)),
+            (tr("Speicher", "Memory"), "+0 MHz", lambda i, p: f"+{int(p.mem_offset_mhz or 0)} MHz"),
+            (tr("Power-Limit", "Power limit"), "100 %", lambda i, p: f"{int(p.power_limit_pct or 100)} %"),
+            (tr("FurMark-Punkte (je 60 s)", "FurMark points (per 60 s)"),
+             str(stock["points"]) if stock else "—", cell_points),
+            (tr("Punkte pro Watt", "Points per watt"), _dec(stock["ppw"]) if stock else "—", cell_ppw),
+            (tr("Leistung ggü. Standard", "Performance vs stock"), BASE, cell_perf),
+            (tr("Effizienz ggü. Standard", "Efficiency vs stock"), BASE, cell_eff),
+            (tr("Leistungsaufnahme", "Power draw"), f"{stock['power_w']} W" if stock else "—", cell_watt),
+            (tr("Gemessen mit", "Measured with"), measured if stock else "—", cell_bench),
+            (tr("Stabilitätstests", "Stability tests"), "—",
              lambda i, p: tr("bestanden", "passed") if p.is_stable else tr("nicht bestanden", "not passed")),
-            (tr("Erstellt", "Created"),                      lambda i, p: _created(p)),
+            (tr("Erstellt", "Created"), "—", lambda i, p: _created(p)),
         ]
-        for label, fn in row_defs:
-            cells = [label] + [fn(i, self._selected[i]) if self._selected[i] else "" for i in range(4)]
+        for label, base, fn in row_defs:
+            cells = [label, base] + [fn(i, self._selected[i]) if self._selected[i] else "" for i in range(4)]
             self.detail_tree.insert("", "end", values=cells)
 
 

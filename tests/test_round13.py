@@ -195,7 +195,7 @@ txt = "\n".join(rep["lines"])
 check(rep["title"] == "Rundum-Tuner — Ziel: Ausgewogen" and "Regel: mindestens die Hälfte" in txt,
       "German title and the goal's rule")
 check("1050 mV: 2977 MHz (+172 ggü. Stock 2805) → 2917 MHz (−60)" in txt
-      and "1000 mV: 2995 MHz (+305 ggü. Stock 2690) → 2905 MHz (−90) — Treiber-Reset" in txt,
+      and "1000 mV: 2995 MHz (+305 ggü. Stock 2690) → 2905 MHz (−90) — GPU-Fehler/Hänger" in txt,
       "per point: found, offset, used with the margin taken off, reset note")
 check("900 mV: unter der Mindestspannung der Karte unter Last" in txt,
       "unreachable point below the measured ones named as such")
@@ -205,7 +205,7 @@ check("Punkte: 1900 → 1965 (+3.4 %)" in txt and "Leistung: 280 W → 280 W" in
       "fair before/after with the same benchmark")
 check("Endtest 5 min: bestanden" in txt and "Rechen-Prüfung 2 min" in txt and "Nach Rücknahme(n)" in txt,
       "final 5-min test, compute check and step-backs listed")
-check(any("Treiber-Reset" in x for x in rep["recommendations"]) and
+check(any("GPU-Fehler" in x and "1000 mV (−90 MHz)" in x for x in rep["recommendations"]) and
       any("Sicherheitsabstand" in x for x in rep["recommendations"]), "recommendations")
 check(rep["summary"] == "+3.4 % Punkte, +0.0 % Leistung", f"summary: {rep['summary']}")
 rep_en = CT.build_report("efficiency", rs, stock, cands[3], cands[3], 0, cands=cands, lang="en")
@@ -814,7 +814,8 @@ t, gpu, ab, logs, folder = tune({"tdr_volts": (1000,)})
 bp = t.best_profile
 check(t.state == TunerState.DONE and [1000, 2862 - 60] in bp.curve_points,
       f"reset at 1000 mV -> 60 MHz off that point: {bp.curve_points}")
-check(any("Treiber-Reset" in x for x in t.last_report["recommendations"]), "report explains it")
+check(any("GPU-Fehler" in x and "1000 mV (−60 MHz)" in x for x in t.last_report["recommendations"]),
+      "report explains it, with the margin used at that point")
 
 # E5 final test fails once -> one step back, test again, fair 'after' benchmark
 t, gpu, ab, logs, folder = tune({"long_margin": 40})

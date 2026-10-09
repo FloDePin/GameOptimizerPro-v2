@@ -45,6 +45,11 @@ quick = TuneProfile(name="GOP_OC+UV_1004_1342", bench=PS.bench_record(
 s = PS.score_of(quick)
 check(s and s["perf_pct"] == 2.9 and s["eff_pct"] == -2.6 and s["label"] == "FurMark 5 min" and s["source"] == "measured",
       f"a 5-min run against a 60-s stock run: compared per second: {s}")
+check(s["points"] == 7504 and s["stock_points"] == 7295 and s["ppw"] == 28.2 and s["stock_ppw"] == 28.95,
+      f"absolute values per 60 s and points per watt (the 5-min run reads like a 60-s one): {s}")
+st = PS.stock_of([s, PS.score_of(old), None])
+check(st == {"points": 7295, "power_w": 252, "ppw": 28.95, "n": 2} and PS.stock_of([None]) is None,
+      f"stock as a column: the mean of the stock runs the profiles were measured against: {st}")
 check(PS.score_of(TuneProfile(name="P1", core_offset_mhz=120)) is None
       and PS.score_of(TuneProfile(name="x", bench={"score": 0})) is None
       and PS.score_of(TuneProfile(name="y", notes="[Entschärft aus …] Kurve −30 MHz")) is None,

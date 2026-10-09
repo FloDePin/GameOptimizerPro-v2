@@ -52,8 +52,10 @@ def bench_of(profile) -> Optional[dict]:
 
 
 def score_of(profile) -> Optional[dict]:
-    """-> {perf_pct, eff_pct, power_w, stock_power_w, label} (percent vs stock,
-    one decimal), None when the profile was never measured against stock."""
+    """-> {perf_pct, eff_pct, power_w, stock_power_w, points, stock_points, ppw, stock_ppw,
+    label, source} (percent vs stock, one decimal; points per 60 s, so runs of another
+    length read the same; ppw = those points per watt), None when the profile was never
+    measured against stock."""
     b = bench_of(profile)
     if b is None:
         return None
@@ -63,8 +65,23 @@ def score_of(profile) -> Optional[dict]:
     secs = int(round(b["seconds"]))
     length = f"{secs // 60} min" if secs >= 120 and secs % 60 == 0 else f"{secs} s"
     return {"perf_pct": round(perf, 1), "eff_pct": round(eff, 1), "power_w": round(b["power_w"]),
-            "stock_power_w": round(b["stock_power_w"]), "label": f"{b['name']} {length}",
-            "source": b["source"]}
+            "stock_power_w": round(b["stock_power_w"]),
+            "points": round(rate * 60.0), "stock_points": round(rate0 * 60.0),
+            "ppw": round(rate * 60.0 / b["power_w"], 2), "stock_ppw": round(rate0 * 60.0 / b["stock_power_w"], 2),
+            "label": f"{b['name']} {length}", "source": b["source"]}
+
+
+def stock_of(scores) -> Optional[dict]:
+    """Stock as one column next to the profiles: the mean of the stock measurements the
+    given scores were compared with (every tune measures stock itself, right before)
+    -> {points, power_w, ppw, n}, None without a measured score."""
+    s = [x for x in scores if x]
+    if not s:
+        return None
+    pts = sum(x["stock_points"] for x in s) / len(s)
+    w = sum(x["stock_power_w"] for x in s) / len(s)
+    return {"points": round(pts), "power_w": round(w),
+            "ppw": round(sum(x["stock_ppw"] for x in s) / len(s), 2), "n": len(s)}
 
 
 def bench_record(name: str, seconds: float, score: float, power_w: float, stock_score: float,

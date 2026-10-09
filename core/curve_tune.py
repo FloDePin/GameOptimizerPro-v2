@@ -423,8 +423,8 @@ def build_report(goal: str, results: list[AnchorResult], stock: Optional[Candida
                 why = "unter dieser Last nicht erreichbar" if de else "not reachable under this load"
             lines.append(f"  {r.mv} mV: {why}")
             continue
-        extra = ((" — Treiber-Reset/Hänger bei der Suche, mehr Abstand" if de
-                  else " — driver reset / hang while searching, more margin") if r.tdr else "")
+        extra = ((" — GPU-Fehler/Hänger bei der Suche, mehr Abstand" if de
+                  else " — GPU error / hang while searching, more margin") if r.tdr else "")
         if r.limit_hit:
             extra += (" — Grenze „Takt-Plus max. je Punkt“ erreicht" if de
                       else " — 'max clock gain per point' limit reached")
@@ -485,11 +485,13 @@ def build_report(goal: str, results: list[AnchorResult], stock: Optional[Candida
         lines += ["", "Ablauf:" if de else "Run:"] + [f"  {n}" for n in notes]
 
     rec = []
-    if any(r.tdr for r in results):
-        rec.append("Bei der Suche gab es einen Treiber-Reset — an diesem Punkt ist der größere "
-                   "Abstand (60 MHz) eingerechnet." if de else
-                   "A driver reset happened during the search — the larger margin (60 MHz) is used "
-                   "at that point.")
+    hit = [r for r in results if r.tdr]
+    if hit:
+        where = ", ".join(f"{r.mv} mV (−{r.margin_mhz} MHz)" for r in hit)
+        rec.append(f"Bei der Suche gab es einen GPU-Fehler im Ereignisprotokoll oder einen Hänger — dort "
+                   f"ist der größere Abstand eingerechnet: {where}." if de else
+                   f"A GPU error in the event log or a hang happened during the search — the larger "
+                   f"margin is used there: {where}.")
     capped_pts = [r.mv for r in results if r.limit_hit]
     if capped_pts:
         lim = f" (+{core_max} MHz)" if core_max else ""

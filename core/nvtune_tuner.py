@@ -1929,9 +1929,9 @@ class AutoTuner:
             return self._curve_fail(T("Kein Spannungspunkt stabil messbar — kein Profil gespeichert",
                                       "No voltage point measurably stable — no profile saved"))
         self._log(T(f"Eigene Kurve (−{cfg.curve_safety_mhz} MHz Sicherheit, −{cfg.curve_safety_top_mhz} an "
-                    f"den oberen Punkten, +{cfg.curve_reset_extra_mhz} nach Treiber-Reset/Hänger): ",
+                    f"den oberen Punkten, +{cfg.curve_reset_extra_mhz} nach GPU-Fehler/Hänger): ",
                     f"Own curve (−{cfg.curve_safety_mhz} MHz safety, −{cfg.curve_safety_top_mhz} at the top "
-                    f"points, +{cfg.curve_reset_extra_mhz} after a driver reset / hang): ")
+                    f"points, +{cfg.curve_reset_extra_mhz} after a GPU error / hang): ")
                   + ", ".join(f"{mv} mV → {f} MHz" for mv, f in sorted(anchors, reverse=True)))
 
         # 4b) Curve check — FurMark (heavy, the whole card) on the new curve with

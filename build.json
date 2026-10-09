@@ -1,5 +1,5 @@
 {
-  "build": 28,
+  "build": 29,
   "date": "2026-10-09",
-  "notes": "GPU-Tuner: Beim Start werden nicht mehr alle Felder als eigene Einstellung gemerkt — nur was du wirklich änderst."
+  "notes": "Profilvergleich: Standard als eigene Spalte (0 %), dazu FurMark-Punkte und Punkte pro Watt; ▲ besser / ▼ schlechter / ≈ gleich wie Standard."
 }

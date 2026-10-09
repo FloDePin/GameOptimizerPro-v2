@@ -439,6 +439,19 @@ verifiers (VERIFY_MAP stays 1:1) and full English descriptions.
     (out of range or half-typed); only real changes are remembered.
   - 1056 checks in 28 suites, all green.
 
+- **Round 22 — stock as point 0 in the profile comparison** (build 29):
+  - Profile comparison: stock is a column and a bar of its own (0 %), with its FurMark
+    points, power draw and points per watt — the mean of the stock runs the chosen profiles
+    were measured against (every tune measures stock right before, in the same test).
+  - New rows: FurMark points (per 60 s, so runs of another length read the same) and points
+    per watt, each next to the profile's own stock run.
+  - Better or worse than stock at a glance: ▲ better, ▼ worse, ≈ the same (within the
+    run-to-run noise of ±0.5 %); ★ still marks the best profile.
+  - Curve report: a GPU error in the event log during the search is named as such (it was
+    called a driver reset), and the recommendation states the margin actually used at that
+    point instead of a fixed "60 MHz".
+  - 1060 checks in 28 suites, all green.
+
 ### 🔎 Reviewed, verified NOT a bug
 
 Some reported items were checked against the actual code and left unchanged
