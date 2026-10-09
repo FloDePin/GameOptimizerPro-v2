@@ -452,6 +452,24 @@ verifiers (VERIFY_MAP stays 1:1) and full English descriptions.
     point instead of a fixed "60 MHz".
   - 1060 checks in 28 suites, all green.
 
+- **Round 23 — All-round goals refined from a full test series** (build 30):
+  - **Balanced, new rule:** performance **and** efficiency above stock, as evenly as
+    possible — the setting whose smaller gain is the largest. A test series on an RTX 4080
+    showed the old rule (half the gain, most points per watt) picking flat from 1050 mV:
+    +2.4 % performance, −0.5 % efficiency — hardly different from Max (+3.9 % / +1.7 %),
+    while one cap lower already gave +0.9 % / +6.2 %. The old rule remains the fallback
+    when no setting beats stock in both; log and report name the rule that applied.
+  - **Fine search (Balanced, Efficiency):** after the caps every 25 mV, one more cap
+    halfway to the neighbour where the goal's optimum lies (balanced: towards the higher
+    cap while performance is the smaller gain, else lower; efficiency: lower), snapped to a
+    real curve point — about 75 s more. A crash there is handled like any candidate's.
+  - **The card's minimum voltage under load is remembered** per GPU (next to the tune
+    logs): the next tune plans its measuring points only down to it — no test at a point
+    the card never reaches — and puts the lowest point right at it when the grid ends a
+    distinct point above.
+  - Texts: the goal descriptions and the step-by-step tune explanation say so.
+  - 1090 checks in 29 suites, all green.
+
 ### 🔎 Reviewed, verified NOT a bug
 
 Some reported items were checked against the actual code and left unchanged

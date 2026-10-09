@@ -231,9 +231,31 @@ class Candidate:
 # What each goal still accepts. Relative to what THIS card gained: a fixed
 # "within x % of the best" made balanced and efficiency pick the same cap,
 # because the whole overclock is only worth ~4–7 % on RTX 40 cards.
-BALANCED_GAIN_SHARE = 0.5    # keep at least half of the measured gain over stock
+BALANCED_GAIN_SHARE = 0.5    # fallback rule: keep at least half of the measured gain over stock
 EFFICIENCY_KEEP_PCT = 99.0   # of STOCK: same performance as before, less power
 MAX_NOISE_PCT       = 1.0    # FurMark 60-s runs repeat within ~0.5 %
+# Fine search: one more cap halfway to the neighbour cap — only with room for a real
+# curve point in between, at least this far from both
+FINE_MIN_GAP_MV     = 6
+
+
+def gains(c: Candidate, stock: Optional[Candidate]) -> Optional[tuple]:
+    """(performance %, efficiency %) of a candidate against stock — None without a
+    usable stock run or measurement."""
+    if not (stock and stock.score > 0 and stock.power_w > 0 and c.score > 0 and c.power_w > 0):
+        return None
+    perf = (c.score / stock.score - 1.0) * 100.0
+    eff = (c.per_watt / stock.per_watt - 1.0) * 100.0
+    return perf, eff
+
+
+def _evenly_above(ok: list, stock: Optional[Candidate]) -> Optional[Candidate]:
+    """Balanced: the candidate whose SMALLER gain over stock (performance or efficiency)
+    is the largest — faster AND more frugal per point than stock, as evenly as possible.
+    None when no candidate is better than stock in both (then the fallback rule)."""
+    rated = [(min(g), c.score, c) for c in ok for g in [gains(c, stock)] if g is not None]
+    rated = [r for r in rated if r[0] > 0]
+    return max(rated, key=lambda r: (r[0], r[1]))[2] if rated else None
 
 
 def plan_candidates(goal: str, cap_mvs: list, max_pwr_pct: int = 100,
@@ -281,7 +303,14 @@ def stop_testing(goal: str, tested: list[Candidate], stock: Optional[Candidate] 
         return False
     last, best = tested[-1], max(ok, key=lambda c: c.score)
     if goal == "balanced":
-        return last.score < _balanced_ref(stock, best)
+        g = gains(last, stock)
+        if g is None:
+            return last.score < _balanced_ref(stock, best)
+        # lower caps are slower: once this one's performance gain is no more than the
+        # best "smaller gain" so far (or none at all), none of them can do better — and
+        # the fallback rule only takes caps above half the gain, which come first
+        best_min = max((min(x) for c in ok for x in [gains(c, stock)] if x is not None), default=0.0)
+        return g[0] <= max(best_min, 0.0)
     return last.score < _efficiency_ref(stock, best)
 
 
@@ -290,7 +319,9 @@ def choose_candidate(goal: str, cands: list[Candidate],
     """max:        highest score; within the measuring noise the one that needs
                    less power (a setting that isn't measurably faster only costs
                    power and heat).
-    balanced:   best score per watt among those that keep at least half of the
+    balanced:   performance AND efficiency above stock, as evenly as possible: the
+                largest of the smaller gains (round 23). If no candidate beats stock in
+                both: best score per watt among those that keep at least half of the
                 gain over stock (without a stock run: 97 % of the best).
     efficiency: least power among those that keep stock performance
                 (EFFICIENCY_KEEP_PCT % of the stock score); if none does, the
@@ -305,8 +336,75 @@ def choose_candidate(goal: str, cands: list[Candidate],
     if goal == "efficiency":
         pool = [c for c in ok if c.score >= _efficiency_ref(stock, best)] or [best]
         return min(pool, key=lambda c: (c.power_w or 1e9, -c.score))
+    even = _evenly_above(ok, stock)
+    if even is not None:
+        return even
     pool = [c for c in ok if c.score >= _balanced_ref(stock, best)]
     return max(pool, key=lambda c: (c.per_watt, c.score))
+
+
+def balanced_fallback(cands: list, stock: Optional[Candidate]) -> bool:
+    """True when balanced had to use the fallback rule (nothing beat stock in both)."""
+    ok = [c for c in cands if c.passed and c.score > 0]
+    return bool(ok) and _evenly_above(ok, stock) is None
+
+
+def fine_cap(goal: str, chosen: Optional[Candidate], cands: list, stock: Optional[Candidate],
+             cap_mvs: list, curve_mvs: list) -> Optional[tuple]:
+    """The fine search: one more cap, halfway between the chosen one and the neighbour
+    cap where the goal's optimum lies (the caps are 25 mV apart — at 1050 → 1025 mV the
+    efficiency of an RTX 4080 jumped from −0.5 % to +6.2 %), snapped to a real curve
+    point. balanced: towards the higher cap while performance is the smaller gain, else
+    lower; efficiency: lower (less power, still stock speed?).
+    -> (cap mV, low end mV, high end mV), None: nothing to refine."""
+    if goal not in ("balanced", "efficiency") or chosen is None or not chosen.passed:
+        return None
+    caps = sorted({int(v) for v in cap_mvs})
+    if not caps:
+        return None
+    cv = int(chosen.cap_mv or caps[-1])
+    if cv not in caps:
+        return None
+    i = caps.index(cv)
+    lower = caps[i - 1] if i > 0 else None
+    upper = caps[i + 1] if i + 1 < len(caps) else None
+    ok = [c for c in cands if c.passed and c.score > 0]
+    if goal == "efficiency":
+        best = max(ok, key=lambda c: c.score) if ok else chosen
+        if chosen.score < _efficiency_ref(stock, best):
+            return None                     # nothing kept stock speed: lower is only slower
+        other = lower
+    else:
+        g = gains(chosen, stock)
+        if g is not None and _evenly_above(ok, stock) is chosen:
+            other = upper if g[0] < g[1] else lower
+        else:
+            other = lower
+    if other is None:
+        return None
+    lo, hi = sorted((cv, other))
+    inside = [int(round(v)) for v in curve_mvs if lo + FINE_MIN_GAP_MV <= v <= hi - FINE_MIN_GAP_MV]
+    if not inside:
+        return None
+    mid = (lo + hi) / 2
+    return min(inside, key=lambda v: (abs(v - mid), v)), lo, hi
+
+
+def with_floor(anchors_mv: list, curve_mvs: list, floor_mv: float, step_mv: int = 25) -> list:
+    """The measuring points with the card's known minimum voltage under load: nothing
+    below it (those points are never reached), and the lowest point AT it when the grid
+    ends a distinct point above it (≥ REACH_TOL_MV) — so the bottom of the range the card
+    really runs in is measured too, not just taken from the point above."""
+    if not floor_mv or not anchors_mv:
+        return list(anchors_mv)
+    out = [v for v in anchors_mv if v >= floor_mv - REACH_TOL_MV]
+    if not out:
+        return list(anchors_mv)
+    if out[-1] - floor_mv >= REACH_TOL_MV:
+        at = [int(round(v)) for v in curve_mvs if floor_mv - 0.5 <= v <= out[-1] - REACH_TOL_MV]
+        if at:
+            out.append(min(at))
+    return out
 
 
 def lower_curve(anchors: list, step: int, crash_mv: float = 0, near_mv: int = 10) -> list:
@@ -369,10 +467,24 @@ GOAL_TEXT = {"max": ("Maximale Leistung", "Maximum performance"),
              "efficiency": ("Effizienz (Undervolt)", "Efficiency (undervolt)")}
 GOAL_RULE = {"max": ("höchste Punktzahl (gleich schnell im Messrauschen: die sparsamere Einstellung)",
                      "highest score (equal within the noise: the more frugal setting)"),
-             "balanced": ("mindestens die Hälfte des Leistungsgewinns, davon die meisten Punkte pro Watt",
-                          "at least half of the performance gain, the most points per watt of those"),
+             "balanced": ("Leistung und Effizienz beide über Standard, so gleichmäßig wie möglich (es zählt "
+                          "der kleinere der beiden Gewinne)",
+                          "performance and efficiency both above stock, as evenly as possible (the smaller "
+                          "of the two gains counts)"),
              "efficiency": ("Standard-Leistung (≥ 99 %) bei der geringsten Leistungsaufnahme",
                             "stock performance (≥ 99 %) at the lowest power draw")}
+
+BALANCED_FALLBACK_RULE = ("keine Einstellung war in beidem besser als Standard — mindestens die Hälfte des "
+                          "Leistungsgewinns, davon die meisten Punkte pro Watt",
+                          "no setting beat stock in both — at least half of the performance gain, the "
+                          "most points per watt of those")
+
+
+def rule_text(goal: str, cands: list, stock: Optional[Candidate], de: bool = True) -> str:
+    """The rule that picked the setting (balanced: the fallback when it applied)."""
+    if goal == "balanced" and balanced_fallback(cands or [], stock):
+        return BALANCED_FALLBACK_RULE[0 if de else 1]
+    return GOAL_RULE.get(goal, ("", ""))[0 if de else 1]
 
 
 def _pct(a: float, b: float) -> str:
@@ -405,7 +517,7 @@ def build_report(goal: str, results: list[AnchorResult], stock: Optional[Candida
     de = lang == "de"
     g = GOAL_TEXT.get(goal, (goal, goal))[0 if de else 1]
     pts = "Punkte" if de else "points"
-    rule = GOAL_RULE.get(goal, ("", ""))[0 if de else 1]
+    rule = rule_text(goal, cands or [], stock, de)
     lines = [("Rundum-Tuner — Ziel: " if de else "All-round tuner — goal: ") + g,
              ("Regel: " if de else "Rule: ") + rule, ""]
 

@@ -56,14 +56,17 @@ GOALS = [
      "Highest FurMark score: the full measured curve. If the card sits at its power limit, the "
      "highest allowed limit is tested too. More speed costs more power and heat."),
     ("balanced", "Ausgewogen", "Balanced",
-     "Behält mindestens die Hälfte des Leistungsgewinns und nimmt davon die Einstellung mit den "
-     "meisten Punkten pro Watt — schneller als Standard, kaum mehr Verbrauch.",
-     "Keeps at least half of the performance gain and takes the setting with the most points "
-     "per watt among those — faster than stock at about the same power."),
+     "Schneller UND sparsamer pro Punkt als Standard, beides so gleichmäßig wie möglich: die "
+     "Einstellung, bei der der kleinere der beiden Gewinne am größten ist. Eine Feinsuche prüft "
+     "zusätzlich die Mitte zur Nachbar-Kappung.",
+     "Faster AND more frugal per point than stock, both as evenly as possible: the setting whose "
+     "smaller gain is the largest. A fine search also checks the cap halfway to the neighbouring "
+     "one."),
     ("efficiency", "Effizienz", "Efficiency",
-     "Undervolting: Standard-Leistung (≥ 99 %) bei möglichst wenig Watt — kühler und leiser.",
+     "Undervolting: Standard-Leistung (≥ 99 %) bei möglichst wenig Watt — kühler und leiser. "
+     "Eine Feinsuche prüft zusätzlich die Mitte zur nächsttieferen Kappung.",
      "Undervolting: stock performance (≥ 99 %) at as few watts as possible — cooler and "
-     "quieter."),
+     "quieter. A fine search also checks the cap halfway to the next lower one."),
 ]
 
 
@@ -465,23 +468,27 @@ class GpuTunerTab(Page):
                   if mem_on else "4. Memory: stays at stock (unticked)")
         self.lbl_curve_steps.config(text=tr(
             f"1. Standard messen: Boost-Last + 60 s FurMark-Benchmark (der Vergleichswert)\n"
-            f"2. Kurve: alle {pmv} mV ein Punkt, von der höchsten erreichten Spannung bis 850 mV. "
+            f"2. Kurve: alle {pmv} mV ein Punkt, von der höchsten erreichten Spannung bis zur Mindestspannung "
+            f"der Karte unter Last (ab dem zweiten Tune bekannt, sonst bis 850 mV). "
             f"Je Punkt +15 MHz, bis ein Fehler kommt, dann +7 / +5 MHz (höchstens +{cmax} MHz), "
             f"{step_s} s je Schritt. Übernommen: gefundener Takt − {safety} MHz (oben, wo Spiele "
-            f"boosten, − {safety + 15}; nach einem Treiber-Reset/Hänger − 30 mehr)\n"
+            f"boosten, − {safety + 15}; nach einem GPU-Fehler/Hänger − 30 mehr)\n"
             f"3. Kurven-Check: 30 s FurMark mit der neuen Kurve\n"
             f"{mem_de}\n"
-            f"5. Vergleich: 60 s FurMark je Kurven-Variante — Auswahl nach dem Ziel\n"
+            f"5. Vergleich: 60 s FurMark je Kurven-Variante — Auswahl nach dem Ziel (Ausgewogen / "
+            f"Effizienz: dazu eine Feinsuche in der Mitte zur Nachbar-Variante)\n"
             f"6. Endtest: {fm} min FurMark + {ver} s Rechenprüfung + Spiel-Endtest: 1 min abkühlen, 5 min Lastwechsel, 4 min Boost-Punkt "
             f"→ Profil + Bericht",
             f"1. Measure stock: boost load + 60 s FurMark benchmark (the reference)\n"
-            f"2. Curve: a point every {pmv} mV, from the highest voltage reached down to 850 mV. "
+            f"2. Curve: a point every {pmv} mV, from the highest voltage reached down to the card's minimum "
+            f"voltage under load (known from the second tune on, else down to 850 mV). "
             f"Per point +15 MHz until a failure, then +7 / +5 MHz (at most +{cmax} MHz), "
             f"{step_s} s per step. Used: the clock found − {safety} MHz (at the top, where games "
-            f"boost, − {safety + 15}; after a driver reset / hang − 30 more)\n"
+            f"boost, − {safety + 15}; after a GPU error / hang − 30 more)\n"
             f"3. Curve check: 30 s FurMark on the new curve\n"
             f"{mem_en}\n"
-            f"5. Compare: 60 s FurMark per curve variant — picked by the goal\n"
+            f"5. Compare: 60 s FurMark per curve variant — picked by the goal (balanced / "
+            f"efficiency: plus a fine search halfway to the neighbouring variant)\n"
             f"6. Final test: {fm} min FurMark + {ver} s compute check + game test: 1 min cool-down, 5 min load changes, 4 min boost point "
             f"→ profile + report"))
 

@@ -7,7 +7,7 @@ real code wrote (a throwaway copy in %TEMP% — Afterburner itself, FurMark and
 the real GPU are never touched): it runs the highest clock its curve allows up
 to its voltage limit, drops down the curve when a load would exceed the power
 limit, and is unstable above a true per-voltage limit."""
-import io, os, shutil, struct, subprocess, sys, tempfile, threading, time, types
+import io, json, os, shutil, struct, subprocess, sys, tempfile, threading, time, types
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 os.chdir(ROOT)
@@ -148,8 +148,9 @@ check(CT.choose_candidate("efficiency", [mk(1000, 1850, 250), mk(975, 1800, 230)
       "efficiency when nothing keeps stock speed: the one that loses least")
 check(CT.choose_candidate("balanced", [CT.Candidate("", 0, passed=False)], stock) is None,
       "nothing passed -> no choice")
-check([CT.stop_testing("balanced", cands[:i + 1], stock) for i in range(4)] == [False, False, True, True],
-      "balanced stops at the first cap below half the gain")
+check([CT.stop_testing("balanced", cands[:i + 1], stock) for i in range(4)] == [False, True, True, True],
+      "balanced (round 23) stops once a cap's performance gain is no more than the best 'smaller gain' "
+      "so far: lower caps are only slower")
 check([CT.stop_testing("efficiency", cands[1:i + 1], stock) for i in range(1, 5)]
       == [False, False, False, True], "efficiency stops at the first cap below stock speed")
 check(not CT.stop_testing("max", cands, stock), "max never stops early")
@@ -192,7 +193,7 @@ rep = CT.build_report("balanced", rs, stock, cands[1], cands[1], 1000, cands=can
                       endurance_s=300, verify_s=120, retries=["Kurve −15 MHz auf allen Punkten"],
                       lang="de")
 txt = "\n".join(rep["lines"])
-check(rep["title"] == "Rundum-Tuner — Ziel: Ausgewogen" and "Regel: mindestens die Hälfte" in txt,
+check(rep["title"] == "Rundum-Tuner — Ziel: Ausgewogen" and "Regel: Leistung und Effizienz beide über Standard" in txt,
       "German title and the goal's rule")
 check("1050 mV: 2977 MHz (+172 ggü. Stock 2805) → 2917 MHz (−60)" in txt
       and "1000 mV: 2995 MHz (+305 ggü. Stock 2690) → 2905 MHz (−90) — GPU-Fehler/Hänger" in txt,
@@ -757,6 +758,12 @@ check(first == [2795, 2825, 2855, 2885, 2915, 2945, 2975, 2960, 2967, 2974, 2972
       f"first point: coarse 30, failure, 15/7/5 from the last pass: {first}")
 check(bp.curve_cap_mv == 1025 and bp.power_limit_pct == 100,
       f"balanced -> flat from 1025 mV (keeps half the gain, most points/W): {bp.curve_cap_mv}")
+# round 23: the fine search — the cap halfway to the neighbour, here towards the higher one
+# (performance is the smaller gain at 1025 mV); it is not better here, 1025 stays
+check("  Feinsuche: flach ab 1035 mV (zwischen 1025 und 1050 mV)" in L
+      and any(l.startswith("  flach ab 1035 mV (Feinsuche): ") for l in logs)
+      and any("flach ab 1035 mV (Feinsuche)" in x for x in t.last_report["lines"]),
+      "fine search: 1035 mV benchmarked, listed with the candidates in the log and the report")
 pf2, sc = slot_curve(folder)
 top = max(sc.active_points(), key=lambda q: (q.effective_mhz, -q.voltage_mv))
 check(pf2.get("Profile2", "CoreClkBoost") == "1000000" and top.voltage_mv == 1025.0,
@@ -803,6 +810,10 @@ t, gpu, ab, logs, folder = tune(goal="efficiency")
 bp = t.best_profile
 rep = t.last_report
 check(t.state == TunerState.DONE and bp.curve_cap_mv == 975, f"efficiency -> flat from 975 mV: {bp.curve_cap_mv}")
+L = "\n".join(logs)
+fine = [l for l in logs if "Feinsuche" in l]
+check("  Feinsuche: flach ab 960 mV (zwischen 950 und 975 mV)" in L and len(fine) == 3,
+      f"round 23: efficiency's fine search halfway to the next lower cap (not kept here): {fine}")
 import re as _re
 pct = lambda prefix: float(_re.search(r"\(([+-][\d.]+) %\)",
                                       next(l for l in rep["lines"] if l.startswith(prefix))).group(1))
@@ -966,6 +977,28 @@ check("lief bei 920 mV" in L and "→ 900 mV: unter Last nicht erreichbar" in L
 rep = "\n".join(t.last_report["lines"] + t.last_report["recommendations"])
 check("875 mV: unter der Mindestspannung der Karte unter Last" in rep
       and "900 mV liegt unter der Mindestspannung" in rep, "the report says why")
+fl = json.load(open(os.path.join(folder, "logs", "gpu_floor.json"), encoding="utf-8"))
+check(fl.get("NVIDIA GeForce RTX 4080", {}).get("floor_mv") == 920
+      and "Mindestspannung der Karte unter Last: 920 mV — für den nächsten Tune gespeichert" in L,
+      f"round 23: the floor is saved for the next tune (next to the tune logs, per GPU): {fl}")
+# E20b round 23: the next tune knows the floor — points only down to it
+_kf = AutoTuner._known_floor
+AutoTuner._known_floor = lambda self, gpu: 920.0
+t, gpu, ab, logs, folder = tune({"floor_mv": 920.0}, curve_anchor_step_mv=25)
+L = "\n".join(logs)
+check(t.state == TunerState.DONE and "Messpunkte: 1050, 1025, 1000, 975, 950, 925 mV" in L
+      and "nicht erreichbar" not in L and "übersprungen" not in L
+      and "(vom letzten Tune gespeichert): 920 mV" in L
+      and [v for v, f in t.best_profile.curve_points] == [925, 950, 975, 1000, 1025, 1050],
+      "the next tune: points down to the saved floor — no test at 900 mV, nothing skipped, same curve")
+AutoTuner._known_floor = lambda self, gpu: 937.0
+t, gpu, ab, logs, folder = tune({"floor_mv": 937.0}, curve_anchor_step_mv=25)
+AutoTuner._known_floor = _kf
+L = "\n".join(logs)
+check(t.state == TunerState.DONE and "Messpunkte: 1050, 1025, 1000, 975, 950, 940 mV" in L
+      and [v for v, f in t.best_profile.curve_points][0] == 940,
+      f"the grid ends 13 mV above the floor (937): the lowest point right at it (940): "
+      f"{t.best_profile and t.best_profile.curve_points}")
 
 # E21 round 16: the game test finds what the steady tests can't. The card is 40 MHz
 # weaker under load changes; on round 13's 30-MHz margins the transient phase fails ->

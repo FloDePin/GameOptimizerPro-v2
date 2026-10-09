@@ -1,5 +1,5 @@
 {
-  "build": 29,
+  "build": 30,
   "date": "2026-10-09",
-  "notes": "Profilvergleich: Standard als eigene Spalte (0 %), dazu FurMark-Punkte und Punkte pro Watt; ▲ besser / ▼ schlechter / ≈ gleich wie Standard."
+  "notes": "Rundum: „Ausgewogen“ heißt jetzt Leistung UND Effizienz über Standard, eine Feinsuche prüft die Mitte zwischen zwei Kappungen, und die Mindestspannung der Karte wird für den nächsten Tune gespeichert."
 }

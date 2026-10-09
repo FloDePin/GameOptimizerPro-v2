@@ -12,7 +12,7 @@ never-shown FULL / V/F-only / memory-only modes are gone — the Rundum goals
 max / efficiency cover the first two, and do it per voltage point.)
 """
 
-import time, threading, os, sys, subprocess, logging
+import time, threading, os, sys, subprocess, logging, json
 from enum import Enum, auto
 from dataclasses import dataclass, field
 from typing import Callable, Optional
@@ -1774,6 +1774,40 @@ class AutoTuner:
         self._progress(100, "✗ " + msg.split(" — ")[0])
         self._set_state(TunerState.ERROR)
 
+    # The card's minimum voltage under the boost load (an RTX 4080: ~920 mV) — found by the
+    # first point it could not reach; remembered per GPU next to the tune logs, so the next
+    # tune plans its points down to it instead of testing one it never reaches.
+    def _floor_file(self) -> str:
+        return os.path.join(self._log_dir, "gpu_floor.json")
+
+    def _known_floor(self, gpu: str) -> float:
+        if not gpu:
+            return 0.0
+        try:
+            with open(self._floor_file(), encoding="utf-8") as f:
+                d = json.load(f)
+            v = float((d.get(gpu) or {}).get("floor_mv") or 0)
+            return v if 300 <= v <= 1300 else 0.0
+        except (OSError, ValueError, TypeError, AttributeError):
+            return 0.0
+
+    def _save_floor(self, gpu: str, mv: float):
+        path = self._floor_file()
+        try:
+            try:
+                with open(path, encoding="utf-8") as f:
+                    d = json.load(f)
+                if not isinstance(d, dict):
+                    d = {}
+            except (OSError, ValueError):
+                d = {}
+            d[gpu] = {"floor_mv": int(round(mv)), "at": datetime.now().isoformat(timespec="seconds")}
+            Path(self._log_dir).mkdir(parents=True, exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(d, f, indent=2)
+        except OSError:
+            pass
+
     def _run_curve(self, stress: "StressTester", base: StressResult):
         """Rundum-Tuner — after the baseline (see _run):
         1. the card's curve (voltage points, stock clocks) from Afterburner's profile
@@ -1830,8 +1864,19 @@ class AutoTuner:
                         f"Obergrenze aus dem Takt geschätzt: {ceiling:.0f} mV",
                         f"  No voltage readings (Afterburner monitoring 'GPU voltage' off?) — "
                         f"ceiling estimated from the clock: {ceiling:.0f} mV"), "warning")
-        anchors_mv = CT.anchor_voltages([p.voltage_mv for p in points], ceiling,
-                                        cfg.curve_min_mv, cfg.curve_anchor_step_mv)
+        try:
+            gpu_key = self.monitor.read().name or ""
+        except Exception:
+            gpu_key = ""
+        known_floor = self._known_floor(gpu_key)
+        curve_mvs = [p.voltage_mv for p in points]
+        anchors_mv = CT.anchor_voltages(curve_mvs, ceiling, cfg.curve_min_mv, cfg.curve_anchor_step_mv)
+        if known_floor and known_floor > cfg.curve_min_mv:
+            anchors_mv = CT.with_floor(anchors_mv, curve_mvs, known_floor, cfg.curve_anchor_step_mv)
+            self._log(T(f"  Mindestspannung der Karte unter Last (vom letzten Tune gespeichert): "
+                        f"{known_floor:.0f} mV — Messpunkte bis dorthin, der unterste genau dort",
+                        f"  The card's minimum voltage under load (saved by the last tune): "
+                        f"{known_floor:.0f} mV — points down to it, the lowest one right at it"))
         if not anchors_mv:
             return self._curve_fail(T(f"Keine Messpunkte zwischen {cfg.curve_min_mv} und "
                                       f"{ceiling:.0f} mV", f"No points between {cfg.curve_min_mv} "
@@ -1922,6 +1967,13 @@ class AutoTuner:
             else:
                 self._log(T(f"  → {mv} mV: kein stabiler Takt gefunden",
                             f"  → {mv} mV: no stable clock found"), "warning")
+        if floor_mv and gpu_key:
+            self._save_floor(gpu_key, floor_mv)
+            if abs(floor_mv - (known_floor or 0)) >= 1:
+                self._log(T(f"  Mindestspannung der Karte unter Last: {floor_mv:.0f} mV — für den nächsten "
+                            f"Tune gespeichert (Messpunkte nur bis dorthin)",
+                            f"  The card's minimum voltage under load: {floor_mv:.0f} mV — saved for the "
+                            f"next tune (points only down to it)"))
         CT.apply_margins(results, cfg.curve_safety_mhz, cfg.curve_safety_top_mhz,
                          cfg.curve_reset_extra_mhz)
         anchors = CT.curve_anchors(results)
@@ -2024,6 +2076,34 @@ class AutoTuner:
                                     "  Lower caps would only be slower — done"))
                     break
             if crashed is None:
+                # fine search: the cap halfway to the neighbour (balanced / efficiency)
+                first = CT.choose_candidate(goal, tested, stock)
+                fine = CT.fine_cap(goal, first, tested, stock, cap_mvs, curve_mvs)
+                if fine:
+                    mid, lo, hi = fine
+                    c = CT.Candidate("", mid, first.pwr_pct)
+                    lbl = c.label(de)
+                    self._log(T(f"  Feinsuche: {lbl} (zwischen {lo} und {hi} mV)",
+                                f"  Fine search: {lbl} (between {lo} and {hi} mV)"))
+                    self._apply_curve(anchors, c.cap_mv, mem, c.pwr_pct)
+                    time.sleep(2)
+                    b = self._bench(stress, cfg.bench_s, T(f"Feinsuche ({lbl})", f"Fine search ({lbl})"), 79, 1)
+                    if b is None:
+                        return
+                    if b.invalid:
+                        return self._curve_fail(self._invalid_msg(b))
+                    b.cap_mv, b.pwr_pct = c.cap_mv, c.pwr_pct
+                    b.name = T(f"{lbl} (Feinsuche)", f"{lbl} (fine search)")
+                    if b.unstable:
+                        crashed = (b.name, b)
+                    else:
+                        tested.append(b)
+                        if b.passed:
+                            self._log(f"  {b.name}: {b.score:.0f} {unit}, Ø {b.power_w:.0f} W, "
+                                      f"max. {b.temp_c:.0f} °C, {b.per_watt:.2f} {unit}/W")
+                        else:
+                            self._log(f"  {b.name}: ✗ {b.note}", "warning")
+            if crashed is None:
                 break
             lbl, b = crashed
             if backoffs >= self.CANDIDATE_BACKOFFS:
@@ -2057,7 +2137,7 @@ class AutoTuner:
                         "  No candidate passed the benchmark — final test with the full curve, "
                         "stepping back on failures"), "warning")
         else:
-            rule = CT.GOAL_RULE[goal][0 if de else 1]
+            rule = CT.rule_text(goal, tested, stock, de)
             self._log(T(f"  Gewählt für „{gname}“ ({rule}): {chosen.label(de)}",
                         f"  Chosen for '{gname}' ({rule}): {chosen.label(de)}"))
         cap, pwr = chosen.cap_mv, chosen.pwr_pct
