@@ -5,6 +5,10 @@ import os, sys, time, tempfile, threading, shutil
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 os.chdir(ROOT)
+import tempfile as _tf                     # never the app's own settings (run on their own too)
+from pathlib import Path as _P
+from core import app_settings as _AS
+_AS.SETTINGS_FILE = _P(_tf.mkdtemp(prefix="gop_set_")) / "settings.json"
 import tkinter as tk
 from tkinter import messagebox
 

@@ -8,6 +8,10 @@ import json, os, sys, tempfile, threading, time, types, shutil
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 os.chdir(ROOT)
+import tempfile as _tf                     # never the app's own settings (run on their own too)
+from pathlib import Path as _P
+from core import app_settings as _AS
+_AS.SETTINGS_FILE = _P(_tf.mkdtemp(prefix="gop_set_")) / "settings.json"
 
 FAILS = []
 def check(c, label):
@@ -315,6 +319,7 @@ def s1():
 def s2():
     # mouse wheel over a ROW (not only the strip next to the tweaks) scrolls the list
     opt._show_section("windows")
+    opt.set_all_groups("windows", True)      # round 19: the categories start closed
     root.update()
     area = opt._lists["windows"]
     canv = area._parent_canvas

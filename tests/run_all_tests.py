@@ -14,8 +14,12 @@ WINDOWED = {"test_ui_new.py", "test_round10.py", "test_ui_round12.py"}
 env = dict(os.environ, PYTHONIOENCODING="utf-8")
 total_ok = total_fail = 0
 bad = []
+import tempfile
 for t in TESTS:
     t0 = time.time()
+    # every suite its own settings file: no suite writes the app's settings, and no
+    # remembered value (tuner fields, open groups) leaks from one suite into the next
+    env["GOP_SETTINGS_FILE"] = os.path.join(tempfile.mkdtemp(prefix="gop_set_"), "settings.json")
     cmd = [sys.executable, os.path.join(HERE, t)]
     if t in WINDOWED and os.name == "nt":
         cmd.insert(1, os.path.join(HERE, "run_hidden_desktop.py"))

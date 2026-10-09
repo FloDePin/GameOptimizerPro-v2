@@ -397,6 +397,22 @@ verifiers (VERIFY_MAP stays 1:1) and full English descriptions.
     are compared per second.
   - 1031 checks in 27 suites, all green.
 
+- **Round 19 — smoother window, tidier lists, remembered tuner settings** (build 26):
+  - Maximize / restore: only the visible page is mapped and laid out (hidden pages are
+    unmapped and keep their layout). Measured with every page built: the optimizer page
+    blocked 1.0–1.3 s per resize, now 0.2–0.4 s; GPU tuner 0.9–1.1 s → 0.2–0.3 s;
+    dashboard 0.7–1.0 s → 0.15–0.2 s.
+  - Optimizer: every category folds open / closed (header with the number of tweaks
+    and how many are active, "Open all" / "Close all"; closed by default, the open ones
+    are remembered; a search shows matches in closed categories too).
+  - GPU tuner: the values set in the fields are remembered — a mode switch or an app
+    start no longer puts the card's defaults back (e.g. "max memory gain"); the clock
+    gain is kept per mode; "Restore the card's defaults" forgets them.
+  - Tray: a click on the icon opens the window. Profile comparison: no GPU row.
+  - Tests: every suite of the battery gets its own settings file (`GOP_SETTINGS_FILE`),
+    six UI suites patched too — no test can write the app's own settings.
+  - 1041 checks in 27 suites, all green.
+
 ### 🔎 Reviewed, verified NOT a bug
 
 Some reported items were checked against the actual code and left unchanged

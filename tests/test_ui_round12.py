@@ -262,7 +262,21 @@ def s_optimizer():
           "no match -> 'Kein Tweak passt zur Suche'")
     opt.ent_search.delete(0, "end")
     opt._apply_filter()
-    check(all(wdg.winfo_manager() for k, wdg, t in rows), "empty search -> all rows back")
+    heads = [wdg for k, wdg, t in opt._rows["windows"] if k == "group"]
+    check(not any(wdg.winfo_manager() for k, wdg, t in rows) and all(h.winfo_manager() for h in heads),
+          "round 19: the categories start closed — only their headers show")
+    first = next(t for k, wdg, t in opt._rows["windows"] if k == "group")
+    opt._toggle_group("windows", first)
+    in_first = [wdg for k, wdg, t in rows if t.group == first]
+    check(all(wdg.winfo_manager() for wdg in in_first)
+          and not any(wdg.winfo_manager() for k, wdg, t in rows if t.group != first)
+          and first in app_settings.get("optimizer_open_groups", []),
+          f"a click on '{first}' opens it (the others stay closed), remembered")
+    cnt = opt._group_heads[("windows", first)]["count"].cget("text")
+    check(str(len(in_first)) in cnt, f"the header counts its tweaks: {cnt!r}")
+    opt.set_all_groups("windows", True)
+    check(all(wdg.winfo_manager() for k, wdg, t in rows), "'Alle auf' -> all rows back")
+    w.update()                          # the rows are viewable again (pointer events)
     runner._applied["disable_telemetry"] = "2026-09-30T12:00:00"
     opt._update_dots()
     check(opt._active_badges["disable_telemetry"].winfo_manager() == "pack"
@@ -692,7 +706,7 @@ def s_bios():
           f"comparison: refreshed every time it is shown, only real profiles: {vals}")
     c._sel_vars[0].set("P1"); c._on_select(0)
     c._sel_vars[1].set("P2"); c._on_select(1)
-    check(len(c.detail_tree.get_children()) == 12, "detail table")
+    check(len(c.detail_tree.get_children()) == 11, "detail table (no GPU row: one PC's own profiles)")
     check(len(c._metric_rows["perf"]._bars.winfo_children()) == 3, "one bar per chosen profile (+ hidden hint)")
     # round 18: performance / efficiency against stock instead of "100/100" for every profile
     import ui.tab_compare as TC
@@ -740,7 +754,8 @@ def s_pages():
     print("page stack")
     keys = [k for k, *_x in mw.TAB_DEFS]
     check(all(k in w._tab_frames for k in keys), f"every page built in the background: {sorted(w._tab_frames)}")
-    check(all(w._tab_frames[k].winfo_manager() == "place" for k in keys), "pages stay placed (stacked)")
+    check([k for k in keys if w._tab_frames[k].winfo_manager() == "place"] == [w._active_tab],
+          "round 19: only the visible page is mapped (a maximize re-laid out all of them)")
     for k in ("bios", "settings", "dashboard"):
         w._show_tab(k)
         w.update()

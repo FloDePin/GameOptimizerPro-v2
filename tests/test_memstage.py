@@ -9,6 +9,10 @@ import os, sys, tempfile, time, types, shutil
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 os.chdir(ROOT)
+import tempfile as _tf                     # never the app's own settings (run on their own too)
+from pathlib import Path as _P
+from core import app_settings as _AS
+_AS.SETTINGS_FILE = _P(_tf.mkdtemp(prefix="gop_set_")) / "settings.json"
 
 FAILS = []
 def check(c, label):
@@ -225,6 +229,9 @@ check(gpu.v_mem_max.get() == min(1000, get_defaults(name).mem_max_mhz),
 check(not hasattr(gpu, "v_mem_off"), "the fixed 'Mem Offset' field is gone")
 gpu.v_mem_stage.set(False)
 gpu._select_mode("oc_uv")
+check(gpu.v_mem_stage.get() is False,
+      "round 19: the user's 'memory off' survives a mode switch (it was switched back on)")
+gpu.v_mem_stage.set(True)
 check(gpu.v_mem_stage.get() is True and gpu.v_mem_max.get() == get_defaults(name).mem_max_mhz,
       f"'Schnell (OC + UV)': memory on, 'Mem Max' from the generation table for {name!r}")
 gpu._start_tune()

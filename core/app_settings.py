@@ -11,7 +11,9 @@ import os
 import threading
 from pathlib import Path
 
-SETTINGS_FILE = Path(__file__).resolve().parent.parent / "logs" / "settings.json"
+# GOP_SETTINGS_FILE: tests (run_all_tests.py) — never the app's own settings
+SETTINGS_FILE = (Path(os.environ["GOP_SETTINGS_FILE"]) if os.environ.get("GOP_SETTINGS_FILE")
+                 else Path(__file__).resolve().parent.parent / "logs" / "settings.json")
 _lock = threading.Lock()
 
 

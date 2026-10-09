@@ -404,12 +404,26 @@ class GameOptimizerWindow(ctk.CTk):
                      font=("Segoe UI Semibold", 12), fg=ERR, bg=APP_BG).pack(anchor="w", padx=24, pady=(24, 6))
             WrapLabel(page, text=traceback.format_exc()[-1500:], font=F_MONO, fg=TEXT2,
                       bg=APP_BG).pack(fill="x", padx=24)
-        # every page stays placed, stacked; _show_tab raises the active one
+        # Only the visible page is mapped. A page built in the background is laid out
+        # once (mapped below the active one), then unmapped: showing it later at the
+        # same size costs no layout. With every page mapped (stacked) a maximize or
+        # restore re-laid out ~3000 widgets: 0.7–1.3 s of a frozen window; hidden
+        # pages unmapped halve even the visible page's resize (measured).
         page.place(x=0, y=0, relwidth=1, relheight=1)
         if key != self._active_tab:
             page.lower()
+            self.after(60, self._park, key)
         self._tab_frames[key] = page
         return page
+
+    def _park(self, key: str):
+        """Unmap a page that isn't shown (it keeps its widgets and its layout)."""
+        page = self._tab_frames.get(key)
+        if page is not None and key != self._active_tab:
+            try:
+                page.place_forget()
+            except tk.TclError:
+                pass
 
     def _show_tab(self, key: str):
         if key not in self._page_factories:
@@ -423,7 +437,10 @@ class GameOptimizerWindow(ctk.CTk):
                 old.on_hide()
             except Exception:
                 pass
+        page.place(x=0, y=0, relwidth=1, relheight=1)
         page.tkraise()
+        if old is not None and old is not page:
+            self._park(prev)
         try:
             page.focus_set()                  # keys must not go to an entry on a hidden page
         except tk.TclError:

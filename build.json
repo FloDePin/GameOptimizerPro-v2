@@ -1,5 +1,5 @@
 {
-  "build": 25,
+  "build": 26,
   "date": "2026-10-09",
-  "notes": "Profilvergleich mit echten Werten: Leistung und Effizienz gegenüber Standard aus demselben FurMark-Test. Der Schnell-Modus misst das jetzt auch (je 60 s am Anfang und am Ende)."
+  "notes": "Maximieren ruckelt nicht mehr (nur die sichtbare Seite wird neu angeordnet), Kategorien im Optimizer auf- und zuklappbar, der GPU-Tuner merkt sich die Einstellungen, Klick aufs Tray-Symbol öffnet die App."
 }

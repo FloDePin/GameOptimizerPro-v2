@@ -73,6 +73,14 @@ class OptimizerTab(Page):
         self._action_btns: list = []
         self._filter_job = None
         self._empty_lbl:    dict[str, tk.Label] = {}
+        # Categories (groups) fold open / closed; the open ones are remembered.
+        # Default: all closed — a list of 100+ tweaks at once was too much.
+        from core import app_settings
+        try:
+            self._open_groups: set[str] = set(app_settings.get("optimizer_open_groups", []) or [])
+        except Exception:
+            self._open_groups = set()
+        self._group_heads: dict[tuple, dict] = {}   # (section, group) -> {"arrow", "count"}
         self._build()
 
     # ── Layout ────────────────────────────────────────────────────────────────
@@ -94,6 +102,12 @@ class OptimizerTab(Page):
                                        placeholder_text=tr("Tweaks suchen …", "Search tweaks …"))
         self.ent_search.pack(side="right")
         self.ent_search.bind("<KeyRelease>", lambda e: self._schedule_filter())
+        self._fold_btns = []
+        for txt_de, txt_en, open_ in (("Alle zu", "Close all", False), ("Alle auf", "Open all", True)):
+            bt = button(bar, tr(txt_de, txt_en), lambda o=open_: self.set_all_groups(self._active_section, o),
+                        kind="ghost", height=30)
+            bt.pack(side="right", padx=(0, 6))
+            self._fold_btns.append(bt)
 
         legend = tk.Frame(b, bg=APP_BG)
         legend.pack(fill="x", pady=(0, 8))
@@ -319,7 +333,7 @@ class OptimizerTab(Page):
                       if t.category == category and t.group == group and self._is_applicable(t)]
             if not tweaks:
                 continue
-            hdr = section_title(area, group, color, bg=APP_BG)
+            hdr = self._group_header(area, key, group, color, len(tweaks))
             items.append(("group", hdr, group))
             for tweak in tweaks:
                 items.append(("row", self._build_tweak_row(area, tweak, color), tweak))
@@ -328,23 +342,91 @@ class OptimizerTab(Page):
                                         font=F_S, fg=DIM, bg=APP_BG)
         self._pack_rows(key, None)
 
+    def _group_header(self, parent, key: str, group: str, color: str, n: int) -> tk.Frame:
+        """'▸ BLOATWARE   9 Tweaks · 7 aktiv ────' — a click folds the group open / closed."""
+        f = tk.Frame(parent, bg=APP_BG, cursor="hand2")
+        arrow = tk.Label(f, text="▾" if group in self._open_groups else "▸", font=("Segoe UI", 10),
+                         fg=color, bg=APP_BG, width=2, cursor="hand2")
+        arrow.pack(side="left")
+        title = tk.Label(f, text=group.upper(), font=("Segoe UI Semibold", 9), fg=color, bg=APP_BG,
+                         cursor="hand2")
+        title.pack(side="left")
+        count = tk.Label(f, text="", font=F_XS, fg=DIM, bg=APP_BG, cursor="hand2")
+        count.pack(side="left", padx=(10, 0))
+        line = tk.Frame(f, bg=BORDER, height=1)
+        line.pack(side="left", fill="x", expand=True, padx=(10, 0), pady=(2, 0))
+        for wdg in (f, arrow, title, count, line):
+            wdg.bind("<Button-1>", lambda e, k=key, g=group: self._toggle_group(k, g))
+        self._group_heads[(key, group)] = {"arrow": arrow, "count": count, "n": n}
+        return f
+
+    def _toggle_group(self, key: str, group: str):
+        if group in self._open_groups:
+            self._open_groups.discard(group)
+        else:
+            self._open_groups.add(group)
+        try:
+            from core import app_settings
+            app_settings.set("optimizer_open_groups", sorted(self._open_groups))
+        except Exception:
+            pass
+        if self.ent_search.get().strip():
+            self._apply_filter()
+        else:
+            self._pack_rows(key, None)
+
+    def set_all_groups(self, key: str, open_: bool):
+        """Open / close every group of a section (the buttons next to the search)."""
+        groups = [obj for kind, _w, obj in self._rows.get(key, []) if kind == "group"]
+        if open_:
+            self._open_groups.update(groups)
+        else:
+            self._open_groups.difference_update(groups)
+        try:
+            from core import app_settings
+            app_settings.set("optimizer_open_groups", sorted(self._open_groups))
+        except Exception:
+            pass
+        self._pack_rows(key, None)
+
+    def _refresh_group_counts(self):
+        for (key, group), h in self._group_heads.items():
+            active = sum(1 for k2, _w, t in self._rows.get(key, [])
+                         if k2 == "row" and t.group == group and self.runner.is_applied(t.id))
+            try:
+                h["count"].config(text=tr(f"{h['n']} Tweaks · {active} aktiv", f"{h['n']} tweaks · {active} active"))
+            except tk.TclError:
+                pass
+
     def _pack_rows(self, key: str, visible: Optional[set]):
+        """Groups always show their header; their rows only when the group is open —
+        or, during a search, every match (closed groups too)."""
         for kind, w, _t in self._rows.get(key, []):
             w.pack_forget()
         empty = self._empty_lbl.get(key)
         if empty is not None:
             empty.pack_forget()
-        shown = 0
+        shown = groups = 0
+        open_now = None
         for kind, w, obj in self._rows.get(key, []):
             if kind == "group":
                 group_rows = [t for k2, _w2, t in self._rows[key]
                               if k2 == "row" and t.group == obj and (visible is None or t.id in visible)]
+                open_now = visible is not None or obj in self._open_groups
+                h = self._group_heads.get((key, obj))
+                if h is not None:
+                    try:
+                        h["arrow"].config(text="▾" if open_now else "▸")
+                    except tk.TclError:
+                        pass
                 if group_rows:
-                    w.pack(fill="x", padx=(0, 8), pady=(14 if shown else 2, 6))
-            elif visible is None or obj.id in visible:
+                    w.pack(fill="x", padx=(0, 8), pady=(10 if groups else 2, 4))
+                    groups += 1
+            elif (visible is None or obj.id in visible) and open_now:
                 w.pack(fill="x", padx=(0, 8), pady=2)
                 shown += 1
-        if not shown and empty is not None:
+        self._refresh_group_counts()
+        if not groups and empty is not None:
             empty.pack(pady=30)
 
     def _schedule_filter(self):
@@ -566,6 +648,7 @@ class OptimizerTab(Page):
                     ab.pack_forget()
 
         self.btn_live_verify.configure(state="normal", text=tr("Status prüfen", "Check status"))
+        self._refresh_group_counts()
         parts = []
         if ok_count:       parts.append(f"● {ok_count} " + tr("verifiziert", "verified"))
         if applied_count:  parts.append(f"◑ {applied_count} " + tr("angewendet", "applied"))

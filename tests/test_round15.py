@@ -9,6 +9,10 @@ import types
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 os.chdir(ROOT)
+import tempfile as _tf                     # never the app's own settings (run on their own too)
+from pathlib import Path as _P
+from core import app_settings as _AS
+_AS.SETTINGS_FILE = _P(_tf.mkdtemp(prefix="gop_set_")) / "settings.json"
 
 FAILS = []
 
@@ -224,6 +228,19 @@ check(pm.load("Rundum 2") is None and pm.load("Rundum heute") is None,
 
 import shutil
 shutil.rmtree(tmp, ignore_errors=True)
+# round 19: a (double) click on the tray icon opens the window (pystray runs the default item)
+try:
+    import types as _ty
+    import GameOptimizerPro as _G
+    fake = _ty.SimpleNamespace(pm=_ty.SimpleNamespace(list_all=lambda: []), _volt=0, _temp=50, _clk=2000.0,
+                               _power=100.0, _open=lambda *a: None, _reset_gpu=lambda *a: None,
+                               _exit=lambda *a: None, ab=None, cr=None)
+    menu = _G.GameOptimizerApp._build_menu(fake)
+    first = list(menu.items)[0]
+    check(first.default and "öffnen" in str(first.text), "tray: 'öffnen' is the default item (a click on the icon)")
+except ImportError:
+    print("  (pystray missing: tray check skipped)")
+
 print("\n%d failure(s)" % len(FAILS))
 for f in FAILS:
     print("  -", f)

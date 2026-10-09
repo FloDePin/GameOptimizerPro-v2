@@ -5,6 +5,10 @@ import os, sys, tempfile, shutil, types
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 os.chdir(ROOT)
+import tempfile as _tf                     # never the app's own settings (run on their own too)
+from pathlib import Path as _P
+from core import app_settings as _AS
+_AS.SETTINGS_FILE = _P(_tf.mkdtemp(prefix="gop_set_")) / "settings.json"
 
 FAILS = []
 def check(c, label):
@@ -48,6 +52,7 @@ TG.GpuTunerTab._furmark_v2 = staticmethod(lambda: FM)     # pretend FurMark 2 is
 
 def build(lang):
     I18N._current_lang = lang
+    _AS.set("tuner_settings", {})    # remembered fields: each build starts from the card's defaults
     import ui.theme as TH
     TH._ICON_CACHE.clear()          # icons belong to a Tk root; this test makes a second one
     root = tk.Tk()
@@ -333,6 +338,35 @@ st.mahm_restarting = False
 TD.DashboardTab._update(dash, st)
 check("freischalten" in dash.lbl_volt_src.config.call_args.kwargs.get("text", ""),
       "without a restart the hint to enable voltage monitoring stays")
+
+print("GPU tab — remembered settings (round 19)")
+root, tab, tuner, pm, started = build("de")
+tab._select_mode("curve")
+d_core_curve = tab.v_core_max.get()
+tab.v_mem_max.set(700)                  # the user's series: memory up to +700 in every run
+tab.v_ab_slot.set(3)
+tab._select_mode("oc_uv")
+check(tab.v_mem_max.get() == 700 and tab.v_ab_slot.get() == 3,
+      f"a mode switch keeps what the user set (memory max was reset to +1000): {tab.v_mem_max.get()}")
+tab.v_core_max.set(180)                 # Quick: own clock gain
+tab._select_mode("curve")
+check(tab.v_core_max.get() == d_core_curve, "the clock gain is per mode (per point vs one offset)")
+root.destroy()
+import ui.theme as TH
+TH._ICON_CACHE.clear()
+root = tk.Tk()
+root.withdraw()
+tuner = AutoTuner(Mon(), FakeAB(), pm, TunerConfig(), log_dir=os.path.join(tmp, "logs"))
+tab = TG.GpuTunerTab(root, Mon(), tuner.ab, pm, tuner)       # the next start: the saved values
+check(tab.v_mode.get() == "curve" and tab.v_mem_max.get() == 700 and tab.v_ab_slot.get() == 3,
+      f"after a restart: mode, memory max, slot as left: {tab.v_mode.get()}, {tab.v_mem_max.get()}, "
+      f"{tab.v_ab_slot.get()}")
+tab._select_mode("oc_uv")
+check(tab.v_core_max.get() == 180, "the Quick mode's own clock gain too")
+tab._reset_user_settings()
+check(tab.v_mem_max.get() != 700 and tab.v_ab_slot.get() == 2 and _AS.get("tuner_settings") == {"mode": "oc_uv"},
+      "'Vorgaben der Karte wiederherstellen': the card's defaults, nothing remembered")
+root.destroy()
 
 shutil.rmtree(tmp, ignore_errors=True)
 print("\n%d failure(s)" % len(FAILS))

@@ -175,7 +175,10 @@ class GpuTunerTab(Page):
         right.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
 
         # ── Mode ──────────────────────────────────────────────────────────────
-        self.v_mode = tk.StringVar(value="curve")
+        self._user_settings = self._load_user_settings()
+        self._applying_defaults = False
+        self.v_mode = tk.StringVar(value=self._user_settings.get("mode") if self._user_settings.get("mode")
+                                   in ("curve", "oc_uv") else "curve")
         mode = Card(left, tr("Modus", "Mode"), accent=CYAN)
         mode.pack(fill="x", padx=(0, 8), pady=(0, 12))
         self.mode_card = mode
@@ -276,6 +279,9 @@ class GpuTunerTab(Page):
         # has its own (clock gain per point, memory up to +1000).
         self._apply_mode_to_config(self.v_mode.get())
         self._show_mode_cards()
+        self._watch_user_settings()
+        button(params.body, tr("Vorgaben der Karte wiederherstellen", "Restore the card's defaults"),
+               self._reset_user_settings, kind="ghost", height=26).pack(anchor="e", pady=(10, 0))
 
         # ── Right: controls, live values, graph, progress, log ───────────────
         self._tuner_ok, why = self._tuner_support()
@@ -634,8 +640,110 @@ class GpuTunerTab(Page):
                 self.seg_mode.set(next(t for t, k in self._mode_labels.items() if k == mid))
                 self.lbl_mode_desc.config(text=tr(dd, de_en))
 
+    # ── remembered settings ───────────────────────────────────────────────────
+    # What the user changes in the fields is kept — a mode switch put the card's
+    # defaults back (e.g. "Speicher-Plus max." 700 -> 1000), and so did every app start.
+    # The clock gain is per mode: per curve point (Rundum) vs one offset (Schnell).
+    USER_FIELDS = ("core_step", "pwr_min", "max_temp", "step_dur", "final_dur", "mem_max", "mem_stage",
+                   "ab_slot", "goal", "fm_final", "safety", "point_mv")
+
+    @staticmethod
+    def _load_user_settings() -> dict:
+        try:
+            from core import app_settings
+            d = app_settings.get("tuner_settings", {}) or {}
+            return dict(d) if isinstance(d, dict) else {}
+        except Exception:
+            return {}
+
+    def _save_user_settings(self):
+        try:
+            from core import app_settings
+            app_settings.set("tuner_settings", dict(self._user_settings))
+        except Exception:
+            pass
+
+    def _var_of(self, name):
+        return getattr(self, f"v_{name}", None)
+
+    def _watch_user_settings(self):
+        """From now on a change in a field is the user's (defaults are set with the flag on)."""
+        def on_change(name):
+            if self._applying_defaults:
+                return
+            var = self._var_of(name) if name != "core_max" else self.v_core_max
+            try:
+                val = var.get()
+            except (tk.TclError, ValueError):
+                return                         # half-typed: nothing to keep yet
+            key = f"core_max_{self.v_mode.get()}" if name == "core_max" else name
+            if self._user_settings.get(key) != val:
+                self._user_settings[key] = val
+                self._save_user_settings()
+        for name in self.USER_FIELDS + ("core_max",):
+            var = self._var_of(name)
+            if var is not None:
+                var.trace_add("write", lambda *_a, n=name: on_change(n))
+        self.v_mode.trace_add("write", lambda *_a: self._remember_mode())
+
+    def _remember_mode(self):
+        if self._user_settings.get("mode") != self.v_mode.get():
+            self._user_settings["mode"] = self.v_mode.get()
+            self._save_user_settings()
+
+    def _restore_user_settings(self):
+        """The user's values over the defaults just set (with the flag on)."""
+        prev, self._applying_defaults = self._applying_defaults, True
+        try:
+            for name in self.USER_FIELDS:
+                if name in self._user_settings and self._var_of(name) is not None:
+                    try:
+                        if name == "goal" and hasattr(self, "seg_goal"):
+                            self._select_goal(self._user_settings[name])     # the buttons too
+                        else:
+                            self._var_of(name).set(self._user_settings[name])
+                    except (tk.TclError, ValueError, StopIteration):
+                        pass
+            key = f"core_max_{self.v_mode.get()}"
+            if key in self._user_settings:
+                try:
+                    self.v_core_max.set(self._user_settings[key])
+                except (tk.TclError, ValueError):
+                    pass
+        finally:
+            self._applying_defaults = prev
+
+    # The fields the card's defaults don't set (see the IntVars in _build)
+    FIXED_DEFAULTS = {"step_dur": 45, "final_dur": 120, "mem_stage": True, "ab_slot": 2,
+                      "goal": "balanced", "fm_final": 5, "safety": 45, "point_mv": 25}
+
+    def _reset_user_settings(self):
+        """Forget the user's values: the card's defaults for the current mode."""
+        mode = self.v_mode.get()
+        self._user_settings = {"mode": mode}
+        self._save_user_settings()
+        prev, self._applying_defaults = self._applying_defaults, True
+        try:
+            for name, val in self.FIXED_DEFAULTS.items():
+                if name == "goal" and hasattr(self, "_select_goal"):
+                    self._select_goal(val)
+                elif self._var_of(name) is not None:
+                    self._var_of(name).set(val)
+        finally:
+            self._applying_defaults = prev
+        self._show_gpu_defaults()
+        self._apply_mode_to_config(mode)
+
     def _show_gpu_defaults(self):
         """Load GPU defaults and fill the parameter fields."""
+        prev, self._applying_defaults = getattr(self, "_applying_defaults", False), True
+        try:
+            self._show_gpu_defaults_inner()
+        finally:
+            self._applying_defaults = prev
+        self._restore_user_settings()
+
+    def _show_gpu_defaults_inner(self):
         try:
             from core.gpu_defaults import get_defaults
             gpu_name = self.monitor.read().name
@@ -669,7 +777,15 @@ class GpuTunerTab(Page):
                         f"GPU detection: {e} — using conservative defaults"), fg=AMBER)
 
     def _apply_mode_to_config(self, mode_id: str):
-        """When mode changes, adjust visible defaults."""
+        """When mode changes, adjust visible defaults — then the user's own values."""
+        prev, self._applying_defaults = getattr(self, "_applying_defaults", False), True
+        try:
+            self._apply_mode_defaults(mode_id)
+        finally:
+            self._applying_defaults = prev
+        self._restore_user_settings()
+
+    def _apply_mode_defaults(self, mode_id: str):
         try:
             from core.gpu_defaults import get_defaults
             gpu_name = self.monitor.read().name

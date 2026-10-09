@@ -413,7 +413,7 @@ class GameOptimizerApp:
         )
 
         return Menu(
-            MI("⚡ GameOptimizerPro öffnen", self._open),
+            MI("⚡ GameOptimizerPro öffnen", self._open, default=True),   # a click on the icon opens
             Menu.SEPARATOR,
             MI("GPU Profil ▶",              Menu(*p_items)),
             MI("GPU auf Stock zurücksetzen", self._reset_gpu),

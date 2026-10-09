@@ -219,7 +219,6 @@ class CompareTab(Page):
             (tr("Gemessen mit", "Measured with"),            cell_bench),
             (tr("Stabilitätstests", "Stability tests"),
              lambda i, p: tr("bestanden", "passed") if p.is_stable else tr("nicht bestanden", "not passed")),
-            ("GPU",                                          lambda i, p: (p.gpu_name or "").replace("NVIDIA GeForce ", "")),
             (tr("Erstellt", "Created"),                      lambda i, p: _created(p)),
         ]
         for label, fn in row_defs:
