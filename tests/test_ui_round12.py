@@ -198,6 +198,14 @@ def s_components():
     check(iv.get() == 10, "number field clamps at the upper limit")
     iv.set(-4); nf.clamp()
     check(iv.get() == 0, "typed value below the limit clamped")
+    writes = []
+    iv.trace_add("write", lambda *_a: writes.append(1))
+    iv.set(7); writes.clear(); nf.clamp()
+    check(iv.get() == 7 and not writes, "a value in range: clamp writes nothing (no 'change' for a trace)")
+    n_err = len(ERRORS)
+    nf.entry.delete(0, "end"); writes.clear(); nf.clamp()
+    del ERRORS[n_err:]      # CustomTkinter's own entry callback reads the IntVar: "" raises there
+    check(iv.get() == 0 and len(writes) == 1, "an emptied field: clamp writes the lower limit")
     log = C.LogView(host, height=4)
     log.pack(fill="x")
     def writer():

@@ -366,6 +366,14 @@ check(tab.v_core_max.get() == 180, "the Quick mode's own clock gain too")
 tab._reset_user_settings()
 check(tab.v_mem_max.get() != 700 and tab.v_ab_slot.get() == 2 and _AS.get("tuner_settings") == {"mode": "oc_uv"},
       "'Vorgaben der Karte wiederherstellen': the card's defaults, nothing remembered")
+tab._clamp_fields()                     # what Start does first
+check(_AS.get("tuner_settings") == {"mode": "oc_uv"},
+      f"Start (fields clamped) records no field as the user's: {_AS.get('tuner_settings')}")
+tab.v_ab_slot.set(1)
+tab._user_settings.pop("ab_slot", None)
+tab._clamp_fields()
+check(tab.v_ab_slot.get() == 2 and _AS.get("tuner_settings").get("ab_slot") == 2,
+      "a typed value outside the range is corrected — and that correction is kept")
 root.destroy()
 
 shutil.rmtree(tmp, ignore_errors=True)

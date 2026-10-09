@@ -1,5 +1,5 @@
 {
-  "build": 27,
+  "build": 28,
   "date": "2026-10-09",
-  "notes": "Tweaks geprüft (Windows 11 26H2): neu „Optimierungen für Spiele im Fenstermodus“, die Prüfung von „Store-Empfehlungen aus“ zeigt richtig an, „Shader-Cache leeren“ ist eine einmalige Aktion."
+  "notes": "GPU-Tuner: Beim Start werden nicht mehr alle Felder als eigene Einstellung gemerkt — nur was du wirklich änderst."
 }

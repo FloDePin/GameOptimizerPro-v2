@@ -432,6 +432,13 @@ verifiers (VERIFY_MAP stays 1:1) and full English descriptions.
     to clear it again: every game then rebuilds its shaders), and not part of "Hard".
   - 1052 checks in 28 suites, all green.
 
+- **Round 21 — remembered tuner settings, one fix** (build 28):
+  - Fixed: starting a tune (or applying / resetting by hand) recorded every field of the
+    GPU tuner as a value the user had set, so the card's defaults shown at that moment
+    stayed fixed afterwards. Number fields now write only a value they actually correct
+    (out of range or half-typed); only real changes are remembered.
+  - 1056 checks in 28 suites, all green.
+
 ### 🔎 Reviewed, verified NOT a bug
 
 Some reported items were checked against the actual code and left unchanged

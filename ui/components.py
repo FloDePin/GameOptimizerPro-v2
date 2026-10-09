@@ -190,7 +190,15 @@ class NumberField(tk.Frame):
             return self.lo
 
     def clamp(self):
-        self.var.set(max(self.lo, min(self.hi, self.value())))
+        # only a value outside the range (or half-typed) is written: a write is a change for
+        # whoever traces the variable (the GPU tab remembers changed fields as the user's)
+        v = max(self.lo, min(self.hi, self.value()))
+        try:
+            if int(self.var.get()) == v:
+                return
+        except (tk.TclError, ValueError):
+            pass
+        self.var.set(v)
 
     def bump(self, delta: int):
         self.var.set(max(self.lo, min(self.hi, self.value() + delta)))
