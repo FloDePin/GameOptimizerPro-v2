@@ -1,0 +1,5 @@
+{
+  "build": 24,
+  "date": "2026-10-09",
+  "notes": "Nach einem bestandenen Tune fragt die App nach einem Namen für das Profil. GPU-Fehler zusammen mit einem Rechenfehler zählen jetzt für die zusätzliche Sicherheit. Zahlenfelder werden vor dem Start geprüft. Texte neutral."
+}

@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  compile-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Byte-compile all Python sources
+        run: python -m py_compile GameOptimizerPro.py _stress_worker.py core/*.py ui/*.py tools/*.py tests/*.py tests/fakecupy/cupy/*.py
+
+      - name: Check for doubled-backslash reg.exe paths
+        run: |
+          python - <<'EOF'
+          import re
+
+          tweaks_src = open("core/tweaks.py", encoding="utf-8").read()
+
+          # Guard against the double-backslash escaping bug in reg.exe command strings
+          # (PowerShell provider paths like "HKLM:\\..." tolerate this, "reg add" does not).
+          bad = re.findall(r'reg (?:add|delete) "[^"]*\\\\\\\\[^"]*"', tweaks_src)
+          if bad:
+              print("Found reg.exe commands with doubled backslashes (will fail at runtime):")
+              for b in bad:
+                  print(" ", b)
+              raise SystemExit(1)
+
+          print("No doubled-backslash reg.exe paths found.")
+          EOF

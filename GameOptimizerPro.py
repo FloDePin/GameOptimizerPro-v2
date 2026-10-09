@@ -1,0 +1,694 @@
+"""
+GameOptimizerPro v2.1 — Entry Point
+Architektur (thread-safe):
+  Main-Thread  → tkinter mainloop() — einziger Thread der tkinter anfasst
+  Thread 2     → pystray.run_detached() — Tray-Icon, non-blocking
+  Thread 3     → GPU stats loop
+  Thread 4     → Startup (crash check + profile load)
+  Thread 5     → Tray menu refresh
+
+Kein tk.Tk() vor mainloop. Kein mainloop() in Threads.
+Admin-Dialog: über ctypes MessageBox (kein tkinter nötig).
+"""
+
+import os, sys, time, threading, ctypes
+from tkinter import messagebox
+from pathlib import Path
+from typing import Optional
+
+BASE = Path(__file__).resolve().parent
+sys.path.insert(0, str(BASE))
+
+from core.hardware       import detect as detect_hw
+from core.nvtune_core    import GpuMonitor, AfterburnerController, ProfileManager
+from core.nvtune_tuner   import AutoTuner, TunerConfig
+from core.tweak_runner   import TweakRunner
+from core.crash_recovery import CrashRecovery
+from core.startup_loader import StartupLoader
+from core.temp_monitor   import TempMonitor
+from core                import i18n
+from core.app_launch     import gui_python, owns_console
+try:
+    from ui.main_window  import GameOptimizerWindow
+except ImportError as _ui_err:
+    # The UI needs 'customtkinter' since v2.0 round 12 — an update via
+    # 'git pull' without install.bat must not end in a silent non-start
+    # (pythonw has no console). main() offers to install it.
+    if getattr(_ui_err, "name", "") not in ("customtkinter", "darkdetect", "packaging"):
+        raise
+    GameOptimizerWindow = None
+
+
+# ── Restart helper (used for language switch) ─────────────────────────────────
+
+def restart_app():
+    """
+    Restart the whole application in-place. Used when the language changes,
+    so every label is rebuilt in the new language with no leftovers.
+    """
+    try:
+        python = gui_python()             # pythonw: no console window
+        script = str(BASE / "GameOptimizerPro.py")
+        # Launch a fresh instance, then exit this one
+        subprocess = __import__("subprocess")
+        subprocess.Popen([python, script], cwd=str(BASE))
+    except Exception:
+        pass
+    os._exit(0)
+
+
+# ── Admin helpers ─────────────────────────────────────────────────────────────
+
+def is_admin() -> bool:
+    try:
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception:
+        return False
+
+
+def ask_admin_msgbox() -> bool:
+    """Show admin prompt via Win32 MessageBox — no tkinter needed.
+    Localised: main() calls i18n.init_lang() before this runs."""
+    msg   = i18n.t("admin_required_msg")
+    title = i18n.t("admin_required_title")
+    # MB_YESNO | MB_ICONQUESTION | MB_TOPMOST = 0x4 | 0x20 | 0x40000 = 0x40024
+    result = ctypes.windll.user32.MessageBoxW(0, msg, title, 0x40024)
+    return result == 6  # IDYES = 6
+
+
+def relaunch_admin():
+    # lpDirectory = str(BASE): ohne das setzt UAC das Arbeitsverzeichnis oft auf
+    # C:\Windows\System32 — relative Pfade würden dann dort landen.
+    # pythonw.exe, not sys.executable: started via python.exe (double-click on
+    # the .py) the elevated instance kept a black console window open.
+    ctypes.windll.shell32.ShellExecuteW(
+        None, "runas", gui_python(),
+        " ".join(f'"{a}"' for a in sys.argv), str(BASE), 1
+    )
+    sys.exit(0)
+
+
+NO_ADMIN_PROMPT = "--no-admin-prompt"
+
+# ── One instance at a time ────────────────────────────────────────────────────
+# Closing the window only hides the app in the tray ("close to tray"); starting
+# it again ran a SECOND instance next to it — both could write Afterburner's
+# profile and both loaded the start-up profile (seen live, round 16). A second
+# start now asks the running one to show its window and ends. An update restart
+# passes AFTER_RESTART: the old instance may still be exiting — wait for it.
+INSTANCE_NAME = os.environ.get("GOP_INSTANCE_NAME", "Local\\GameOptimizerPro_v2")
+AFTER_RESTART = "--after-restart"
+_instance_mutex = []                 # held for the life of the process
+
+
+def _kernel32():
+    k = ctypes.WinDLL("kernel32", use_last_error=True)
+    for fn in ("CreateMutexW", "CreateEventW", "OpenEventW"):
+        getattr(k, fn).restype = ctypes.c_void_p
+    k.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+    k.SetEvent.argtypes = k.CloseHandle.argtypes = k.ReleaseMutex.argtypes = [ctypes.c_void_p]
+    return k
+
+
+def single_instance(wait_s: float = 0.0) -> bool:
+    """True = this is the only instance (it holds the named mutex from now on).
+    False = another one runs; it was asked to show its window. Never blocks a
+    start when the check itself fails."""
+    if os.name != "nt":
+        return True
+    try:
+        k = _kernel32()
+        h = k.CreateMutexW(None, False, INSTANCE_NAME)
+        if not h:
+            return True
+        r = k.WaitForSingleObject(h, int(max(0.0, wait_s) * 1000))
+        if r in (0, 0x80):                    # WAIT_OBJECT_0 / WAIT_ABANDONED: ours now
+            _instance_mutex.append(h)
+            return True
+        ev = k.OpenEventW(0x0002, False, INSTANCE_NAME + "_show")    # EVENT_MODIFY_STATE
+        if ev:
+            k.SetEvent(ev)
+            k.CloseHandle(ev)
+        k.CloseHandle(h)
+        return False
+    except Exception:
+        return True
+
+
+def release_single_instance():
+    """Let go of the mutex (tests; an exiting process lets go anyway)."""
+    try:
+        k = _kernel32()
+        while _instance_mutex:
+            h = _instance_mutex.pop()
+            k.ReleaseMutex(h)
+            k.CloseHandle(h)
+    except Exception:
+        pass
+
+
+def relaunch_windowless(extra_args=()):
+    """Same app via pythonw.exe, then end this instance — its console window
+    closes with it. No-op when there is no pythonw.exe (no endless relaunch)."""
+    exe = gui_python()
+    if os.path.basename(exe).lower() != "pythonw.exe":
+        return
+    import subprocess
+    args = [a for a in sys.argv[1:] if a != NO_ADMIN_PROMPT] + list(extra_args)
+    subprocess.Popen([exe, str(BASE / "GameOptimizerPro.py")] + args, cwd=str(BASE))
+    sys.exit(0)
+
+
+# ── Tray icon image ───────────────────────────────────────────────────────────
+
+def make_icon():
+    try:
+        from PIL import Image, ImageDraw
+        sz = 64
+        img = Image.new("RGBA", (sz, sz), (0, 0, 0, 0))
+        d   = ImageDraw.Draw(img)
+        d.ellipse([1, 1, sz-1, sz-1], fill=(10, 12, 20, 230))
+        d.rectangle([14, 14, 22, 50], fill=(0, 217, 255, 255))
+        d.rectangle([42, 14, 50, 50], fill=(0, 217, 255, 255))
+        d.polygon([(22, 14), (42, 50), (42, 38), (22, 14)],
+                  fill=(0, 217, 255, 255))
+        return img
+    except ImportError:
+        try:
+            from PIL import Image
+            return Image.new("RGB", (64, 64), (0, 217, 255))
+        except Exception:
+            return None
+
+
+# ── Main application ──────────────────────────────────────────────────────────
+
+class GameOptimizerApp:
+    """
+    Thread-safe architecture:
+      - All tkinter calls happen exclusively in _tk_main() → Main-Thread
+      - pystray runs in its own thread via run_detached()
+      - Background work (stats, startup) in daemon threads
+      - Cross-thread communication via _pending_actions queue + tk.after()
+    """
+
+    def __init__(self):
+        logs_dir = str(BASE / "logs")
+        Path(logs_dir).mkdir(parents=True, exist_ok=True)
+
+        # Core components (thread-safe, no tkinter)
+        self.hw      = detect_hw()
+        self.monitor = GpuMonitor()
+        # The card's PCI identity picks Afterburner's per-GPU profile file; the
+        # MAHM reader drops/reopens the shared memory whenever a profile apply
+        # restarts Afterburner.
+        self.ab      = AfterburnerController(self.monitor.nvml.get_pci_identity())
+        self.ab.on_ab_closing = self.monitor.mahm.suspend
+        self.ab.on_ab_started = self.monitor.mahm.resume
+        self.pm      = ProfileManager(str(BASE / "profiles"))
+        self.cr      = CrashRecovery(logs_dir)
+        self.tuner   = AutoTuner(
+            self.monitor, self.ab, self.pm, TunerConfig(),
+            log_dir=logs_dir, crash_recovery=self.cr,
+        )
+        self.runner  = TweakRunner(log_dir=logs_dir)
+        # GPU watchdog: own stress sessions are recorded (only by the app, never by tests)
+        from core import gpu_watchdog
+        gpu_watchdog.SESSIONS_FILE = Path(logs_dir) / "gpu_sessions.json"
+        self._logs_dir = logs_dir
+        self.sl      = StartupLoader(logs_dir, self.ab, self.pm, self.cr)
+
+        # State (read from any thread, written carefully)
+        self._running  = True
+        self._tray     = None
+        self._window:  Optional[GameOptimizerWindow] = None
+        self._visible  = False
+
+        # New feature components
+        self.temp_monitor = TempMonitor(self.monitor, limit_c=90)
+
+        # Cached tray stats (written by stats thread, read by tray thread)
+        self._temp  = 0
+        self._volt  = 0.0
+        self._power = 0.0
+        self._clk   = 0.0
+        self._gpu   = "GPU"
+
+    # ── Window management ─────────────────────────────────────────────────────
+
+    def _open(self, icon=None, item=None):
+        """Called from tray thread → push to main thread via .after()."""
+        if self._window:
+            try:
+                self._window.after(0, self._show_window)
+            except Exception:
+                pass
+
+    def _show_window(self):
+        """Always runs in main thread."""
+        if self._window:
+            self._window.deiconify()
+            self._window.lift()
+            self._window.focus_force()
+
+    def _listen_for_show(self):
+        """A second start (single_instance) signals this event: show the window.
+        Polled on the main thread."""
+        try:
+            k = _kernel32()
+            self._show_evt = k.CreateEventW(None, False, False, INSTANCE_NAME + "_show")
+        except Exception:
+            self._show_evt = None
+        if not self._show_evt:
+            return
+
+        def poll():
+            try:
+                if k.WaitForSingleObject(self._show_evt, 0) == 0:
+                    self._show_window()
+            except Exception:
+                pass
+            try:
+                self._window.after(700, poll)
+            except Exception:
+                pass
+        self._window.after(700, poll)
+
+    def _hide(self):
+        if self._window:
+            try:
+                self._window.withdraw()
+            except Exception:
+                pass
+
+    def _reset_gpu(self, icon=None, item=None):
+        def _do():
+            self.ab.reset_to_stock(2)        # the app's slot — not the user's slot 1
+            # Factory power limit — not the card's maximum (on partner cards
+            # the maximum is above stock, so "reset" used to RAISE the limit).
+            watts = self.monitor.power_pct_to_watts(100)
+            if watts > 0:
+                self.monitor.set_power_limit(watts)
+        threading.Thread(target=_do, daemon=True).start()
+
+    def _abort_tuning_if_running(self):
+        """Exiting (or restarting for a language switch) used to kill the tuner
+        thread via os._exit and leave the GPU on the last, UNTESTED overclock
+        step until the next start. abort() resets to stock first."""
+        try:
+            if self.tuner.is_running:
+                self.tuner.abort()
+        except Exception:
+            pass
+
+    def _on_close(self):
+        """Window X: into the tray (setting "close_to_tray", default on) — or quit.
+        Without a tray icon (pystray missing) hiding left the app running
+        invisibly with no way back, so it quits then."""
+        from core import app_settings
+        if self._tray is not None and app_settings.get("close_to_tray", True):
+            self._hide()
+        else:
+            self._exit()
+
+    def _exit(self, icon=None, item=None):
+        """Tray menu "Beenden" (and the window X when it quits). pystray accepts
+        menu actions with at most two parameters (icon, item) — a third one
+        made the menu raise ValueError at start-up, before the window came up."""
+        self._shutdown()
+
+    def _shutdown(self, relaunch: bool = False):
+        self._running = False
+        self._abort_tuning_if_running()      # GPU back to stock BEFORE we die
+        try: self.temp_monitor.stop()
+        except Exception: pass
+        try:
+            self.monitor.close()
+        except Exception:
+            pass
+        # Destroy tkinter safely from main thread
+        if self._window:
+            try:
+                self._window.after(0, self._window.destroy)
+            except Exception:
+                pass
+        def _stop():
+            if self._tray:
+                try:
+                    self._tray.stop()
+                except Exception:
+                    pass
+            time.sleep(0.3)
+            if relaunch:                      # after a git-pull update
+                try:
+                    import subprocess
+                    subprocess.Popen([gui_python(), str(BASE / "GameOptimizerPro.py"), AFTER_RESTART],
+                                     cwd=str(BASE))
+                except Exception:
+                    pass
+            os._exit(0)
+        threading.Thread(target=_stop, daemon=True).start()
+
+    def _show_crash_dialog(self, message: str):
+        """Show crash dialog thread-safely via .after() or fallback to ctypes."""
+        if self._window:
+            try:
+                self._window.after(
+                    0,
+                    lambda: messagebox.showwarning(
+                        "GameOptimizerPro — Crash erkannt",
+                        message, parent=self._window
+                    )
+                )
+            except Exception:
+                ctypes.windll.user32.MessageBoxW(
+                    0, message,
+                    "GameOptimizerPro — Crash erkannt", 0x40030
+                )
+        else:
+            # Fenster existiert noch nicht (Startup-Race) → direkt Win32 MessageBox
+            ctypes.windll.user32.MessageBoxW(
+                0, message,
+                "GameOptimizerPro — Crash erkannt", 0x40030
+            )
+
+    # ── Tray menu ─────────────────────────────────────────────────────────────
+
+    def _build_menu(self):
+        try:
+            import pystray
+            from pystray import MenuItem as MI, Menu
+        except Exception:
+            return None
+
+        profiles = [p for p in self.pm.list_all()
+                    if not p.name.startswith("__")]
+
+        def apply_fn(name):
+            def _do(icon=None, item=None):
+                p = self.pm.load(name)
+                if p and self.ab.available:
+                    threading.Thread(
+                        target=lambda: (
+                            self.ab.write_and_apply(2, p),
+                            self.cr.save_last_applied(p.to_dict())
+                        ),
+                        daemon=True
+                    ).start()
+            return _do
+
+        p_items = [
+            MI(
+                f"{'✓' if p.is_stable else '⚠'} {p.name} "
+                f"[+{p.core_offset_mhz}MHz | {p.power_limit_pct}%]",
+                apply_fn(p.name)
+            )
+            for p in sorted(profiles, key=lambda x: x.name)
+        ] or [MI("Keine Profile vorhanden", None, enabled=False)]
+
+        volt_s    = f"{self._volt:.0f}mV  |  " if self._volt > 0 else ""
+        stats_lbl = (
+            f"{self._temp}°C  |  {self._clk:.0f}MHz  |  "
+            f"{volt_s}{self._power:.0f}W"
+        )
+
+        return Menu(
+            MI("⚡ GameOptimizerPro öffnen", self._open),
+            Menu.SEPARATOR,
+            MI("GPU Profil ▶",              Menu(*p_items)),
+            MI("GPU auf Stock zurücksetzen", self._reset_gpu),
+            Menu.SEPARATOR,
+            MI(stats_lbl, None, enabled=False),
+            Menu.SEPARATOR,
+            MI("Beenden",                   self._exit),
+        )
+
+    # ── Background threads ────────────────────────────────────────────────────
+
+    def _stats_loop(self):
+        while self._running:
+            try:
+                s = self.monitor.read()
+                self._temp  = s.temp
+                self._volt  = s.voltage_mv
+                self._power = s.gpu_power_w
+                self._clk   = s.core_mhz
+                self._gpu   = s.name[:22]
+                if self._tray:
+                    volt_s = f" | {s.voltage_mv:.0f}mV" if s.voltage_mv > 0 else ""
+                    try:
+                        # Keep the tray tooltip compact — Windows caps szTip at
+                        # ~127 chars; GPU name is already trimmed to 22.
+                        title = (
+                            f"GameOptimizerPro | {self._gpu}\n"
+                            f"{s.temp}°C | {s.core_mhz:.0f}MHz"
+                            f"{volt_s} | {s.gpu_power_w:.0f}W"
+                        )
+                        self._tray.title = title[:120]
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            time.sleep(4)
+
+    def _menu_refresh_loop(self):
+        # 60s statt 20s: pystray klappt ein offenes Tray-Menü ein, wenn es
+        # während der Anzeige neu aufgebaut wird — seltener = kleineres Zeitfenster.
+        while self._running:
+            time.sleep(60)
+            if self._tray:
+                try:
+                    self._tray.menu = self._build_menu()
+                    self._tray.update_menu()
+                except Exception:
+                    pass
+
+    def _startup_bg(self):
+        """Crash check + startup profile — runs in background thread."""
+        try:
+            crashed = self.sl.check_and_handle_crash(
+                on_crash_detected=self._show_crash_dialog
+            )
+            from core import app_settings
+            if self.ab.available and app_settings.get("load_startup_profile", True):
+                ok, msg = self.sl.load_startup_profile()
+                if ok:
+                    print(f"[GameOptimizerPro] {msg}")
+            # Autostart tasks created by older versions carry the 72-hour kill
+            # limit and battery restrictions — fix them in place.
+            self.sl.repair_autostart_task()
+        except Exception as e:
+            print(f"[GameOptimizerPro] Startup error: {e}")
+
+    # ── GPU watchdog (round 16) ───────────────────────────────────────────────
+    # A game can hang (D3D12 "device hung") on a tuned profile without anything
+    # telling the user. At every start: GPU hang / reset events since the applied profile
+    # was set (own tunes and stress tests left out) -> make it safer / stock / keep.
+    # The check runs in a worker; everything Tk happens on the main thread (a poll
+    # via after() — after() from a worker raises on Python 3.14).
+
+    def _watchdog_start(self):
+        from core import app_settings, gpu_watchdog
+        box: dict = {}
+
+        def work():
+            try:
+                box["found"] = gpu_watchdog.check(self.cr, self._logs_dir,
+                                                  float(app_settings.get("watchdog_seen_until", 0) or 0))
+            except Exception:
+                box["found"] = None
+        th = threading.Thread(target=work, daemon=True)
+        th.start()
+
+        def poll():
+            if th.is_alive():
+                self._window.after(400, poll)
+                return
+            if box.get("found") and not self.tuner.is_running:
+                self._watchdog_dialog(box["found"])
+        self._window.after(400, poll)
+
+    def _watchdog_dialog(self, found: dict):
+        from core import app_settings, gpu_watchdog
+        from core.i18n import current_lang
+        from ui.components import ChoiceDialog
+        from ui.theme import AMBER, tr
+        de = current_lang() == "de"
+        choice = ChoiceDialog(
+            self._window, tr("GPU-Wächter", "GPU watchdog"), gpu_watchdog.describe(found, de),
+            [("safer", tr("Profil entschärfen und anwenden (empfohlen)", "Make the profile safer and apply it "
+                                                                          "(recommended)")),
+             ("stock", tr("Grafikkarte auf Standard setzen", "Put the graphics card back to stock")),
+             ("keep", tr("Profil behalten — erst beim nächsten Ereignis wieder fragen",
+                         "Keep the profile — ask again only after the next event"))],
+            current="safer", ok_text="OK", accent=AMBER).show()
+        if choice is None:
+            return                                   # closed: ask again at the next start
+        app_settings.set("watchdog_seen_until", found["last"])
+        if choice == "keep":
+            return
+        if choice == "safer":
+            if self.pm.load(found["profile"]) is None and found.get("data"):
+                from core.nvtune_core import TuneProfile          # e.g. manual offsets: no saved profile
+                self.pm.save(TuneProfile.from_dict(found["data"]))
+            p = self.pm.derate(found["profile"])
+            if p is None:
+                messagebox.showerror("GameOptimizerPro", tr(f"Profil „{found['profile']}“ nicht gefunden.",
+                                                            f"Profile '{found['profile']}' not found."),
+                                     parent=self._window)
+                return
+            work = lambda: self.ab.write_and_apply(2, p)       # noqa: E731 — the start-up profile's slot
+            applied = p
+        else:
+            from core.nvtune_core import TuneProfile
+
+            def work():
+                res = self.ab.reset_to_stock(2)
+                watts = self.monitor.power_pct_to_watts(100)
+                if watts > 0:
+                    self.monitor.set_power_limit(watts)
+                return res
+            applied = TuneProfile(name="__stock__")
+        box: dict = {}
+        th = threading.Thread(target=lambda: box.update(r=work()), daemon=True)
+        th.start()
+
+        def poll():
+            if th.is_alive():
+                self._window.after(400, poll)
+                return
+            ok, err = box.get("r", (False, "?"))
+            if ok:
+                self.cr.save_last_applied(applied.to_dict())
+                messagebox.showinfo("GameOptimizerPro", tr(
+                    f"„{applied.name}“ ist jetzt aktiv (Afterburner-Platz 2)." if choice == "safer" else
+                    "Die Grafikkarte läuft jetzt mit Standardwerten.",
+                    f"'{applied.name}' is active now (Afterburner slot 2)." if choice == "safer" else
+                    "The graphics card runs at stock now."), parent=self._window)
+            else:
+                messagebox.showerror("GameOptimizerPro", str(err), parent=self._window)
+        self._window.after(400, poll)
+
+    # ── Main run ──────────────────────────────────────────────────────────────
+
+    def run(self):
+        # 1. Background threads
+        threading.Thread(target=self._startup_bg,        daemon=True).start()
+        threading.Thread(target=self._stats_loop,        daemon=True).start()
+        threading.Thread(target=self._menu_refresh_loop, daemon=True).start()
+        self.temp_monitor.start()
+
+        # 2. Tkinter window created DIRECTLY in main thread
+        self._window = GameOptimizerWindow(
+            self.hw, self.monitor, self.ab, self.pm,
+            self.tuner, self.runner,
+            startup_loader=self.sl,
+        )
+        self._window.protocol("WM_DELETE_WINDOW", self._on_close)
+        self._window.request_exit = lambda relaunch=False: self._shutdown(relaunch=relaunch)
+        # Updates from GitHub (setting "check_updates", default on) — a few
+        # seconds after the start, in the background.
+        from core import app_settings
+        from ui.update_flow import UpdateFlow
+        self._window.update_flow = UpdateFlow(self._window)
+        if app_settings.get("check_updates", True):
+            self._window.after(8000, self._window.update_flow.start)
+        # GPU watchdog: did a game hang / crash on the applied profile since it was set?
+        self._window.after(5000, self._watchdog_start)
+        self._listen_for_show()             # a second start shows this window instead
+
+        # 3. Tray icon in its own background thread
+        try:
+            import pystray
+            icon_img = make_icon()
+            if icon_img:
+                self._tray = pystray.Icon(
+                    "GameOptimizerPro", icon_img,
+                    "GameOptimizerPro", menu=self._build_menu()
+                )
+                def _tray_setup(icon):
+                    icon.visible = True
+                threading.Thread(
+                    target=self._tray.run,
+                    kwargs={"setup": _tray_setup},
+                    daemon=True
+                ).start()
+        except ImportError:
+            pass
+
+        # 4. mainloop() blocks here in main thread — the ONLY correct place
+        self._window.mainloop()
+
+
+# ── Entry point ───────────────────────────────────────────────────────────────
+
+def main():
+    # Load the saved language before any UI is built
+    i18n.init_lang()
+
+    # Admin check — use Win32 MessageBox (no tkinter instance needed)
+    if os.name == "nt" and not is_admin() and NO_ADMIN_PROMPT not in sys.argv:
+        if ask_admin_msgbox():
+            relaunch_admin()
+        # Continue without admin (some features won't work)
+
+    # Started with python.exe in a console of its own (double-click on the .py):
+    # continue windowless. The flag keeps the admin question from coming twice.
+    if owns_console():
+        relaunch_windowless([] if is_admin() else [NO_ADMIN_PROMPT])
+
+    if not ensure_ui_package():
+        sys.exit(1)
+    # An update downloaded earlier ("install at the next start"): installed now,
+    # before anything else runs — the installer waits for this process to end
+    # and starts the app again.
+    try:
+        from core import updater
+        info = updater.pending()
+        if info and updater.launch_apply(info, relaunch=True):
+            sys.exit(0)
+    except Exception:
+        pass
+    if not single_instance(20.0 if AFTER_RESTART in sys.argv else 0.0):
+        sys.exit(0)                     # the running instance shows its window
+    GameOptimizerApp().run()
+
+
+def ensure_ui_package() -> bool:
+    """The UI is built with CustomTkinter. Missing (updated via 'git pull'
+    without running install.bat)? Offer to install it with pip right away."""
+    global GameOptimizerWindow
+    if GameOptimizerWindow is not None:
+        return True
+    de = i18n.current_lang() == "de"
+    msg = ("Die Oberfläche von GameOptimizerPro braucht jetzt das Python-Paket "
+           "'customtkinter'.\n\nJetzt automatisch installieren (pip, ca. 10–30 s)?" if de else
+           "GameOptimizerPro's interface now needs the Python package 'customtkinter'.\n\n"
+           "Install it automatically now (pip, about 10–30 s)?")
+    # MB_YESNO | MB_ICONQUESTION | MB_TOPMOST
+    if ctypes.windll.user32.MessageBoxW(0, msg, "GameOptimizerPro", 0x40024) != 6:
+        return False
+    import importlib
+    import subprocess
+    try:
+        r = subprocess.run([sys.executable, "-m", "pip", "install", "customtkinter>=5.2"],
+                           capture_output=True, text=True, errors="replace", timeout=600,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except (OSError, subprocess.SubprocessError) as e:
+        r = subprocess.CompletedProcess([], 1, "", str(e))
+    importlib.invalidate_caches()
+    try:
+        from ui.main_window import GameOptimizerWindow as _W
+    except ImportError:
+        out = (r.stderr or r.stdout or "")[-700:]
+        ctypes.windll.user32.MessageBoxW(
+            0, ("Installation fehlgeschlagen — bitte install.bat ausführen.\n\n" if de else
+                "Installation failed — please run install.bat.\n\n") + out,
+            "GameOptimizerPro", 0x40010)          # MB_ICONERROR | MB_TOPMOST
+        return False
+    GameOptimizerWindow = _W
+    return True
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,19 @@
+__pycache__/
+*.pyc
+logs/
+profiles/
+.claude/
+
+# Third-party tools dropped next to the app (FurMark, PresentMon binaries)
+FurMark*/
+tools/*.exe
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env/
+ENV/
+
+# Private notes (detailed changelog, test guide) — never published
+privat/

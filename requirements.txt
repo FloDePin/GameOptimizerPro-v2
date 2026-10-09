@@ -1,0 +1,11 @@
+# Untergrenzen bewusst moderat gewählt, damit die App auch in Environments mit
+# älteren, bereits installierten Paketen läuft (numpy 2.0 bricht z.B. manche
+# andere Pakete durch die geänderte C-API — 1.26 ist der sichere Kompromiss).
+nvidia-ml-py>=11.5
+pystray>=0.19
+Pillow>=9.5
+numpy>=1.26
+WMI>=1.5
+psutil>=5.9
+# Oberfläche (seit v2.0 Runde 12)
+customtkinter>=5.2
