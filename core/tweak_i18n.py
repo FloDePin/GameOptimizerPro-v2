@@ -73,7 +73,13 @@ TWEAK_DESC_EN: dict[str, str] = {
     "enable_hags":
         "Hands GPU scheduling directly to the hardware. Less CPU overhead and lower input lag. Needs RTX 2000+ or RX 5000+.",
     "clear_shader_cache":
-        "Clears the NVIDIA/AMD shader cache. Useful after driver updates or on graphics glitches.",
+        "Clears the NVIDIA/AMD shader cache (one-time action). Only after driver updates or on graphics "
+        "glitches — every game then rebuilds its shaders (the first minutes stutter).",
+    "windowed_game_optimizations":
+        "Turns on Windows' 'Optimizations for windowed games' (Settings → System → Display → Graphics): "
+        "DirectX 10/11 games in a window or borderless window use the modern flip model instead of the old "
+        "presentation — less latency, VRR (G-Sync/FreeSync) and Auto HDR in a window too. DX12 games "
+        "already use it. Reversible.",
     "dx12_optimization":
         "Raises the GPU watchdog timeout (TdrDelay/TdrDdiDelay to 10s) so demanding DX12 scenes "
         "don't trigger a false driver reset (TDR) under load. NOT an FPS boost — only prevents "
@@ -227,6 +233,7 @@ TWEAK_DESC_EN: dict[str, str] = {
 
 # English names, only where the German name differs. Most names are already English.
 TWEAK_NAME_EN: dict[str, str] = {
+    "windowed_game_optimizations": "Optimizations for windowed games",
     "end_task_right_click": "End Task via Right-Click (Taskbar)",
     "show_file_extensions": "Show File Extensions",
     "show_hidden_files":    "Show Hidden Files",

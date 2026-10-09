@@ -413,6 +413,25 @@ verifiers (VERIFY_MAP stays 1:1) and full English descriptions.
     six UI suites patched too — no test can write the app's own settings.
   - 1041 checks in 27 suites, all green.
 
+- **Round 20 — tweak review against Windows 11 26H2** (build 27):
+  - Live status check of all tweaks on a current 26H2 system: every applied tweak still
+    in effect (no update reset one). Windows' AI policies checked against Microsoft's
+    WindowsAI policy reference: Recall, Click to Do, Paint AI, text and image generation
+    and Copilot are covered; the Settings agent, agent connectors and the Copilot-app
+    removal policies apply to Enterprise / Education only (not added); the new Low
+    Latency Profile has no setting or policy (not added).
+  - New: **Optimizations for windowed games** (Gaming, safe, in "Medium" and the gaming
+    preset) — DirectX 10/11 games in a window or borderless window use the flip model
+    (less latency, VRR and Auto HDR in a window). Apply and revert change only this flag
+    in `DirectXUserGlobalSettings` and keep the others.
+  - Fixed: "Disable Store recommended search results" was shown as not active although it
+    was — its deny rule also blocks reading the file's permissions; "access denied" now
+    counts as applied.
+  - Fixed: "Clear shader cache" is a one-time action — no status any more (a cache that
+    fills up again while playing was shown as "not active", and the drift dialog offered
+    to clear it again: every game then rebuilds its shaders), and not part of "Hard".
+  - 1052 checks in 28 suites, all green.
+
 ### 🔎 Reviewed, verified NOT a bug
 
 Some reported items were checked against the actual code and left unchanged

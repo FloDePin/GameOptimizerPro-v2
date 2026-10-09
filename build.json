@@ -1,5 +1,5 @@
 {
-  "build": 26,
+  "build": 27,
   "date": "2026-10-09",
-  "notes": "Maximieren ruckelt nicht mehr (nur die sichtbare Seite wird neu angeordnet), Kategorien im Optimizer auf- und zuklappbar, der GPU-Tuner merkt sich die Einstellungen, Klick aufs Tray-Symbol öffnet die App."
+  "notes": "Tweaks geprüft (Windows 11 26H2): neu „Optimierungen für Spiele im Fenstermodus“, die Prüfung von „Store-Empfehlungen aus“ zeigt richtig an, „Shader-Cache leeren“ ist eine einmalige Aktion."
 }

@@ -245,11 +245,13 @@ VERIFY_MAP: dict[str, str] = {
         '$v=(Get-ItemProperty $p -Name MSISupported -EA SilentlyContinue).MSISupported;'
         'if($v -eq 1){"1"}else{"0"}}else{"0"}'
     ),
-    "clear_shader_cache": (
-        '$p="$env:LOCALAPPDATA\\NVIDIA\\DXCache";'
-        'if(Test-Path $p){'
-        '$sz=(Get-ChildItem $p -EA SilentlyContinue|Measure-Object -Property Length -Sum).Sum;'
-        'if($sz -lt 1048576){"1"}else{"0"}}else{"1"}'
+    # clear_shader_cache: a one-time action, no status — the cache fills up again while
+    # playing, the check reported that as "not active" and the drift dialog offered to clear
+    # it again (every game then rebuilds its shaders: stutter)
+    "windowed_game_optimizations": (
+        '$v=(Get-ItemProperty "HKCU:\\Software\\Microsoft\\DirectX\\UserGpuPreferences" '
+        '-Name DirectXUserGlobalSettings -EA SilentlyContinue).DirectXUserGlobalSettings; '
+        'if($v -match "SwapEffectUpgradeEnable=1"){"1"}else{"0"}'
     ),
 
     # ── Network ───────────────────────────────────────────────────────────────
@@ -434,8 +436,10 @@ VERIFY_MAP: dict[str, str] = {
     ),
     "store_no_recommended": (
         '$db="$env:LocalAppData\\Packages\\Microsoft.WindowsStore_8wekyb3d8bbwe\\LocalState\\store.db"; '
-        'if(!(Test-Path $db)){"0"}else{ $a=(icacls "$db" 2>$null | Out-String); '
-        'if($a -match "\\(DENY\\)" -or $a -match "Jeder:\\(N\\)" -or $a -match "Everyone:\\(N\\)"){"1"}else{"0"} }'
+        'if(!(Test-Path $db)){"0"}else{ $a=(icacls "$db" 2>&1 | Out-String); '
+        '$denied=$false; try{ $f=[IO.File]::Open($db,"Open","Read","ReadWrite"); $f.Close() }'
+        'catch [UnauthorizedAccessException]{ $denied=$true } catch {}; '
+        'if($denied -or $a -match "\\(DENY\\)" -or $a -match "Jeder:\\(N\\)" -or $a -match "Everyone:\\(N\\)"){"1"}else{"0"} }'
     ),
     "nic_power_saving": (
         '$c="HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e972-e325-11ce-bfc1-08002be10318}"; '

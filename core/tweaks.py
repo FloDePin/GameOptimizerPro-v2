@@ -891,9 +891,36 @@ if($dev){
         requires_reboot=True,
     ),
     Tweak(
+        id="windowed_game_optimizations",
+        name="Optimierungen für Spiele im Fenstermodus",
+        desc="Schaltet die Windows-Einstellung „Optimierungen für Spiele im Fenstermodus“ ein "
+             "(Einstellungen → System → Anzeige → Grafik): DirectX-10/11-Spiele im Fenster oder randlosen "
+             "Fenster nutzen das moderne Flip-Modell statt der alten Ausgabe — weniger Latenz, VRR "
+             "(G-Sync/FreeSync) und Auto HDR auch im Fenster. DX12-Spiele nutzen es bereits. Reversibel.",
+        category="Gaming", group="GPU & Driver",
+        ps_command='''
+$k="HKCU:\\Software\\Microsoft\\DirectX\\UserGpuPreferences"
+if(-not (Test-Path $k)){New-Item -Path $k -Force | Out-Null}
+$cur=(Get-ItemProperty $k -Name DirectXUserGlobalSettings -EA SilentlyContinue).DirectXUserGlobalSettings
+$parts=@(); if($cur){$parts=@($cur.Split(';') | Where-Object { $_ -and $_ -notmatch '^SwapEffectUpgradeEnable=' })}
+$parts+='SwapEffectUpgradeEnable=1'
+Set-ItemProperty -Path $k -Name DirectXUserGlobalSettings -Value (($parts -join ';') + ';') -Type String
+''',
+        revert_cmd='''
+$k="HKCU:\\Software\\Microsoft\\DirectX\\UserGpuPreferences"
+$cur=(Get-ItemProperty $k -Name DirectXUserGlobalSettings -EA SilentlyContinue).DirectXUserGlobalSettings
+if($cur){
+  $parts=@($cur.Split(';') | Where-Object { $_ -and $_ -notmatch '^SwapEffectUpgradeEnable=' })
+  if($parts.Count){Set-ItemProperty -Path $k -Name DirectXUserGlobalSettings -Value (($parts -join ';') + ';') -Type String}
+  else{Remove-ItemProperty -Path $k -Name DirectXUserGlobalSettings -EA SilentlyContinue}
+}
+''',
+    ),
+    Tweak(
         id="clear_shader_cache",
         name="Clear Shader Cache",
-        desc="Leert NVIDIA/AMD Shader-Cache. Sinnvoll nach Treiberupdates oder bei Grafikfehlern.",
+        desc="Leert NVIDIA/AMD Shader-Cache (einmalige Aktion). Nur nach Treiberupdates oder bei "
+             "Grafikfehlern — danach baut jedes Spiel seine Shader neu (die ersten Minuten ruckeln).",
         category="Gaming", group="GPU & Driver",
         ps_command='''
 $paths=@("$env:LOCALAPPDATA\\NVIDIA\\DXCache","$env:LOCALAPPDATA\\NVIDIA\\GLCache",
