@@ -910,6 +910,28 @@ class AfterburnerController:
                 return False, f"Schreiben fehlgeschlagen: {e}"
             return self.start(slot)
 
+    def slot_holding(self, profile: TuneProfile, slots=(2, 3, 4, 5)) -> Optional[int]:
+        """The first of `slots` that already holds exactly what writing `profile` would
+        write there (read-only) — None when no slot does or the file can't be read.
+        Slot 1 is the user's own and is never looked at."""
+        from core.ab_profile import apply_slot, slot_equivalent, ProfileError
+        path, _why = self.find_gpu_profile()
+        if not path:
+            return None
+        try:
+            spec = self._settings_for(profile)
+            text, _enc = self._read(path)
+        except (ProfileError, OSError, ValueError):
+            return None
+        for s in slots:
+            try:
+                new, _notes = apply_slot(text, int(s), spec)
+            except ProfileError:
+                continue
+            if new == text or slot_equivalent(text, new, int(s)):
+                return int(s)
+        return None
+
     def base_curve(self, slot: int = 2):
         """The V/F curve apply_slot() takes the base frequencies from for this
         slot — voltage points and their stock clocks. Read-only.

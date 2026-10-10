@@ -1,5 +1,5 @@
 {
-  "build": 31,
+  "build": 32,
   "date": "2026-10-10",
-  "notes": "Profilvergleich mit V/F-Kurven wie in Afterburner, faire Vergleichsmessungen (gleiche Starttemperatur), Schnell-Modus flach ab der höchsten getesteten Spannung."
+  "notes": "Beim Start wird das Profil aus dem Afterburner-Platz angewendet, auf dem es schon liegt (Platz 2 wird nicht mehr überschrieben); hängt der Tuner, steht im Log, wo."
 }

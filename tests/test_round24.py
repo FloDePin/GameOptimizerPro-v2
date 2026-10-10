@@ -143,6 +143,30 @@ _t0 = _time.time()
 t._cool_down("Kandidat", 70)
 check(_time.time() - _t0 < 1.5, "a stop ends the cool-down at once")
 
+print("stall watchdog (round 25)")
+import logging as _logging
+st = _AT.__new__(_AT)
+st._log_dir = os.path.join(TMP, "stall_logs")
+st.logger = _logging.getLogger("gop_test_stall")
+slog = []
+st._cb_log = lambda m, lvl: slog.append((lvl, m))
+st._cb_progress = None
+st.state = "PWR"
+st.STALL_S, st.STALL_CHECK_S = 0.6, 0.1
+sdone = threading.Event()
+st._last_activity = _time.monotonic()
+threading.Thread(target=st._stall_loop, args=(sdone,), daemon=True).start()
+_time.sleep(1.2)
+files = os.listdir(st._log_dir) if os.path.isdir(st._log_dir) else []
+dump = open(os.path.join(st._log_dir, files[0]), encoding="utf-8").read() if files else ""
+check(len(files) == 1 and "Thread" in dump and "_stall_loop" in dump
+      and sum("ohne Rückmeldung" in m for _l, m in slog) == 1 and slog[0][0] == "warning",
+      f"no sign of life for STALL_S: one warning, every thread's stack in a file: {files} {slog[:1]}")
+st._progress(50, "weiter")
+_time.sleep(0.4)
+check(any("läuft weiter" in m for _l, m in slog), "when it goes on, the log says so")
+sdone.set()
+
 shutil.rmtree(TMP, ignore_errors=True)
 print("\n%d failure(s)" % len(FAILS))
 for f in FAILS:

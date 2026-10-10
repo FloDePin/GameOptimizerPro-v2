@@ -95,10 +95,25 @@ class StartupLoader:
         if profile.name.startswith("__"):
             return False, "No startup profile configured"
 
-        ok, err = self.ab.write_and_apply(2, profile)
+        slot = self._startup_slot(profile)
+        ok, err = self.ab.write_and_apply(slot, profile)
         if ok:
-            return True, f"Startup profile loaded: {profile.name}"
+            return True, f"Startup profile loaded: {profile.name} (slot {slot})"
         return False, f"Failed to load startup profile: {err}"
+
+    def _startup_slot(self, profile) -> int:
+        """The slot that already holds the profile — applied from there, nothing else is
+        overwritten and Afterburner needs no restart (it was always slot 2: an app start
+        replaced what the user had there). Else slot 2 as before."""
+        finder = getattr(self.ab, "slot_holding", None)
+        if finder is not None:
+            try:
+                s = finder(profile)
+            except Exception:
+                s = None
+            if s:
+                return int(s)
+        return 2
 
     # ── Windows Autostart (per Task Scheduler) ────────────────────────────────
     # WICHTIG: NICHT über HKCU\Run. Da die App Admin-Rechte braucht, würde ein

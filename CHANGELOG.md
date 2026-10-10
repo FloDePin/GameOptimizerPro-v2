@@ -491,6 +491,20 @@ verifiers (VERIFY_MAP stays 1:1) and full English descriptions.
   - "≈ stock" now within ±0.7 % — the spread of four stock runs of the same card.
   - 1111 checks in 30 suites, all green.
 
+- **Round 25 — start-up profile in its own slot, stall watchdog** (build 32):
+  - Fixed: at an app start the last applied profile was always written into Afterburner
+    slot 2 — whatever was there was replaced, and Afterburner restarted for nothing. It is
+    now applied from the slot that already holds it (2–5; slot 1 stays the user's own);
+    only when no slot does, slot 2 as before.
+  - Stall watchdog for the tuner: no log line or progress for 2 minutes means a call is
+    stuck (every step reports at least every few seconds, an Afterburner restart takes
+    5–30 s). The log then says so and every thread's position goes into
+    `logs/stall_<time>.txt`; when the tune goes on, the log says after how long. (Seen once:
+    a tune stood still ~19 minutes between two steps while the PC was idle and Windows ran
+    its automatic maintenance — afterwards nothing told where it had waited. The results
+    were not affected: the next step measured its reference again.)
+  - 1116 checks in 30 suites, all green.
+
 ### 🔎 Reviewed, verified NOT a bug
 
 Some reported items were checked against the actual code and left unchanged

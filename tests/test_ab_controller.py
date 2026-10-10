@@ -172,6 +172,31 @@ check(not os.path.exists(gpu_path + ".gop.tmp"), "failed replace leaves no temp 
 check(not ok and ("Schreibrechte" in err or "fehlgeschlagen" in err) and ab.log[-1].startswith("start"),
       f"write refused -> Afterburner started again + error: {ab.log} / {err[:50]}")
 
+print("slot_holding / start-up profile (round 25)")
+os.chmod(gpu_path, 0o666)
+ab.log.clear(); ab.running = True
+P4 = TuneProfile(name="Max", core_offset_mhz=40, mem_offset_mhz=500, power_limit_pct=100)
+ok4, _e = ab.write_and_apply(4, P4)
+check(ok4 and ab.slot_holding(P4) == 4 and ab.slot_holding(TuneProfile(name="x", core_offset_mhz=77)) is None,
+      f"the slot that already holds a profile is found (read-only), another profile: none")
+from core.startup_loader import StartupLoader
+class _PM:
+    def get_tray_default(self): return None
+class _CR:
+    def load_last_applied(self): return P4.to_dict()
+sl = StartupLoader(tmp, ab, _PM(), _CR())
+before2 = ProfileFile(open(gpu_path, encoding="latin-1").read()).items("Profile2")
+ab.log.clear()
+okS, msgS = sl.load_startup_profile()
+after2 = ProfileFile(open(gpu_path, encoding="latin-1").read()).items("Profile2")
+check(okS and "(slot 4)" in msgS and before2 == after2 and "close" not in ab.log,
+      f"app start: the last applied profile from the slot that holds it — slot 2 untouched, no "
+      f"Afterburner restart: {msgS} {ab.log}")
+class _CR2:
+    def load_last_applied(self): return TuneProfile(name="neu", core_offset_mhz=66).to_dict()
+okN, msgN = StartupLoader(tmp, ab, _PM(), _CR2()).load_startup_profile()
+check(okN and "(slot 2)" in msgN, f"held by no slot: slot 2 as before: {msgN}")
+
 print("restore_file")
 ab.log.clear()
 ok, err = ab.restore_file(bk[0])

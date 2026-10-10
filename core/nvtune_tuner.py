@@ -502,16 +502,61 @@ class AutoTuner:
             except Exception:
                 pass
 
-    def _log(self, msg, lvl="info"):
+    def _log(self, msg, lvl="info", touch=True):
+        if touch:
+            self._last_activity = time.monotonic()
         getattr(self.logger, lvl)(msg)
         if self._cb_log:
             self._cb_log(msg, lvl)
 
     def _progress(self, pct, msg):
+        self._last_activity = time.monotonic()
         if pct >= 0:
             self._last_pct = pct
         if self._cb_progress:
             self._cb_progress(pct, msg)
+
+    # Stall watchdog: every step reports progress at least every few seconds and an
+    # Afterburner restart takes ~5–30 s — no log / progress from the tuner thread for
+    # this long means a call is stuck (live 10.10.: ~19 min, PC idle, Windows'
+    # automatic maintenance running; afterwards nothing told where it had waited).
+    STALL_S = 120.0
+    STALL_CHECK_S = 5.0
+
+    def _stall_loop(self, done: threading.Event):
+        stalled_at = None                    # the activity time a stall was reported for
+        while not done.wait(self.STALL_CHECK_S):
+            last = getattr(self, "_last_activity", None)
+            if last is None:
+                continue
+            quiet = time.monotonic() - last
+            if stalled_at is None and quiet >= self.STALL_S:
+                stalled_at = last
+                path = self._dump_stall(quiet)
+                self._log(CT.T(f"⚠ Der Tuner wartet seit {quiet / 60:.0f} min ohne Rückmeldung — "
+                               f"die Stelle steht in {os.path.basename(path) if path else 'keiner Datei'}",
+                               f"⚠ The tuner has been waiting {quiet / 60:.0f} min without a sign of life — "
+                               f"where it waits is in {os.path.basename(path) if path else 'no file'}"),
+                          "warning", touch=False)
+            elif stalled_at is not None and last != stalled_at:
+                self._log(CT.T(f"  Tuner läuft weiter (nach {(last - stalled_at) / 60:.0f} min Stillstand)",
+                               f"  Tuner going on (after a {(last - stalled_at) / 60:.0f}-min stall)"),
+                          "warning", touch=False)
+                stalled_at = None
+
+    def _dump_stall(self, quiet: float) -> str:
+        """Every thread's stack into logs/stall_<time>.txt — "" when it can't be written."""
+        import faulthandler
+        try:
+            Path(self._log_dir).mkdir(parents=True, exist_ok=True)
+            path = os.path.join(self._log_dir, f"stall_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(f"Tuner {quiet:.0f} s without log / progress — state {getattr(self, 'state', '?')}\n\n")
+                f.flush()
+                faulthandler.dump_traceback(file=f, all_threads=True)
+            return path
+        except Exception:
+            return ""
 
     # The GPU page's tiles and graph only got values from inside a measured step.
     # Between steps (Afterburner restart, FurMark starting, waiting for FurMark to
@@ -765,8 +810,9 @@ class AutoTuner:
         from core.power_state import keep_awake
         keep_awake(True)          # no sleep / screen-off in the middle of a step
         live_done = threading.Event()
-        self._last_tick = time.monotonic()
+        self._last_tick = self._last_activity = time.monotonic()
         threading.Thread(target=self._live_loop, args=(live_done,), daemon=True).start()
+        threading.Thread(target=self._stall_loop, args=(live_done,), daemon=True).start()
         try:
             self._run()
         except TunerApplyError as e:
