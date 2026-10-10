@@ -2013,9 +2013,11 @@ class AutoTuner:
         if known_floor and known_floor > cfg.curve_min_mv:
             anchors_mv = CT.with_floor(anchors_mv, curve_mvs, known_floor, cfg.curve_anchor_step_mv)
             self._log(T(f"  Mindestspannung der Karte unter Last (vom letzten Tune gespeichert): "
-                        f"{known_floor:.0f} mV — Messpunkte bis dorthin, der unterste genau dort",
+                        f"{known_floor:.0f} mV — Messpunkte nur bis dorthin (tiefer läuft die Karte "
+                        f"unter Last nicht)",
                         f"  The card's minimum voltage under load (saved by the last tune): "
-                        f"{known_floor:.0f} mV — points down to it, the lowest one right at it"))
+                        f"{known_floor:.0f} mV — points only down to it (the card doesn't go lower "
+                        f"under load)"))
         if not anchors_mv:
             return self._curve_fail(T(f"Keine Messpunkte zwischen {cfg.curve_min_mv} und "
                                       f"{ceiling:.0f} mV", f"No points between {cfg.curve_min_mv} "

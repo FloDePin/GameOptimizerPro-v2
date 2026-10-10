@@ -515,6 +515,22 @@ verifiers (VERIFY_MAP stays 1:1) and full English descriptions.
     percentage with fewer points.
   - 1118 checks in 30 suites.
 
+- **Round 27 — All-round tuner checked live end to end** (build 34):
+  - The saved minimum voltage under load is used: on a card's second tune the voltage
+    points stop there — on the test card 7 instead of 10 points, the three it never
+    reaches under load are no longer tested.
+  - The fine search for Efficiency goes down: halfway between the last cap that kept
+    ≥ 99 % of stock and the first one below; the goal rule then picks the cap with the
+    least power. Result on the test card: −0.7 % points at −16 % power (+18.6 % points
+    per watt).
+  - Log line for the saved minimum voltage corrected: the points stop there (the lowest
+    one can lie a few mV below it, within the reach tolerance) — it said "right at it".
+  - For clarity: All-round has no extra comparison run after the final test — the
+    "after" value in the report is the chosen variant's benchmark, measured with exactly
+    the settings that get saved. Only Quick measures once more after the final test,
+    because it caps its curve at the game test's voltage.
+  - 1118 checks in 30 suites, all green.
+
 ### 🔎 Reviewed, verified NOT a bug
 
 Some reported items were checked against the actual code and left unchanged

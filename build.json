@@ -1,5 +1,5 @@
 {
-  "build": 33,
+  "build": 34,
   "date": "2026-10-10",
-  "notes": "Profilvergleich: jede Kurve mit eigenem Linienmuster und Legende, dazu die FurMark-Punkte als eigener Balken."
+  "notes": "Rundum-Tuner komplett live geprüft: gespeicherte Mindestspannung spart Messpunkte, Feinsuche nach unten bei Effizienz; Log-Text zur Mindestspannung korrigiert."
 }
