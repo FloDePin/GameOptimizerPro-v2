@@ -24,6 +24,10 @@ from ui.theme import (ACC, AMBER, CARD_BG, DIM, F_BB, F_S, F_SB, F_XS, GREEN, SL
                       icon_image, mix, tr)
 
 COMPARE_COLORS = [ACC, VIOLET, GREEN, AMBER]
+# Each profile's own line style in the curve chart: lines lying on each other (e.g. two
+# Quick profiles with the same offset up to the top) must not hide the one below
+COMPARE_DASHES = [(), (10, 5), (2, 4), (12, 4, 3, 4)]
+STOCK_DASH = (4, 3)
 NONE = tr("(keins)", "(none)")
 BEST = " ★"
 STOCK_COLOR = SLATE
@@ -153,6 +157,8 @@ class CompareTab(Page):
         for label, key in [
             (tr("Leistung gegenüber Standard", "Performance vs stock"), "perf"),
             (tr("Effizienz gegenüber Standard (Punkte pro Watt)", "Efficiency vs stock (points per watt)"), "eff"),
+            (tr("FurMark-Punkte (je 60 s) — Profile untereinander", "FurMark points (per 60 s) — profiles "
+                "against each other"), "points"),
             (tr("Leistungsaufnahme im Test (W)", "Power draw in the test (W)"), "watt"),
             (tr("Speicher-Plus (MHz)", "Memory gain (MHz)"), "mem"),
         ]:
@@ -174,6 +180,9 @@ class CompareTab(Page):
             font=F_XS, fg=DIM, bg=CARD_BG, anchor="w", justify="left", wraplength=900).pack(fill="x", pady=(0, 6))
         self.curve_chart = CurveChart(cur.body, height=300)
         self.curve_chart.pack(fill="x")
+        self._legend = tk.Frame(cur.body, bg=CARD_BG)
+        self._legend.pack(fill="x", pady=(6, 0))
+        self.legend_items: list = []
 
         det = Card(b, tr("Alle Details", "Full details"), accent=VIOLET)
         det.pack(fill="x", padx=10, pady=(0, 10))
@@ -258,6 +267,17 @@ class CompareTab(Page):
                    float(scores[i]["power_w"]) if scores[i] else 0.0, mx_w, COMPARE_COLORS[i],
                    (f"{scores[i]['power_w']} W" if scores[i] else unmeasured)) for i, _p in active]
         self._metric_rows["watt"].set_values(watts)
+        # The points themselves: the percentages are against each profile's own stock run
+        # (stock runs differ by ~1 %), the points compare the profiles directly
+        pts = [s["points"] for s in scores.values() if s] + ([stock["points"]] if stock else [])
+        lo_p = (min(pts) - 100) if pts else 0
+        hi_p = max(pts) if pts else 1
+        self._metric_rows["points"].set_values(
+            [(tr("Standard (Ø)", "Stock (mean)"), float(stock["points"] - lo_p) if stock else 0.0,
+              float(hi_p - lo_p) or 1.0, STOCK_COLOR, str(stock["points"]) if stock else "—")] +
+            [(f"{tr('Profil', 'Profile')} {i + 1}", float(scores[i]["points"] - lo_p) if scores[i] else 0.0,
+              float(hi_p - lo_p) or 1.0, COMPARE_COLORS[i],
+              str(scores[i]["points"]) if scores[i] else unmeasured) for i, _p in active])
         mx_mem = max((p.mem_offset_mhz or 0 for _i, p in active), default=1) or 1
         self._metric_rows["mem"].set_values(
             [(tr("Standard", "Stock"), 0.0, float(mx_mem), STOCK_COLOR, "+0")] +
@@ -325,10 +345,24 @@ class CompareTab(Page):
         c = self._base_curve
         if c is None:
             self.curve_chart.set_data([], [], self._curve_note)
+            self._update_legend([])
             return
         lines = [(f"{tr('Profil', 'Profile')} {i + 1}", COMPARE_COLORS[i], profile_line(c, p),
-                  measured_points(p), flat_from(p)) for i, p in active]
+                  measured_points(p), flat_from(p), COMPARE_DASHES[i]) for i, p in active]
         self.curve_chart.set_data(stock_line(c), lines)
+        self._update_legend(active)
+
+    def _update_legend(self, active):
+        for w in self._legend.winfo_children():
+            w.destroy()
+        items = [(tr("Standard", "Stock"), STOCK_COLOR, STOCK_DASH)] if self._base_curve is not None else []
+        items += [(f"{tr('Profil', 'Profile')} {i + 1}", COMPARE_COLORS[i], COMPARE_DASHES[i]) for i, _p in active]
+        self.legend_items = [t for t, _c, _d in items]
+        for text, color, dash in items:
+            cv = tk.Canvas(self._legend, width=30, height=12, bg=CARD_BG, highlightthickness=0, bd=0)
+            cv.create_line(2, 6, 28, 6, fill=color, width=2, dash=dash or None)
+            cv.pack(side="left", padx=(0, 4))
+            tk.Label(self._legend, text=text, font=F_XS, fg=TEXT2, bg=CARD_BG).pack(side="left", padx=(0, 14))
 
 
 class CurveChart(tk.Canvas):
@@ -348,13 +382,16 @@ class CurveChart(tk.Canvas):
         self.bind("<Motion>", self._on_motion)
         self.bind("<Leave>", lambda e: self._clear_hover())
 
+    def _line_pts(self):
+        return [item[2] for item in self._lines]
+
     def set_data(self, stock: list, lines: list, note: str = ""):
         self._stock, self._lines, self._note = list(stock or []), list(lines or []), note
         self._draw()
 
     def _ranges(self):
-        xs = [mv for mv, _f in self._stock] + [mv for _l, _c, ln, _m, _fl in self._lines for mv, _f in ln]
-        ys = [f for _mv, f in self._stock] + [f for _l, _c, ln, _m, _fl in self._lines for _mv, f in ln]
+        xs = [mv for mv, _f in self._stock] + [mv for ln in self._line_pts() for mv, _f in ln]
+        ys = [f for _mv, f in self._stock] + [f for ln in self._line_pts() for _mv, f in ln]
         if not xs:
             return None
         x0, x1 = min(xs), max(xs)
@@ -381,7 +418,7 @@ class CurveChart(tk.Canvas):
         x0, x1, y0, y1 = r
         grid = mix(CARD_BG, "#ffffff", 0.07)
         # where the card runs under load: from the lowest to the highest measured point
-        meas = [mv for _l, _c, _ln, m, _fl in self._lines for mv, _f in m]
+        meas = [mv for item in self._lines for mv, _f in item[3]]
         if meas:
             a, _ = self._xy(min(meas), y0, r)
             b, _ = self._xy(max(meas), y0, r)
@@ -403,11 +440,13 @@ class CurveChart(tk.Canvas):
         self.create_text(w - self.PAD_R, h - 4, text="mV", anchor="se", fill=DIM, font=F_XS)
         if len(self._stock) > 1:
             self.create_line(*[c for mv, f in self._stock for c in self._xy(mv, f, r)], fill=STOCK_COLOR,
-                             width=2, dash=(5, 3), tags=("stock",))
-        for i, (_label, color, line, measured, _flat) in enumerate(self._lines):
+                             width=2, dash=STOCK_DASH, tags=("stock",))
+        for i, item in enumerate(self._lines):
+            _label, color, line, measured = item[:4]
+            dash = item[5] if len(item) > 5 else ()
             if len(line) > 1:
                 self.create_line(*[c for mv, f in line for c in self._xy(mv, f, r)], fill=color, width=2,
-                                 tags=("line", f"line{i}"))
+                                 dash=dash or None, tags=("line", f"line{i}"))
             for mv, f in measured:
                 x, y = self._xy(mv, f, r)
                 self.create_oval(x - 3, y - 3, x + 3, y + 3, fill=color, outline=CARD_BG, tags=("dot", f"dot{i}"))
@@ -441,7 +480,8 @@ class CurveChart(tk.Canvas):
         s = value_at(self._stock, mv)
         if s is not None:
             parts.append((tr(f"Standard {s:.0f}", f"Stock {s:.0f}"), STOCK_COLOR))
-        for label, color, line, _m, _fl in self._lines:
+        for item in self._lines:
+            label, color, line = item[:3]
             v = value_at(line, mv)
             if v is not None:
                 parts.append((f"{label} {v:.0f}", color))

@@ -1,5 +1,5 @@
 {
-  "build": 32,
+  "build": 33,
   "date": "2026-10-10",
-  "notes": "Beim Start wird das Profil aus dem Afterburner-Platz angewendet, auf dem es schon liegt (Platz 2 wird nicht mehr überschrieben); hängt der Tuner, steht im Log, wo."
+  "notes": "Profilvergleich: jede Kurve mit eigenem Linienmuster und Legende, dazu die FurMark-Punkte als eigener Balken."
 }

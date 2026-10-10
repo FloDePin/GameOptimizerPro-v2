@@ -505,6 +505,16 @@ verifiers (VERIFY_MAP stays 1:1) and full English descriptions.
     were not affected: the next step measured its reference again.)
   - 1116 checks in 30 suites, all green.
 
+- **Round 26 — clearer profile comparison** (build 33):
+  - Curve chart: every profile has its own line style (solid, dashed, dotted, dash-dot) and
+    the chart a legend — curves lying on each other no longer hide the one below (two Quick
+    profiles with the same offset are identical up to the highest tested voltage).
+  - New bar row "FurMark points": the profiles against each other in points. The
+    percentages compare each profile with its OWN stock run (measured right before, same
+    conditions); stock runs of the same card differ by ~1 %, so a profile can read a higher
+    percentage with fewer points.
+  - 1118 checks in 30 suites.
+
 ### 🔎 Reviewed, verified NOT a bug
 
 Some reported items were checked against the actual code and left unchanged

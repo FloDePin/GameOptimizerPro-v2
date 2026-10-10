@@ -766,6 +766,9 @@ def s_bios():
     check(pts[1:3] == [f"7446 ({std} 7295)", f"7504 ({std} 7295)"] and ppw[1] == f"{TC._dec(28.97)} ({std} {TC._dec(28.95)})",
           f"points per 60 s (a 5-min run reads the same) and points per watt, each with its own stock run: "
           f"{pts[1:3]} {ppw[1]}")
+    check(c._metric_rows["points"].shown == ["7295", "7446", "7504", nm],
+          f"round 26: the FurMark points themselves — the profiles against each other: "
+          f"{c._metric_rows['points'].shown}")
     check(c._metric_rows["perf"].shown == [TC.BASE, TC._pct(2.1) + " ▲", TC._pct(2.9) + " ▲", nm]
           and c._metric_rows["watt"].shown[:3] == ["252 W", "257 W", "266 W"]
           and c._metric_rows["mem"].shown[0] == "+0",
@@ -780,6 +783,10 @@ def s_bios():
           and cc.find_withtag("band") and not cc.find_withtag("empty"),
           f"curve chart: stock, 3 profile lines in their colours, the measured points of the curve "
           f"profile, the range under load shaded ({len(lines)} lines)")
+    check([cc.itemcget(cc.find_withtag(f"line{k}")[0], "dash") for k in range(3)][0] == ""
+          and all(cc.itemcget(cc.find_withtag(f"line{k}")[0], "dash") for k in (1, 2))
+          and c.legend_items == [TG.tr("Standard", "Stock")] + [f"{TG.tr('Profil', 'Profile')} {k}" for k in (1, 2, 3)],
+          f"every profile its own line style (lines on each other stay visible), a legend: {c.legend_items}")
     cc.show_at(1060)
     ht = cc.hover_text
     check(ht.startswith("1060 mV") and TG.tr("Standard 2819", "Stock 2819") in ht
