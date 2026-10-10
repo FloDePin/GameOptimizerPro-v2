@@ -470,6 +470,27 @@ verifiers (VERIFY_MAP stays 1:1) and full English descriptions.
   - Texts: the goal descriptions and the step-by-step tune explanation say so.
   - 1090 checks in 29 suites, all green.
 
+- **Round 24 — curve chart, fair benchmarks, Quick mode refined** (build 31):
+  - **Profile comparison: V/F curves** like Afterburner's curve editor — voltage to the
+    right, clock up; stock dashed, every chosen profile in its colour (All-round profiles
+    flat from their cap with the measured points as dots, Quick profiles as the shifted
+    curve), the range the card runs in under load shaded; pointing at the chart shows every
+    curve's clock at that voltage. The stock curve is read from Afterburner's profile file.
+  - **Every comparison benchmark starts at the stock run's temperature:** the card idles
+    until it is back there (at most 90 s) before each All-round candidate, the fine search
+    and the Quick mode's "after" run. A test series showed the Quick "after" run starting at
+    ~67 °C right after the game test (stock: ~55 °C) and All-round candidates 2–5 °C warmer
+    than stock — a warm card clocks a bin lower and draws a few watts more, so profiles
+    looked slightly worse than they are.
+  - **Quick mode: the curve is flat from the game test's highest voltage.** The offset
+    shifted the whole curve, also the points above the highest voltage any test reached
+    (RTX 4080: 1075 → 1100 mV at +134 MHz, never tested; a light load can boost there).
+    Now: below that voltage exactly what was tested, above it lower. The description says
+    honestly that the lowered power limit only saves power under full load (FurMark and
+    most games stay below it).
+  - "≈ stock" now within ±0.7 % — the spread of four stock runs of the same card.
+  - 1111 checks in 30 suites, all green.
+
 ### 🔎 Reviewed, verified NOT a bug
 
 Some reported items were checked against the actual code and left unchanged

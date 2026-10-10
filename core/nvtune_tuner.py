@@ -144,6 +144,8 @@ class TunerConfig:
     curve_prior_mhz:     int = 0       # start offset of the first point (e.g. last tune's core offset)
     curve_probe_s:       int = 20      # stock boost-load run: highest voltage the card reaches
     bench_s:             int = 60      # FurMark benchmark per candidate (and the stock run)
+    bench_cool_max_s:    int = 90      # before a comparison benchmark: cool down to the stock
+    bench_cool_tol_c:    float = 2.0   # run's starting temperature (+ this), at most that long
     final_bench_s:       int = 300     # FurMark part of the final test (5 min)
     furmark_path:        str = ""      # FurMark 2 console exe; empty = internal benchmark
     bench_width:         int = 1920
@@ -880,7 +882,7 @@ class AutoTuner:
         q_stock = None
         self._stock_rate = 0.0             # points per second at stock (plausibility of the end run)
         if cfg.furmark_path:
-            q_stock = self._bench(stress, cfg.bench_s, T("Standard-Benchmark", "Stock benchmark"), 13, 2)
+            q_stock = self._bench(stress, cfg.bench_s, T("Standard-Benchmark", "Stock benchmark"), 13, 2, ref=True)
             if q_stock is None:
                 return
             if q_stock.passed:
@@ -1150,6 +1152,7 @@ class AutoTuner:
         # "conservative" profile and stop).
         self._set_state(TunerState.FINAL_TEST)
         attempt, retries_used = 1, []
+        game_top_mv = 0.0             # the game test's boost voltage: the Quick curve is flat from it
         while True:
             mem_note = f" | Mem+{best_mem_offset}MHz" if best_mem_offset else ""
             tries    = (T(f" | Versuch {attempt}/{self.FINAL_RETRIES + 1}",
@@ -1175,12 +1178,15 @@ class AutoTuner:
                                mode="mixed")
             if self._stop.is_set():   # aborted mid-step: don't act on it
                 return
+            game_top_mv = 0.0
             if final.passed and cfg.game_test:
                 game = self._game_test(stress, 96)
                 if game is None:
                     return
                 if not game.passed:
                     final = game              # the failed phase decides the step back
+                else:
+                    game_top_mv = float(game.steady_voltage_mv or 0)
             if final.passed:
                 break
             back = (self._final_backoff(cfg, final, attempt, best_core, best_mem_offset, best_pwr)
@@ -1201,9 +1207,34 @@ class AutoTuner:
             attempt += 1
             self._set_state(TunerState.FINAL_TEST)
 
+        # The offset shifts the WHOLE curve — also the points above the highest voltage
+        # any test reached (an RTX 4080: 1075 → 1100 mV at +134 MHz, untested; a light
+        # load can boost there). Flat from the game test's boost voltage instead: below
+        # it exactly what was tested, above it lower than tested.
+        quick_cap = None
+        if final.passed and game_top_mv > 0:
+            quick_cap = self._quick_cap(best_core, game_top_mv)
+            if quick_cap:
+                pts, cap_mv = quick_cap
+                ok, err = self._ab_write(TuneProfile(name="__quick_cap__", core_offset_mhz=best_core,
+                                                     mem_offset_mhz=best_mem_offset, power_limit_pct=best_pwr,
+                                                     curve_points=pts, curve_cap_mv=cap_mv))
+                if ok:
+                    self._log(T(f"  Kurve flach ab {cap_mv} mV (höchste Spannung im Spiel-Endtest): darüber "
+                                f"nichts Ungetestetes",
+                                f"  Curve flat from {cap_mv} mV (the game test's highest voltage): nothing "
+                                f"untested above it"))
+                else:
+                    quick_cap = None
+                    self._apply(best_core, best_mem_offset, best_pwr)
+                    self._log(T(f"  Kurve flach ab der Höchstspannung nicht schreibbar ({err}) — Profil mit "
+                                f"Takt-Offset", f"  Curve flat from the top voltage not writable ({err}) — "
+                                f"profile with the clock offset"), "warning")
+
         q_after = None
         if final.passed and q_stock is not None and q_stock.passed:
-            q_after = self._bench(stress, cfg.bench_s, T("Nachher-Benchmark", "After benchmark"), 98, 1)
+            q_after = self._bench(stress, cfg.bench_s, T("Nachher-Benchmark", "After benchmark"), 98, 1,
+                                  cool=True)
             if q_after is None:
                 return
 
@@ -1233,12 +1264,15 @@ class AutoTuner:
                     + (T(f"Endtest nach {len(retries_used)} Rücknahme(n) | ",
                            f"final test after {len(retries_used)} step(s) back | ") if retries_used else "") +
                     f"Pwr {best_pwr}% | "
+                    + (T(f"flach ab {quick_cap[1]} mV | ", f"flat from {quick_cap[1]} mV | ") if quick_cap else "") +
                     f"MaxTemp {final.max_temp:.0f}°C | "
                     f"AvgVolt {final.avg_voltage_mv:.0f}mV | Score {score}/100"
                 ),
                 created_at=datetime.now().isoformat(),
                 gpu_name=gpu_name,
             )
+            if quick_cap:
+                profile.curve_points, profile.curve_cap_mv = quick_cap
             if q_after is not None and q_after.passed and min(q_after.power_w, q_stock.power_w) > 0:
                 from core import profile_score as PS
                 profile.bench = PS.bench_record("FurMark", cfg.bench_s, q_after.score, q_after.power_w,
@@ -1344,8 +1378,59 @@ class AutoTuner:
             return max(100, min(AfterburnerController.POWER_RANGE[1], int(mx / base * 100 + 1e-6)))
         return 100
 
+    def _start_temp(self) -> float:
+        try:
+            return float(self.monitor.read().temp or 0)
+        except Exception:
+            return 0.0
+
+    def _quick_cap(self, core: int, top_mv: float):
+        """Quick mode: the offset curve, flat from top_mv -> (curve_points, cap_mv) or None
+        (no Afterburner curve). One point is enough: below the highest measured point the
+        curve keeps the smallest offset there is — here the one offset of the whole curve."""
+        getter = getattr(self.ab, "base_curve", None)
+        if getter is None:
+            return None
+        try:
+            curve, _src = getter(self.config.ab_slot)
+            if curve is None:
+                return None
+            p = curve.lock_point(top_mv)
+        except Exception:
+            return None
+        if not p or p.voltage_mv <= 0:
+            return None
+        mv = int(round(p.voltage_mv))
+        return [[mv, int(round(p.base_mhz + core))]], mv
+
+    def _cool_down(self, label: str, prog: int):
+        """Before a comparison benchmark: idle until the card is back at the stock run's
+        starting temperature (+ bench_cool_tol_c), at most bench_cool_max_s — the same
+        start for every run (a warm card clocks a bin lower and draws more)."""
+        cfg = self.config
+        ref = getattr(self, "_bench_ref_temp", 0.0)
+        t = self._start_temp()
+        if not ref or not t or t <= ref + cfg.bench_cool_tol_c:
+            return
+        T = CT.T
+        target = ref + cfg.bench_cool_tol_c
+        self._log(T(f"  Abkühlen auf {target:.0f} °C (Start der Standard-Messung) — jetzt {t:.0f} °C",
+                    f"  Cooling down to {target:.0f} °C (start of the stock run) — now {t:.0f} °C"))
+        t0 = time.time()
+        while time.time() - t0 < cfg.bench_cool_max_s:
+            if self._stop.wait(1.0):
+                return
+            t = self._start_temp()
+            self._progress(prog, T(f"{label}: abkühlen {t:.0f} → {target:.0f} °C",
+                                   f"{label}: cooling {t:.0f} → {target:.0f} °C"))
+            if t and t <= target:
+                return
+        self._log(T(f"  nach {cfg.bench_cool_max_s} s noch {t:.0f} °C — Messung startet trotzdem",
+                    f"  still {t:.0f} °C after {cfg.bench_cool_max_s} s — measuring anyway"), "warning")
+
     def _bench(self, stress: "StressTester", seconds: int, label: str, prog: int,
-               prog_span: int = 0, plausible: bool = True) -> Optional["CT.Candidate"]:
+               prog_span: int = 0, plausible: bool = True, ref: bool = False,
+               cool: bool = False) -> Optional["CT.Candidate"]:
         """One benchmark run with the settings applied right now -> Candidate
         (score, average power and clock while loaded, highest temperature,
         voltage right before the end), or None when the tune was aborted.
@@ -1355,8 +1440,16 @@ class AutoTuner:
         reset / GPU error counts as unstable — then the driver gets
         cfg.crash_pause_s to recover. A run that ended far too early or scored
         far below stock is `invalid`: after a crash in the live run FurMark ran
-        ~10 of 60 s and printed 398 instead of ~7200 points."""
+        ~10 of 60 s and printed 398 instead of ~7200 points.
+        ref: the stock run — its starting temperature is the reference; cool: a
+        comparison run — first back to that temperature (_cool_down)."""
         cfg = self.config
+        if ref:
+            self._bench_ref_temp = self._start_temp()
+        elif cool:
+            self._cool_down(label, prog)
+            if self._stop.is_set():
+                return None
         c = CT.Candidate("")
         if not cfg.furmark_path:
             def _tick(e, d, s):
@@ -1889,7 +1982,7 @@ class AutoTuner:
         # 3) stock benchmark — the "before"
         self._set_state(TunerState.BENCH)
         self._stock_rate = 0.0             # points per second at stock (plausibility of later runs)
-        stock = self._bench(stress, cfg.bench_s, T("Standard-Benchmark", "Stock benchmark"), 17, 3)
+        stock = self._bench(stress, cfg.bench_s, T("Standard-Benchmark", "Stock benchmark"), 17, 3, ref=True)
         if stock is None:
             return
         if not stock.passed and cfg.furmark_path and not stock.thermal:
@@ -1898,7 +1991,7 @@ class AutoTuner:
                         f"  FurMark failed at stock ({stock.note}) — continuing with the internal "
                         f"compute benchmark"), "warning")
             cfg.furmark_path = ""
-            stock = self._bench(stress, cfg.bench_s, T("Standard-Benchmark", "Stock benchmark"), 17, 3)
+            stock = self._bench(stress, cfg.bench_s, T("Standard-Benchmark", "Stock benchmark"), 17, 3, ref=True)
             if stock is None:
                 return
         if not stock.passed:
@@ -2055,7 +2148,7 @@ class AutoTuner:
                 time.sleep(2)
                 b = self._bench(stress, cfg.bench_s, T(f"Kandidat {k + 1}/{len(plan)} ({lbl})",
                                                        f"Candidate {k + 1}/{len(plan)} ({lbl})"),
-                                68 + int(k / max(len(plan), 1) * 10), 2)
+                                68 + int(k / max(len(plan), 1) * 10), 2, cool=True)
                 if b is None:
                     return
                 if b.invalid:
@@ -2087,7 +2180,8 @@ class AutoTuner:
                                 f"  Fine search: {lbl} (between {lo} and {hi} mV)"))
                     self._apply_curve(anchors, c.cap_mv, mem, c.pwr_pct)
                     time.sleep(2)
-                    b = self._bench(stress, cfg.bench_s, T(f"Feinsuche ({lbl})", f"Fine search ({lbl})"), 79, 1)
+                    b = self._bench(stress, cfg.bench_s, T(f"Feinsuche ({lbl})", f"Fine search ({lbl})"), 79, 1,
+                                    cool=True)
                     if b is None:
                         return
                     if b.invalid:
@@ -2218,7 +2312,8 @@ class AutoTuner:
         # The fair "after": the same short benchmark as the stock run.
         after = chosen if (not retries and chosen in tested and chosen.passed) else None
         if after is None:
-            after = self._bench(stress, cfg.bench_s, T("Nachher-Benchmark", "After benchmark"), 98, 1)
+            after = self._bench(stress, cfg.bench_s, T("Nachher-Benchmark", "After benchmark"), 98, 1,
+                                cool=True)
             if after is None:
                 return
             if not after.passed:          # the profile passed the final test — keep it, say so

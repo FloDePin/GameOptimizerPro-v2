@@ -6,7 +6,8 @@ performance and efficiency (core/profile_score.py). Stock is a column of its own
 the mean of the stock runs the chosen profiles were measured against — every tune measures
 stock right before); ▲ / ▼ = better / worse than stock, ≈ within the run-to-run noise.
 The stability score is 100 for every saved profile (a tune saves only what passed), so it
-is shown as "passed".
+is shown as "passed". The curve chart shows the profiles' V/F curves against stock
+(core/profile_curves.py; the stock curve is read from Afterburner's profile file).
 """
 
 import tkinter as tk
@@ -16,9 +17,11 @@ from typing import Optional
 import customtkinter as ctk
 
 from core.nvtune_core import ProfileManager, TuneProfile
+from core.profile_curves import flat_from, measured_points, profile_line, stock_line
 from core.profile_score import score_of, stock_of
 from ui.components import Card, GaugeBar, Page, ResponsiveGrid, Table, button
-from ui.theme import ACC, AMBER, CARD_BG, DIM, F_BB, F_XS, GREEN, SLATE, TEXT2, VIOLET, icon_image, tr
+from ui.theme import (ACC, AMBER, CARD_BG, DIM, F_BB, F_S, F_SB, F_XS, GREEN, SLATE, TEXT2, VIOLET,
+                      icon_image, mix, tr)
 
 COMPARE_COLORS = [ACC, VIOLET, GREEN, AMBER]
 NONE = tr("(keins)", "(none)")
@@ -26,7 +29,7 @@ BEST = " ★"
 STOCK_COLOR = SLATE
 # Two stock runs of the same card differ by about this much (FurMark 2, 60 s): closer to
 # stock than that is "the same", not better or worse
-NOISE_PCT = 0.5
+NOISE_PCT = 0.7
 
 
 def _pct(v: float) -> str:
@@ -73,8 +76,13 @@ def describe_mode(p: TuneProfile) -> str:
 
 
 def describe_clock(p: TuneProfile) -> str:
-    """'Kurve: 2879 MHz ab 1050 mV' (the top of an own curve, under its cap) or '+119 MHz'."""
+    """'Kurve: 2879 MHz ab 1050 mV' (the top of an own curve, under its cap), '+134 MHz, flach
+    ab 1075 mV' (a Quick profile, round 24) or '+119 MHz'."""
     pts = [(int(mv), int(f)) for mv, f in (p.curve_points or []) if isinstance(mv, (int, float))]
+    if pts and (p.notes or "").startswith("[OC+UV]"):
+        cap = int(p.curve_cap_mv or max(pts)[0])
+        return tr(f"{int(p.core_offset_mhz or 0):+d} MHz, flach ab {cap} mV",
+                  f"{int(p.core_offset_mhz or 0):+d} MHz, flat from {cap} mV")
     if pts:
         cap = int(p.curve_cap_mv or 0)
         under = [x for x in pts if not cap or x[0] <= cap] or pts
@@ -91,12 +99,15 @@ def _created(p: TuneProfile) -> str:
 
 
 class CompareTab(Page):
-    def __init__(self, parent, pm: ProfileManager, **kw):
+    def __init__(self, parent, pm: ProfileManager, ab=None, **kw):
         super().__init__(parent, tr("Profilvergleich", "Profile comparison"),
                          tr("Bis zu 4 GPU-Profile nebeneinander vergleichen",
                             "Compare up to 4 GPU profiles side by side"),
                          color=VIOLET, **kw)
         self.pm = pm
+        self.ab = ab
+        self._base_curve = None             # the card's stock curve (read on every show)
+        self._curve_note = ""
         self._selected: list[Optional[TuneProfile]] = [None, None, None, None]
         self._build()
 
@@ -130,12 +141,12 @@ class CompareTab(Page):
             "Standard = die Karte ab Werk (0 %). Jeder Tune misst sie direkt vorher im gleichen Test, "
             "jedes Profil wird mit seiner eigenen Messung verglichen; die Spalte Standard zeigt deren "
             "Durchschnitt. Leistung = Punkte, Effizienz = Punkte pro Watt. ▲ besser als Standard, "
-            "▼ schlechter, ≈ gleich (innerhalb der Messschwankung von ±0,5 %). Profile ohne Messung: "
+            "▼ schlechter, ≈ gleich (innerhalb der Messschwankung von ±0,7 %). Profile ohne Messung: "
             "ein neuer Tune misst es (Rundum und Schnell mit FurMark 2).",
             "Stock = the card as it comes (0 %). Every tune measures it right before in the same test, "
             "every profile is compared with its own measurement; the stock column shows their mean. "
             "Performance = points, efficiency = points per watt. ▲ better than stock, ▼ worse, "
-            "≈ the same (within the run-to-run noise of ±0.5 %). Profiles without a measurement: "
+            "≈ the same (within the run-to-run noise of ±0.7 %). Profiles without a measurement: "
             "a new tune measures it (All-round and Quick with FurMark 2)."),
             font=F_XS, fg=DIM, bg=CARD_BG, anchor="w", justify="left", wraplength=900).pack(fill="x", pady=(0, 8))
         self._metric_rows: dict[str, "MetricRow"] = {}
@@ -148,6 +159,21 @@ class CompareTab(Page):
             row = MetricRow(met.body, label)
             row.pack(fill="x", pady=(0, 8))
             self._metric_rows[key] = row
+
+        cur = Card(b, tr("Kurven (wie im Kurven-Editor von Afterburner)",
+                         "Curves (as in Afterburner's curve editor)"), accent=VIOLET)
+        cur.pack(fill="x", padx=10, pady=(0, 14))
+        tk.Label(cur.body, text=tr(
+            "Takt je Spannung: Standard gestrichelt, jedes Profil in seiner Farbe — Rundum-Profile flach ab "
+            "ihrer Obergrenze, die Punkte sind die gemessenen Spannungen; Schnell-Profile verschieben die "
+            "ganze Kurve. Hell hinterlegt: wo die Karte unter Last läuft. Mit der Maus zeigen: die Takte bei "
+            "dieser Spannung.",
+            "Clock per voltage: stock dashed, every profile in its colour — All-round profiles flat from "
+            "their cap, the dots are the measured voltages; Quick profiles shift the whole curve. Shaded: "
+            "where the card runs under load. Point at it: the clocks at that voltage."),
+            font=F_XS, fg=DIM, bg=CARD_BG, anchor="w", justify="left", wraplength=900).pack(fill="x", pady=(0, 6))
+        self.curve_chart = CurveChart(cur.body, height=300)
+        self.curve_chart.pack(fill="x")
 
         det = Card(b, tr("Alle Details", "Full details"), accent=VIOLET)
         det.pack(fill="x", padx=10, pady=(0, 10))
@@ -164,7 +190,23 @@ class CompareTab(Page):
         the background at start and only read them then."""
         self._refresh_list()
 
+    def _load_base_curve(self):
+        """The card's stock V/F curve from Afterburner's profile file (read-only)."""
+        self._base_curve, self._curve_note = None, ""
+        getter = getattr(self.ab, "base_curve", None)
+        if getter is None:
+            self._curve_note = tr("Afterburner nicht gefunden — keine Kurve", "Afterburner not found — no curve")
+            return
+        try:
+            curve, why = getter(2)
+        except Exception as e:
+            curve, why = None, str(e)
+        if curve is None:
+            self._curve_note = tr(f"Kurve nicht lesbar: {why}", f"Curve not readable: {why}")
+        self._base_curve = curve
+
     def _refresh_list(self):
+        self._load_base_curve()
         profiles = [p for p in self.pm.list_all() if not p.name.startswith("__")]
         names    = [NONE] + [p.name for p in profiles]
         for i, (om, v) in enumerate(zip(self._combos, self._sel_vars)):
@@ -183,6 +225,7 @@ class CompareTab(Page):
         active = [(i, p) for i, p in enumerate(self._selected) if p is not None]
         for row in self.detail_tree.get_children():
             self.detail_tree.delete(row)
+        self._update_curves(active)
         if not active:
             for r in self._metric_rows.values():
                 r.set_values([])
@@ -277,6 +320,144 @@ class CompareTab(Page):
         for label, base, fn in row_defs:
             cells = [label, base] + [fn(i, self._selected[i]) if self._selected[i] else "" for i in range(4)]
             self.detail_tree.insert("", "end", values=cells)
+
+    def _update_curves(self, active):
+        c = self._base_curve
+        if c is None:
+            self.curve_chart.set_data([], [], self._curve_note)
+            return
+        lines = [(f"{tr('Profil', 'Profile')} {i + 1}", COMPARE_COLORS[i], profile_line(c, p),
+                  measured_points(p), flat_from(p)) for i, p in active]
+        self.curve_chart.set_data(stock_line(c), lines)
+
+
+class CurveChart(tk.Canvas):
+    """The V/F curves like Afterburner's curve editor: voltage to the right, clock up.
+    set_data(stock, [(label, colour, line, measured, flat_mv)]) — lines as [(mV, MHz)].
+    Pointing at the chart shows every line's clock at that voltage."""
+
+    PAD_L, PAD_R, PAD_T, PAD_B = 54, 16, 26, 30
+
+    def __init__(self, parent, height: int = 300, **kw):
+        super().__init__(parent, height=height, bg=CARD_BG, highlightthickness=0, bd=0, **kw)
+        self._stock: list = []
+        self._lines: list = []
+        self._note = ""
+        self.hover_text = ""              # what the pointer shows (tests read it)
+        self.bind("<Configure>", lambda e: self._draw())
+        self.bind("<Motion>", self._on_motion)
+        self.bind("<Leave>", lambda e: self._clear_hover())
+
+    def set_data(self, stock: list, lines: list, note: str = ""):
+        self._stock, self._lines, self._note = list(stock or []), list(lines or []), note
+        self._draw()
+
+    def _ranges(self):
+        xs = [mv for mv, _f in self._stock] + [mv for _l, _c, ln, _m, _fl in self._lines for mv, _f in ln]
+        ys = [f for _mv, f in self._stock] + [f for _l, _c, ln, _m, _fl in self._lines for _mv, f in ln]
+        if not xs:
+            return None
+        x0, x1 = min(xs), max(xs)
+        y0 = int(min(ys) // 100) * 100
+        y1 = int(-(-max(ys) // 100)) * 100
+        return x0, x1, y0, max(y1, y0 + 100)
+
+    def _xy(self, mv, mhz, r):
+        x0, x1, y0, y1 = r
+        w, h = max(self.winfo_width(), 50), max(self.winfo_height(), 50)
+        x = self.PAD_L + (mv - x0) / ((x1 - x0) or 1) * (w - self.PAD_L - self.PAD_R)
+        y = h - self.PAD_B - (mhz - y0) / ((y1 - y0) or 1) * (h - self.PAD_T - self.PAD_B)
+        return x, y
+
+    def _draw(self):
+        self.delete("all")
+        w, h = self.winfo_width(), self.winfo_height()
+        r = self._ranges()
+        if r is None or w < 60 or h < 60:
+            self.create_text(w / 2 if w > 1 else 200, h / 2 if h > 1 else 100, fill=DIM, font=F_S,
+                             text=self._note or tr("— kein Profil gewählt", "— no profile selected"),
+                             tags=("empty",))
+            return
+        x0, x1, y0, y1 = r
+        grid = mix(CARD_BG, "#ffffff", 0.07)
+        # where the card runs under load: from the lowest to the highest measured point
+        meas = [mv for _l, _c, _ln, m, _fl in self._lines for mv, _f in m]
+        if meas:
+            a, _ = self._xy(min(meas), y0, r)
+            b, _ = self._xy(max(meas), y0, r)
+            self.create_rectangle(a, self.PAD_T, b, h - self.PAD_B, fill=mix(CARD_BG, "#ffffff", 0.035),
+                                  outline="", tags=("band",))
+            self.create_text((a + b) / 2, self.PAD_T - 8, fill=DIM, font=F_XS, tags=("band",),
+                             text=tr(f"Lastbereich {min(meas):.0f}–{max(meas):.0f} mV",
+                                     f"under load {min(meas):.0f}–{max(meas):.0f} mV"))
+        step_y = 100 if (y1 - y0) <= 1200 else 200
+        for f in range(y0, y1 + 1, step_y):
+            _x, y = self._xy(x0, f, r)
+            self.create_line(self.PAD_L, y, w - self.PAD_R, y, fill=grid, tags=("grid",))
+            self.create_text(self.PAD_L - 6, y, text=str(f), anchor="e", fill=DIM, font=F_XS, tags=("grid",))
+        for mv in range(int(-(-x0 // 50)) * 50, int(x1) + 1, 50):
+            x, _y = self._xy(mv, y0, r)
+            self.create_line(x, self.PAD_T, x, h - self.PAD_B, fill=grid, tags=("grid",))
+            self.create_text(x, h - self.PAD_B + 12, text=str(mv), fill=DIM, font=F_XS, tags=("grid",))
+        self.create_text(self.PAD_L - 6, self.PAD_T - 8, text="MHz", anchor="e", fill=DIM, font=F_XS)
+        self.create_text(w - self.PAD_R, h - 4, text="mV", anchor="se", fill=DIM, font=F_XS)
+        if len(self._stock) > 1:
+            self.create_line(*[c for mv, f in self._stock for c in self._xy(mv, f, r)], fill=STOCK_COLOR,
+                             width=2, dash=(5, 3), tags=("stock",))
+        for i, (_label, color, line, measured, _flat) in enumerate(self._lines):
+            if len(line) > 1:
+                self.create_line(*[c for mv, f in line for c in self._xy(mv, f, r)], fill=color, width=2,
+                                 tags=("line", f"line{i}"))
+            for mv, f in measured:
+                x, y = self._xy(mv, f, r)
+                self.create_oval(x - 3, y - 3, x + 3, y + 3, fill=color, outline=CARD_BG, tags=("dot", f"dot{i}"))
+
+    def _clear_hover(self):
+        self.delete("hover")
+        self.hover_text = ""
+
+    def _on_motion(self, e):
+        r = self._ranges()
+        if r is None:
+            return
+        x0, x1, _y0, _y1 = r
+        w, h = self.winfo_width(), self.winfo_height()
+        if not (self.PAD_L <= e.x <= w - self.PAD_R):
+            return self._clear_hover()
+        mv = x0 + (e.x - self.PAD_L) / max(w - self.PAD_L - self.PAD_R, 1) * (x1 - x0)
+        self.show_at(mv)
+
+    def show_at(self, mv: float):
+        """The clocks of every line at mv: a vertical line and their values (pointer)."""
+        from core.profile_curves import value_at
+        r = self._ranges()
+        if r is None:
+            return
+        self.delete("hover")
+        h = self.winfo_height()
+        x, _y = self._xy(mv, r[2], r)
+        self.create_line(x, self.PAD_T, x, h - self.PAD_B, fill=TEXT2, dash=(2, 3), tags=("hover",))
+        parts = [(f"{mv:.0f} mV", TEXT2)]
+        s = value_at(self._stock, mv)
+        if s is not None:
+            parts.append((tr(f"Standard {s:.0f}", f"Stock {s:.0f}"), STOCK_COLOR))
+        for label, color, line, _m, _fl in self._lines:
+            v = value_at(line, mv)
+            if v is not None:
+                parts.append((f"{label} {v:.0f}", color))
+        self.hover_text = "  ·  ".join(t for t, _c in parts)
+        tx, items = self.PAD_L + 6, []
+        for text, color in parts:
+            item = self.create_text(tx, self.PAD_T + 8, text=text, anchor="w", fill=color, font=F_SB,
+                                    tags=("hover",))
+            items.append(item)
+            bx = self.bbox(item)
+            tx = (bx[2] if bx else tx + 60) + 12
+        bb = self.bbox(*items)
+        if bb:
+            bg = self.create_rectangle(self.PAD_L + 2, bb[1] - 3, bb[2] + 6, bb[3] + 3,
+                                       fill=mix(CARD_BG, "#000000", 0.25), outline="", tags=("hover",))
+            self.tag_lower(bg, items[0])
 
 
 class MetricRow(tk.Frame):

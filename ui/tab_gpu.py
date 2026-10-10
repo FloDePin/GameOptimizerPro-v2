@@ -42,7 +42,9 @@ MODES = [
      "FurMark + compute check, then a report."),
     ("oc_uv", "Schnell (OC + UV)", "Quick (OC + UV)",
      "Etwa halb so lang (30–55 min) — ein Takt-Offset für die ganze Kurve plus das niedrigste "
-     "Power-Limit, das höchstens 3 % Leistung kostet: mehr Takt, weniger Verbrauch. Weniger genau "
+     "Power-Limit, das höchstens 3 % Leistung kostet — das spart nur unter Volllast (in Spielen und "
+     "FurMark bleibt die Karte meist darunter). Die Kurve wird ab der höchsten Spannung des Spiel-Endtests "
+     "flach: darüber taktet die Karte nicht ungetestet hoch. Weniger genau "
      "als Rundum, braucht aber keine Kurven-Messung.",
      "About half the time (30–55 min) — one clock offset for the whole curve plus the lowest power "
      "limit that costs at most 3 % performance: more clock, less power. Less precise than "

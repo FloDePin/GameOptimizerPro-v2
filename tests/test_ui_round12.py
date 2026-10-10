@@ -64,6 +64,14 @@ class FakeAB:
                 3: "leer", 4: "leer", 5: "leer"}
     def reset_to_stock(self, slot=2): return True, ""
     def startup_apply_enabled(self): return False
+    def base_curve(self, slot=2):                     # round 24: the card's stock V/F curve
+        import struct
+        from core import ab_profile as _AP
+        pts = [(450.0, 225.0, 0.0)] + [(float(v), 1955 + (v - 700) * 2.4, 0.0) for v in range(700, 1101, 5)]
+        raw = struct.pack("<II", _AP.VF_VERSION, len(pts)) + bytes(4)
+        for p in pts:
+            raw += struct.pack("<fff", *p)
+        return _AP.VFCurve.from_hex((raw + bytes(24)).hex().upper()), "Defaults"
 class FakeSL:
     auto, calls, fail = False, [], False
     def is_autostart_enabled(self): return self.auto
@@ -762,6 +770,35 @@ def s_bios():
           and c._metric_rows["watt"].shown[:3] == ["252 W", "257 W", "266 W"]
           and c._metric_rows["mem"].shown[0] == "+0",
           f"bars: stock first: {c._metric_rows['perf'].shown}, {c._metric_rows['watt'].shown}")
+    # round 24: the V/F curves (stock as the arc, every chosen profile in its colour)
+    cc = c.curve_chart
+    c.update()
+    cc._draw()
+    lines = cc.find_withtag("line")
+    check(cc.find_withtag("stock") and len(lines) == 3 and len(cc.find_withtag("dot")) == 3
+          and cc.itemcget(cc.find_withtag("line0")[0], "fill") == TC.COMPARE_COLORS[0]
+          and cc.find_withtag("band") and not cc.find_withtag("empty"),
+          f"curve chart: stock, 3 profile lines in their colours, the measured points of the curve "
+          f"profile, the range under load shaded ({len(lines)} lines)")
+    cc.show_at(1060)
+    ht = cc.hover_text
+    check(ht.startswith("1060 mV") and TG.tr("Standard 2819", "Stock 2819") in ht
+          and f"{TG.tr('Profil', 'Profile')} 1 2879" in ht and f"{TG.tr('Profil', 'Profile')} 2 2938" in ht,
+          f"pointing at 1060 mV: stock, the curve profile flat from 1050 (2879), Quick +119 (2938): {ht}")
+    qcap = TuneProfile(name="Schnell gedeckelt", core_offset_mhz=134, curve_points=[[1075, 2909]],
+                       curve_cap_mv=1075, notes="[OC+UV] Core+134MHz | Pwr 96% | flach ab 1075 mV")
+    check(TC.describe_clock(qcap) == TG.tr("+134 MHz, flach ab 1075 mV", "+134 MHz, flat from 1075 mV"),
+          f"a Quick profile with its flat top reads as its offset: {TC.describe_clock(qcap)}")
+    real_bc = FakeAB.base_curve
+    FakeAB.base_curve = lambda self, slot=2: (None, "kein Profil")
+    c._refresh_list()
+    c.update()
+    cc._draw()
+    check(cc.find_withtag("empty") and not cc.find_withtag("line")
+          and "kein Profil" in cc.itemcget(cc.find_withtag("empty")[0], "text"),
+          "no Afterburner curve: the chart says why instead of drawing")
+    FakeAB.base_curve = real_bc
+    c._refresh_list()
 
     s = w._tab_frames["startup"]
     check(len(s.tree.get_children()) == 3, "startup entries listed")

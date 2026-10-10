@@ -348,7 +348,7 @@ class GameOptimizerWindow(ctk.CTk):
 
     def _make_compare(self, parent):
         from ui.tab_compare import CompareTab
-        return CompareTab(parent, self.pm)
+        return CompareTab(parent, self.pm, ab=self.ab)
 
     def _make_bios(self, parent):
         from ui.tab_bios import BiosGuideTab

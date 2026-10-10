@@ -1,5 +1,5 @@
 {
-  "build": 30,
-  "date": "2026-10-09",
-  "notes": "Rundum: „Ausgewogen“ heißt jetzt Leistung UND Effizienz über Standard, eine Feinsuche prüft die Mitte zwischen zwei Kappungen, und die Mindestspannung der Karte wird für den nächsten Tune gespeichert."
+  "build": 31,
+  "date": "2026-10-10",
+  "notes": "Profilvergleich mit V/F-Kurven wie in Afterburner, faire Vergleichsmessungen (gleiche Starttemperatur), Schnell-Modus flach ab der höchsten getesteten Spannung."
 }

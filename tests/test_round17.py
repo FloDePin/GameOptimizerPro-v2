@@ -267,9 +267,13 @@ t, ab, cr, logs = run_tune(GOOD)
 during = [b for n, b in ab.boots if n != t.best_profile.name]
 check(t.state == TunerState.DONE and during and all(b == ("50000", "300000", "100") for b in during),
       f"every step of the tune: the PC would boot with the known-good profile ({len(during)} writes)")
-check(ab.boots[-1][0] == t.best_profile.name and ab.startup_state(5) is True
-      and startup(file_text()) == ("37000", "0", "100"),
-      f"after the tune: the saved profile is what the PC boots with ({startup(file_text())})")
+bp = t.best_profile
+check(ab.boots[-1][0] == bp.name and ab.startup_state(5) is True
+      and startup(file_text()) == ("1000000", "0", "100") and bp.core_offset_mhz == 37
+      and bp.curve_cap_mv > 0 and bp.curve_points == [[bp.curve_cap_mv, bp.curve_points[0][1]]]
+      and any("flach ab" in l or "flat from" in l for l in logs),
+      f"after the tune: the saved profile is what the PC boots with — round 24: the +37 offset as a curve "
+      f"flat from the game test's voltage ({startup(file_text())}, {bp.curve_points})")
 check(cr.saved == [t.best_profile.name], "and it is recorded as the last applied profile")
 
 t, ab, cr, logs = run_tune(None)
