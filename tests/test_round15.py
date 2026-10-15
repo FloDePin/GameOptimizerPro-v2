@@ -235,9 +235,17 @@ try:
     fake = _ty.SimpleNamespace(pm=_ty.SimpleNamespace(list_all=lambda: []), _volt=0, _temp=50, _clk=2000.0,
                                _power=100.0, _open=lambda *a: None, _reset_gpu=lambda *a: None,
                                _exit=lambda *a: None, ab=None, cr=None)
+    import core.i18n as _I18N
+    _lang = _I18N._current_lang
+    _I18N._current_lang = "de"
     menu = _G.GameOptimizerApp._build_menu(fake)
     first = list(menu.items)[0]
     check(first.default and "öffnen" in str(first.text), "tray: 'öffnen' is the default item (a click on the icon)")
+    _I18N._current_lang = "en"
+    texts = [str(i.text) for i in _G.GameOptimizerApp._build_menu(fake).items]
+    _I18N._current_lang = _lang
+    check("Open" in texts[0] and "Exit" in texts and not any("Beenden" in t or "öffnen" in t for t in texts),
+          f"round 28: the tray menu in English when the app is English: {texts}")
 except ImportError:
     print("  (pystray missing: tray check skipped)")
 

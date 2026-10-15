@@ -245,7 +245,10 @@ w = gui_python()
 check(os.path.basename(w).lower() == "pythonw.exe" and os.path.exists(w), f"pythonw found: {w}")
 check(owns_console() is False, "a process started from a terminal does not 'own' its console")
 src = open(os.path.join(ROOT, "GameOptimizerPro.py"), encoding="utf-8").read()
-check('"runas", gui_python()' in src and "python = gui_python()" in src, "admin relaunch + language restart use pythonw")
+mw_src = open(os.path.join(ROOT, "ui", "main_window.py"), encoding="utf-8").read()
+check('"runas", gui_python()' in src and "subprocess.Popen([gui_python(), " in src
+      and "subprocess.Popen([gui_python(), " in mw_src,
+      "admin relaunch + restart (update / language switch, also the window's fallback) use pythonw")
 check("if owns_console():" in src and "NO_ADMIN_PROMPT" in src, "double-click start continues windowless, asks once")
 from core.power_state import keep_awake
 check(keep_awake(True) and keep_awake(False), "SetThreadExecutionState accepted")

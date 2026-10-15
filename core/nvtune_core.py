@@ -447,6 +447,7 @@ class NvmlMonitor:
 
     def close(self):
         if self._ok:
+            self._ok = False         # reads after close make no NVML calls; one shutdown only
             try: self._nv.nvmlShutdown()
             except Exception: pass
 

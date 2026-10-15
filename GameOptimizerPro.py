@@ -39,24 +39,6 @@ except ImportError as _ui_err:
     GameOptimizerWindow = None
 
 
-# ── Restart helper (used for language switch) ─────────────────────────────────
-
-def restart_app():
-    """
-    Restart the whole application in-place. Used when the language changes,
-    so every label is rebuilt in the new language with no leftovers.
-    """
-    try:
-        python = gui_python()             # pythonw: no console window
-        script = str(BASE / "GameOptimizerPro.py")
-        # Launch a fresh instance, then exit this one
-        subprocess = __import__("subprocess")
-        subprocess.Popen([python, script], cwd=str(BASE))
-    except Exception:
-        pass
-    os._exit(0)
-
-
 # ── Admin helpers ─────────────────────────────────────────────────────────────
 
 def is_admin() -> bool:
@@ -99,12 +81,16 @@ NO_ADMIN_PROMPT = "--no-admin-prompt"
 INSTANCE_NAME = os.environ.get("GOP_INSTANCE_NAME", "Local\\GameOptimizerPro_v2")
 AFTER_RESTART = "--after-restart"
 _instance_mutex = []                 # held for the life of the process
+_FINISH_LOCK = threading.Lock()      # the exit's relaunch: one thread does it
 
 
 def _kernel32():
     k = ctypes.WinDLL("kernel32", use_last_error=True)
     for fn in ("CreateMutexW", "CreateEventW", "OpenEventW"):
         getattr(k, fn).restype = ctypes.c_void_p
+    k.CreateMutexW.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_wchar_p]
+    k.CreateEventW.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_wchar_p]
+    k.OpenEventW.argtypes = [ctypes.c_ulong, ctypes.c_int, ctypes.c_wchar_p]
     k.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
     k.SetEvent.argtypes = k.CloseHandle.argtypes = k.ReleaseMutex.argtypes = [ctypes.c_void_p]
     return k
@@ -332,6 +318,8 @@ class GameOptimizerApp:
                 self._window.after(0, self._window.destroy)
             except Exception:
                 pass
+        self._relaunch = relaunch
+
         def _stop():
             if self._tray:
                 try:
@@ -339,7 +327,18 @@ class GameOptimizerApp:
                 except Exception:
                     pass
             time.sleep(0.3)
-            if relaunch:                      # after a git-pull update
+            self._finish(relaunch)
+        self._stop_thread = threading.Thread(target=_stop, daemon=True)
+        self._stop_thread.start()
+
+    def _finish(self, relaunch: bool):
+        """Start the app again (after an update / a language switch) and end this
+        process — once, from whichever thread gets here first."""
+        with _FINISH_LOCK:
+            if getattr(self, "_finished", False):
+                return
+            self._finished = True
+            if relaunch:
                 try:
                     import subprocess
                     subprocess.Popen([gui_python(), str(BASE / "GameOptimizerPro.py"), AFTER_RESTART],
@@ -347,30 +346,32 @@ class GameOptimizerApp:
                 except Exception:
                     pass
             os._exit(0)
-        threading.Thread(target=_stop, daemon=True).start()
+
+    def _after_mainloop(self):
+        """The window is gone. On an exit through _shutdown its stop thread relaunches
+        and ends the process — but it sleeps first, and with mainloop() over, main()
+        returned and Python ended before it woke (a daemon thread): the restart after an
+        update or a language switch was lost. Wait for it; if it doesn't get there (the
+        tray icon's stop hanging), finish here."""
+        th = getattr(self, "_stop_thread", None)
+        if th is not None:
+            th.join(5)
+            self._finish(getattr(self, "_relaunch", False))
 
     def _show_crash_dialog(self, message: str):
         """Show crash dialog thread-safely via .after() or fallback to ctypes."""
+        title = "GameOptimizerPro — " + ("Crash erkannt" if i18n.current_lang() == "de" else "crash detected")
         if self._window:
             try:
                 self._window.after(
                     0,
-                    lambda: messagebox.showwarning(
-                        "GameOptimizerPro — Crash erkannt",
-                        message, parent=self._window
-                    )
+                    lambda: messagebox.showwarning(title, message, parent=self._window)
                 )
             except Exception:
-                ctypes.windll.user32.MessageBoxW(
-                    0, message,
-                    "GameOptimizerPro — Crash erkannt", 0x40030
-                )
+                ctypes.windll.user32.MessageBoxW(0, message, title, 0x40030)
         else:
             # Fenster existiert noch nicht (Startup-Race) → direkt Win32 MessageBox
-            ctypes.windll.user32.MessageBoxW(
-                0, message,
-                "GameOptimizerPro — Crash erkannt", 0x40030
-            )
+            ctypes.windll.user32.MessageBoxW(0, message, title, 0x40030)
 
     # ── Tray menu ─────────────────────────────────────────────────────────────
 
@@ -388,13 +389,16 @@ class GameOptimizerApp:
             def _do(icon=None, item=None):
                 p = self.pm.load(name)
                 if p and self.ab.available:
-                    threading.Thread(
-                        target=lambda: (
-                            self.ab.write_and_apply(2, p),
+                    def work():
+                        # From the slot that already holds it (nothing else overwritten,
+                        # no Afterburner restart), else slot 2 — as at the app start. It
+                        # was always slot 2, and recorded as applied even when it failed.
+                        sl = getattr(self, "sl", None)
+                        slot = sl._startup_slot(p) if sl is not None else 2
+                        ok, _err = self.ab.write_and_apply(slot, p)
+                        if ok:
                             self.cr.save_last_applied(p.to_dict())
-                        ),
-                        daemon=True
-                    ).start()
+                    threading.Thread(target=work, daemon=True).start()
             return _do
 
         p_items = [
@@ -404,7 +408,7 @@ class GameOptimizerApp:
                 apply_fn(p.name)
             )
             for p in sorted(profiles, key=lambda x: x.name)
-        ] or [MI("Keine Profile vorhanden", None, enabled=False)]
+        ] or [MI(i18n.t("tray_no_profiles"), None, enabled=False)]
 
         volt_s    = f"{self._volt:.0f}mV  |  " if self._volt > 0 else ""
         stats_lbl = (
@@ -413,14 +417,14 @@ class GameOptimizerApp:
         )
 
         return Menu(
-            MI("⚡ GameOptimizerPro öffnen", self._open, default=True),   # a click on the icon opens
+            MI(i18n.t("tray_open"), self._open, default=True),   # a click on the icon opens
             Menu.SEPARATOR,
-            MI("GPU Profil ▶",              Menu(*p_items)),
-            MI("GPU auf Stock zurücksetzen", self._reset_gpu),
+            MI(i18n.t("tray_gpu_profile"), Menu(*p_items)),
+            MI(i18n.t("tray_reset_gpu"), self._reset_gpu),
             Menu.SEPARATOR,
             MI(stats_lbl, None, enabled=False),
             Menu.SEPARATOR,
-            MI("Beenden",                   self._exit),
+            MI(i18n.t("tray_exit"), self._exit),
         )
 
     # ── Background threads ────────────────────────────────────────────────────
@@ -618,6 +622,7 @@ class GameOptimizerApp:
 
         # 4. mainloop() blocks here in main thread — the ONLY correct place
         self._window.mainloop()
+        self._after_mainloop()
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
@@ -637,6 +642,12 @@ def main():
     if owns_console():
         relaunch_windowless([] if is_admin() else [NO_ADMIN_PROMPT])
 
+    # One instance at a time — after the relaunches above (they start a new process
+    # and end this one), before anything else: a second start while the app ran in
+    # the tray installed a pending update under the running instance (the installer
+    # only waits for the process that started it).
+    if not single_instance(20.0 if AFTER_RESTART in sys.argv else 0.0):
+        sys.exit(0)                     # the running instance shows its window
     if not ensure_ui_package():
         sys.exit(1)
     # An update downloaded earlier ("install at the next start"): installed now,
@@ -649,8 +660,6 @@ def main():
             sys.exit(0)
     except Exception:
         pass
-    if not single_instance(20.0 if AFTER_RESTART in sys.argv else 0.0):
-        sys.exit(0)                     # the running instance shows its window
     GameOptimizerApp().run()
 
 

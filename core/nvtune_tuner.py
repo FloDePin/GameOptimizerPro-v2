@@ -165,6 +165,12 @@ class StressTester:
     # own load used to count as passed until the driver reset killed the worker
     # (TdrDelay — 10 s on the test PC, if it fires at all).
     HANG_S = 8.0
+    # No result at all since the worker started — while an earlier run of this
+    # tester (the tune's baseline) delivered: it hung on its very first product
+    # (where a too-high clock fails first), or CUDA did not start and the worker fell
+    # back to the CPU. Either way no GPU load was tested, and the step passed. A
+    # start-up takes a few seconds (cupy, CUDA context, the first product).
+    START_HANG_S = 30.0
     # After the worker died, wait this long before the step's last look at the event
     # log: the driver's error entries come right with the failure (live: 24 x
     # nvlddmkm 13 two seconds before the compute error was reported).
@@ -178,6 +184,7 @@ class StressTester:
         self._proc: Optional[subprocess.Popen] = None
         self._metrics: dict = {"RATE": [], "BW": [], "ERR": [], "LAST": 0.0}
         self._t0 = 0.0
+        self._delivered = False        # a run of this tester got results (the load works here)
 
     def _worker_path(self):
         # Worker lives at project root, not in core/
@@ -357,6 +364,16 @@ class StressTester:
                 result.abort_reason = CT.T(f"GPU hängt — seit {quiet:.0f} s keine Ergebnisse der Last",
                                            f"GPU hung — no results from the load for {quiet:.0f} s")
                 break
+            # Nothing at all since the start (START_HANG_S). A tester that never got a
+            # result is left to the baseline check (no cupy: no GPU load at all).
+            since = time.time() - start
+            if self._proc and not quiet_since and self._delivered and since >= self.START_HANG_S:
+                result.crash_detected = result.hang_detected = True
+                result.abort_reason = CT.T(f"GPU hängt — seit dem Start ({since:.0f} s) keine Ergebnisse der "
+                                           f"Last (oder CUDA startete nicht)",
+                                           f"GPU hung — no results from the load since its start ({since:.0f} s; "
+                                           f"or CUDA did not start)")
+                break
 
             # Driver reset (event log) every 10 s, each look from where the last
             # one ended. It used to look only at "elapsed % 10 == 0": a look takes
@@ -374,6 +391,8 @@ class StressTester:
             time.sleep(1.0)
 
         self.stop()
+        if self._metrics.get("LAST"):
+            self._delivered = True
         # The step's last seconds (after the last look) — a step only passes
         # when nothing happened up to its very end. Also when the worker died:
         # live (round 17, 1025 mV, +194 MHz) a compute error came with 24 GPU
@@ -1971,6 +1990,9 @@ class AutoTuner:
         if curve is None:
             raise TunerApplyError(T(f"Rundum-Tuner: {src}", f"All-round tuner: {src}"))
         points = curve.active_points()
+        if not points:
+            raise TunerApplyError(T("Rundum-Tuner: die V/F-Kurve in Afterburner hat keine aktiven Punkte",
+                                    "All-round tuner: Afterburner's V/F curve has no active points"))
         self._log(T(f"Rundum-Tuner — Ziel: {gname}", f"All-round tuner — goal: {gname}"))
         self._log(T(f"  V/F-Kurve aus [{src}]: {len(points)} aktive Punkte, "
                     f"{points[0].voltage_mv:.0f}–{points[-1].voltage_mv:.0f} mV",

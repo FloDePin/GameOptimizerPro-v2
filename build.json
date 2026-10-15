@@ -1,5 +1,5 @@
 {
-  "build": 34,
-  "date": "2026-10-10",
-  "notes": "Rundum-Tuner komplett live geprüft: gespeicherte Mindestspannung spart Messpunkte, Feinsuche nach unten bei Effizienz; Log-Text zur Mindestspannung korrigiert."
+  "build": 35,
+  "date": "2026-10-15",
+  "notes": "Prüfbericht abgearbeitet: Update wird nicht mehr unter einer laufenden App installiert, Sprachwechsel startet sauber neu, Tray-Menü in der App-Sprache, eine Last ohne Ergebnis zählt im Tuner als Fehler."
 }

@@ -124,6 +124,8 @@ def mixed_stress(parent_pid):
                 if now - last >= 1.0:
                     _emit(f"RATE {flop * iters / (now - last) / 1e12:.3f}")
                     last, iters, alive_at = now, 0, now
+                    if not _parent_alive(parent_pid):     # GUI gone: not the rest of the phase
+                        return
                 elif now - alive_at >= 1.0:               # phase change: no 2-s gap
                     _emit("BEAT 1")
                     alive_at = now

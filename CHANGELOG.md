@@ -531,6 +531,34 @@ verifiers (VERIFY_MAP stays 1:1) and full English descriptions.
     because it caps its curve at the game test's voltage.
   - 1118 checks in 30 suites, all green.
 
+- **Round 28 — external audit checked against the code** (build 35). Twelve reported
+  points, each verified first; the confirmed ones fixed:
+  - Second start while an update waited ("install at the next start") and the app ran in
+    the tray: the update was installed under the running instance (the installer only
+    waited for the second process). The one-instance check now comes first.
+  - Language switch: the new instance was started without the "wait for me" flag next to
+    the still-running one, and the old tray icon stayed. It now uses the app's own exit
+    (tuner reset to stock, tray icon removed) and the new instance waits.
+  - Found while checking that: the app's exit started the new instance from a background
+    thread after a short pause — with the window gone, the main thread returned and
+    Python could end before that thread woke, so the restart after an update could be
+    lost. The main thread now waits for it (and restarts itself if it doesn't come).
+  - Stress tester: a load that never delivered a single result (hung on its first product,
+    or CUDA failed to start and the worker fell back to the CPU) let the step pass on an
+    untested GPU. After the tune's baseline proved the load works, 30 s without any result
+    now fail the step as a hang. (The audit's fix — the 8-s limit from the worker's start —
+    would have flagged normal start-ups as hangs.)
+  - Tray menu: labels follow the app's language; a profile applied from the tray uses the
+    slot that already holds it (it always overwrote slot 2) and is only recorded as
+    applied when the apply worked.
+  - Smaller: the "mixed" load checks every second that the app is still there (it could
+    run up to 10 s on after a crash); NVML is shut down once; the drift dialog changes the
+    applied-tweak list under the runner's lock; an empty V/F curve gives a clear message;
+    the GPU watchdog leaves out an event from the very second a profile was applied in;
+    autostart failures log their reason; the crash dialog's title is localized; the page
+    pre-build timer is cancelled on close.
+  - 1141 checks in 31 suites, all green.
+
 ### 🔎 Reviewed, verified NOT a bug
 
 Some reported items were checked against the actual code and left unchanged
@@ -540,4 +568,9 @@ written); the NVML-shutdown "leak" and Afterburner lock-check cost were
 overstated. Known low-impact edge cases (CPU topology on >64-thread CPUs,
 graph rendering across data gaps, `apply()` trusting a PowerShell exit code
 that `-EA SilentlyContinue` can leave at 0) are documented and mitigated by the
-live verifier rather than papered over.
+live verifier rather than papered over. From the round-28 audit: the restore-point name
+filter drops umlauts, but the app only ever passes a fixed ASCII name; 60-s sleeps in the
+tray threads don't delay quitting (daemon threads, the process ends at once); the
+kernel32 calls had no pointer truncation (None goes as a full-width NULL, the handles
+were typed) — argument types added anyway; PowerShell tweaks and their exit code: see
+above, the live verifier shows a tweak that didn't take effect.

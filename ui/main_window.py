@@ -552,9 +552,7 @@ class GameOptimizerWindow(ctk.CTk):
         from core.i18n import current_lang
         opt = self._tab_frames.get("optimizer")
         if drop:
-            for tid in drop:
-                self.runner._applied.pop(tid, None)
-            self.runner._save_state()
+            self.runner.forget(drop)
             for tid in drop:
                 var = getattr(opt, "_vars", {}).get(tid)
                 if var is not None:
@@ -576,9 +574,7 @@ class GameOptimizerWindow(ctk.CTk):
             # A tweak that could not be applied is not in effect: stop tracking
             # it, otherwise this dialog asked again at every start.
             if failed_ids:
-                for tid in failed_ids:
-                    self.runner._applied.pop(tid, None)
-                self.runner._save_state()
+                self.runner.forget(failed_ids)        # under the runner's lock (worker thread)
             n_ok = len(tweaks) - len(failed)
 
             def done():
@@ -702,6 +698,17 @@ class GameOptimizerWindow(ctk.CTk):
 
         set_lang(new)   # persists to disk
 
+        # The app's own exit (GameOptimizerPro._shutdown): a running Auto-Tune is reset
+        # to stock first, the tray icon is removed, and the new instance waits for this
+        # one to be gone (--after-restart). Before, the new one was started without it
+        # next to a still-running instance (single-instance lock) and the tray icon of
+        # the old one stayed behind.
+        exit_fn = getattr(self, "request_exit", None)
+        if callable(exit_fn):
+            exit_fn(relaunch=True)
+            return
+
+        # A window without the app around it: close and relaunch here.
         # A running Auto-Tune must not be killed mid-step by os._exit below —
         # that left the GPU on an untested overclock. Reset to stock first.
         try:
@@ -709,8 +716,6 @@ class GameOptimizerWindow(ctk.CTk):
                 self.tuner.abort()
         except Exception:
             pass
-
-        # Close cleanly, then relaunch a fresh instance
         try:
             self.monitor.close()
         except Exception:
@@ -720,13 +725,14 @@ class GameOptimizerWindow(ctk.CTk):
         import subprocess
         try:
             from core.app_launch import gui_python      # pythonw: no console window
-            subprocess.Popen([gui_python(), str(BASE / "GameOptimizerPro.py")], cwd=str(BASE))
+            subprocess.Popen([gui_python(), str(BASE / "GameOptimizerPro.py"), "--after-restart"],
+                             cwd=str(BASE))
         except Exception:
             pass
         os._exit(0)
 
     def destroy(self):
-        for attr in ("_tick_id", "_geo_job"):
+        for attr in ("_tick_id", "_geo_job", "_prebuild_id"):
             try:
                 if getattr(self, attr, None):
                     self.after_cancel(getattr(self, attr))

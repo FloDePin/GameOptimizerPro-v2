@@ -210,6 +210,11 @@ def s_dash():
             self._applied = {"disable_telemetry": "x", "disable_bing_search": "y"}
             self.saved = 0; self.applied = []; self.backups = []
         def _save_state(self): self.saved += 1
+        def forget(self, ids):                   # as TweakRunner.forget (round 28)
+            gone = [i for i in ids if self._applied.pop(i, None) is not None]
+            if gone:
+                self._save_state()
+            return gone
         def backup_registry(self, label): self.backups.append(label)
         def apply(self, t):
             self.applied.append(t.id); return (t.id != "disable_bing_search", "Zugriff verweigert")

@@ -67,6 +67,16 @@ class TweakRunner:
                 self._applied[new_id] = datetime.now().isoformat()
                 self._save_state()
 
+    def forget(self, tweak_ids):
+        """No longer tracked as applied (drift dialog: dropped by the user, or the
+        re-apply failed) — under the lock: the drift re-apply runs in a worker thread
+        while the window can apply / revert at the same time."""
+        with self._lock:
+            gone = [tid for tid in tweak_ids if self._applied.pop(tid, None) is not None]
+            if gone:
+                self._save_state()
+        return gone
+
     def _save_state(self):
         with self._lock:
             self._state_file.parent.mkdir(parents=True, exist_ok=True)

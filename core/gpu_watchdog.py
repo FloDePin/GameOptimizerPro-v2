@@ -125,8 +125,10 @@ def check(cr, logs_dir, seen_until: float = 0.0,
     if not last or str(last.get("name", "")).startswith("__"):
         return None
     seen = float(seen_until or 0)
-    # events strictly after the last one the user saw (it is logged to the second)
-    ev = [e for e in trouble_since(max(applied, seen), logs_dir, read) if e[0] > seen]
+    # Events (and the query's start) are logged to the second: one from the second the
+    # profile was applied in may be from BEFORE it — only later seconds count. And only
+    # those after the last one the user saw.
+    ev = [e for e in trouble_since(max(applied, seen), logs_dir, read) if e[0] > max(seen, int(applied))]
     if not ev:
         return None
     return {"profile": last.get("name", ""), "applied": applied, "events": ev, "last": ev[-1][0],

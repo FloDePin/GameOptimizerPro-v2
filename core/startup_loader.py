@@ -5,6 +5,7 @@ GameOptimizerPro Startup Loader
 - Registriert / entfernt GameOptimizerPro aus Windows Autostart (HKCU Run)
 """
 
+import logging
 import os, subprocess
 try:
     import winreg
@@ -189,8 +190,14 @@ class StartupLoader:
                     capture_output=True, text=True, creationflags=_nw_flags(), timeout=30)
                 self._remove_legacy_run()   # alten Run-Eintrag entfernen
                 if r.returncode != 0:
+                    # the settings page only says "failed" — the reason goes into the log
+                    logging.getLogger("gop.startup").warning(
+                        "Autostart: schtasks /Create failed (%s): %s", r.returncode,
+                        ((r.stderr or "") + (r.stdout or "")).strip()[:300])
                     return False
-                self.harden_task()          # no 72 h kill, runs on battery too
+                if not self.harden_task():  # no 72 h kill, runs on battery too
+                    logging.getLogger("gop.startup").warning(
+                        "Autostart: task created, its settings (time limit, battery) not changed")
                 return True
             else:
                 subprocess.run(["schtasks", "/Delete", "/TN", TASK_NAME, "/F"],
@@ -198,6 +205,7 @@ class StartupLoader:
                 self._remove_legacy_run()
                 return True
         except Exception:
+            logging.getLogger("gop.startup").warning("Autostart change failed", exc_info=True)
             return False
 
     # ── Legacy HKCU\Run Migration/Cleanup ─────────────────────────────────────
