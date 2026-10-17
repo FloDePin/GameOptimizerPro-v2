@@ -200,12 +200,14 @@ class StressTester:
         if os.path.exists(wp):
             try:
                 flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+                # an earlier run delivered: CUDA works here, a start-up error is instability
+                env = dict(os.environ, GOP_STRESS_GPU_OK="1") if self._delivered else None
                 self._proc = subprocess.Popen(
                     [sys.executable, wp, str(os.getpid()), mode],  # GUI PID → dead-man switch
                     stdout=subprocess.PIPE,
                     stderr=subprocess.DEVNULL,
                     text=True, encoding="utf-8", errors="replace",
-                    creationflags=flags
+                    creationflags=flags, env=env
                 )
                 threading.Thread(target=self._read_worker,
                                  args=(self._proc, self._metrics, self._t0),

@@ -353,6 +353,14 @@ if __name__ == "__main__":
         print(f"CUDA error under load: {e}", file=sys.stderr)
         sys.exit(EXIT_COMPUTE_ERROR)
     except Exception as e:
-        # Echter CUDA-/Laufzeitfehler beim Start: sichtbar machen statt still als "kein CUDA"
+        # A CUDA error while setting up (the inputs, the reference product). When the
+        # tester's earlier runs got results (GOP_STRESS_GPU_OK), CUDA works on this card:
+        # the error comes from the clock just applied — instability, at once, instead of
+        # a CPU load that the tester only calls a hang after START_HANG_S.
+        if os.environ.get("GOP_STRESS_GPU_OK") == "1":
+            _emit("ERR cuda")
+            print(f"CUDA error at start-up under a working GPU: {e}", file=sys.stderr)
+            sys.exit(EXIT_COMPUTE_ERROR)
+        # Echter CUDA-/Laufzeitfehler beim ersten Start: sichtbar machen statt still als "kein CUDA"
         print(f"CUDA stress failed: {e}", file=sys.stderr)
         cpu_stress(parent_pid)

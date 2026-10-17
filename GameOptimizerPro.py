@@ -498,6 +498,11 @@ class GameOptimizerApp:
     # via after() — after() from a worker raises on Python 3.14).
 
     def _watchdog_start(self):
+        """One check (and dialog) at a time: the start check and a live fault can meet —
+        ChoiceDialog waits in its own event loop, where the pending poll keeps running."""
+        if getattr(self, "_watchdog_busy", False):
+            return
+        self._watchdog_busy = True
         from core import app_settings, gpu_watchdog
         box: dict = {}
 
@@ -514,8 +519,11 @@ class GameOptimizerApp:
             if th.is_alive():
                 self._window.after(400, poll)
                 return
-            if box.get("found") and not self.tuner.is_running:
-                self._watchdog_dialog(box["found"])
+            try:
+                if box.get("found") and not self.tuner.is_running:
+                    self._watchdog_dialog(box["found"])
+            finally:
+                self._watchdog_busy = False
         self._window.after(400, poll)
 
     # Round 31: while the app runs (window or tray) a flight recorder keeps the last
@@ -568,7 +576,10 @@ class GameOptimizerApp:
     def _watchdog_pending_poll(self):
         """Main thread: show the watchdog once the user is in the app again."""
         try:
-            if self._watchdog_pending and self._window.state() == "normal" and self._window.focus_displayof():
+            # a check / dialog already open: the live fault waits (it is newer than what
+            # that dialog marks as seen, so the next check finds it)
+            if (self._watchdog_pending and not getattr(self, "_watchdog_busy", False)
+                    and self._window.state() == "normal" and self._window.focus_displayof()):
                 self._watchdog_pending = False
                 self._watchdog_start()
         except Exception:

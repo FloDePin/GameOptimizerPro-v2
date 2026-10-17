@@ -617,6 +617,17 @@ verifiers (VERIFY_MAP stays 1:1) and full English descriptions.
     next to a game).
   - 1266 checks in 34 suites, all green.
 
+- **Round 32 — an external review checked against the code** (build 39):
+  - Fixed: the GPU watchdog's start check and a live fault could open a second dialog — the dialog
+    waits in its own event loop, where the 5-s start timer and the pending poll keep running. One
+    check / dialog at a time now; a live fault that arrives meanwhile waits and gets its own check
+    after the dialog closed.
+  - Fixed: a CUDA error while the stress worker set up its load (inputs, reference product) fell back
+    to a CPU load silently; the tester called that a hang only after 30 s. When an earlier run of the
+    tester delivered results, CUDA works on that card: the worker now reports a compute error at once.
+    On a first run (a PC where CUDA does not start) the CPU fallback stays.
+  - 1278 checks in 35 suites, all green.
+
 ### 🔎 Reviewed, verified NOT a bug
 
 Some reported items were checked against the actual code and left unchanged
@@ -631,4 +642,4 @@ filter drops umlauts, but the app only ever passes a fixed ASCII name; 60-s slee
 tray threads don't delay quitting (daemon threads, the process ends at once); the
 kernel32 calls had no pointer truncation (None goes as a full-width NULL, the handles
 were typed) — argument types added anyway; PowerShell tweaks and their exit code: see
-above, the live verifier shows a tweak that didn't take effect.
+above, the live verifier shows a tweak that didn't take effect. From the round-32 review: releasing the instance mutex before the restart's Popen gains nothing — the new instance waits for it and takes the abandoned mutex the moment this process ends (right after Popen), and ReleaseMutex only works on the owning thread (the restart usually runs on the stop thread); `_emit()` and the WMI reads keep catching their errors on purpose (a closed pipe, a broken WMI must not end the load or the start).

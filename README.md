@@ -4,7 +4,7 @@
 
 **A Windows gaming optimizer with a GPU auto-tuner that measures your card's V/F curve point by point — plus 109 reversible Windows tweaks, game profiles, a BIOS guide and stress tests.**
 
-[![Version](https://img.shields.io/badge/version-2.0%20%C2%B7%20build%2038-d9480f?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
+[![Version](https://img.shields.io/badge/version-2.0%20%C2%B7%20build%2039-d9480f?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
 [![CI](https://github.com/FloDePin/GameOptimizerPro-v2/actions/workflows/ci.yml/badge.svg)](https://github.com/FloDePin/GameOptimizerPro-v2/actions/workflows/ci.yml)
 [![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4?style=flat-square&logo=windows)](https://www.microsoft.com/windows)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
@@ -97,7 +97,7 @@ Windows 10 / 11 · Python 3.10+ · admin rights (the launcher asks through UAC) 
 
 - 📖 [All features in detail](docs/FEATURES.md) — including the project structure
 - 📜 [Changelog](CHANGELOG.md)
-- 🧪 1266 automated checks in 34 test suites (`python tests\run_all_tests.py`), run on every push
+- 🧪 1278 automated checks in 35 test suites (`python tests\run_all_tests.py`), run on every push
 - 🤝 Pull requests are welcome — for bigger changes please open an issue first.
 
 <div align="center">
