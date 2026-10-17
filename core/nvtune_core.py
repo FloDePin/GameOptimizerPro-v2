@@ -272,6 +272,34 @@ class ProfileManager:
         self.save(p)
         return p
 
+    def derate_points(self, name: str, anchors_mv: list, core_mhz: int = DERATE_CORE_MHZ) -> Optional[TuneProfile]:
+        """Round 31 — a targeted safer copy: only the curve points a game hung at
+        (gpu_watchdog.affected_anchors) −core_mhz; the rest of the curve and the memory
+        stay. A lower point is never faster than one above it. Same naming as derate().
+        None: `name` unknown, no own curve or none of the points in it."""
+        import re
+        src = self.load(name)
+        want = {int(a) for a in anchors_mv or []}
+        if src is None or not src.curve_points or not want & {int(mv) for mv, _f in src.curve_points}:
+            return None
+        base = re.sub(r"_sicher\d*$", "", src.name)
+        new_name, i = f"{base}_sicher", 2
+        while self._read(new_name) is not None:
+            new_name, i = f"{base}_sicher{i}", i + 1
+        p = TuneProfile.from_dict(src.to_dict())
+        p.name = new_name
+        pts = sorted([int(mv), int(f) - (int(core_mhz) if int(mv) in want else 0)] for mv, f in src.curve_points)
+        for k in range(len(pts) - 2, -1, -1):         # monotonic from the top, only lowering
+            pts[k][1] = min(pts[k][1], pts[k + 1][1])
+        p.curve_points = pts
+        p.created_at = datetime.now().isoformat()
+        where = ", ".join(str(a) for a in sorted(want))
+        p.notes = (_t(f"[Gezielt entschärft aus {src.name}: {where} mV −{core_mhz} MHz] ",
+                      f"[Made safer at points from {src.name}: {where} mV −{core_mhz} MHz] ")
+                   + (src.notes or ""))[:400]
+        self.save(p)
+        return p
+
     @staticmethod
     def _safer_level(name: str, base: str) -> int:
         """0 = the original, 1 = '<base>_sicher', n = '<base>_sicher<n>'."""

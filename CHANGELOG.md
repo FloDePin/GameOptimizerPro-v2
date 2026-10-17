@@ -598,6 +598,25 @@ verifiers (VERIFY_MAP stays 1:1) and full English descriptions.
   - Registry backup also covers the game profile keys. 109 tweaks.
   - 1214 checks in 33 suites, all green.
 
+- **Round 31 — the precise GPU watchdog** (build 38):
+  - New: a **flight recorder** while the app runs (window or tray): clock, voltage, power, temperature
+    and load once a second, the last minute also on disk (written every few seconds under load, once a
+    minute when idle) — so a crash that restarts the PC leaves the seconds before it.
+  - New: **live watch** — the System event log is read every few seconds from where it was last time
+    (classic event log API, no PowerShell). A game's GPU hang (nvlddmkm 13 / 14 / 153, Display 4101) that
+    is none of the app's own loads (tune, stress test, FurMark run, Afterburner restart for a profile)
+    gives a Windows notification; the dialog comes when the user is back in the app, never over a game.
+  - The dialog names the state just before the hang (voltage / clock / power / temperature) and offers to
+    lower **only the curve points involved** by 30 MHz (memory and the rest of the curve stay). If the same
+    points of the same profile fail again, the whole profile is made safer (−30 MHz, memory −200).
+  - An unexpected restart (Kernel-Power 41) counts as a GPU crash only when the recording shows the card
+    under load until it ended — idle restarts (power cut, reset button) are left out.
+  - The next curve tune adds the reset margin (+30 MHz, not stacked) at points near a voltage where games
+    hung on this card.
+  - The test battery runs at the lowest CPU priority by itself and gives numpy one thread (it often runs
+    next to a game).
+  - 1266 checks in 34 suites, all green.
+
 ### 🔎 Reviewed, verified NOT a bug
 
 Some reported items were checked against the actual code and left unchanged

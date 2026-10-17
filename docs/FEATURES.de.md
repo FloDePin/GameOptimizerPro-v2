@@ -32,6 +32,7 @@ Alles, was die App macht, im Detail. Zitierte Ergebnisse aus Live-Läufen stamme
 - **Spiel-Endtest nach dem Endtest (beide Modi)** — was ein Spiel macht und Dauerlast-Tests nicht: 1 min Abkühlen mit den Einstellungen (eine kalte Karte fährt ihre Kurve höher), 5 min **Lastwechsel beim höchsten Takt** (Lastspitzen zufälliger Länge mit kurzen Pausen — dort sackt die Spannung ab), 4 min Boost-Punkt. Jedes Ergebnis geprüft; ein Fehler nimmt einen Schritt zurück und wiederholt den Endtest. *(Ein Spiel kann auch mit einem Profil hängen — D3D12 „device hung“ —, das jeden Dauerlast-Test bestanden hat; das hier fängt mehr davon ab.)*
 - **Hänger-Erkennung:** Liefert eine Testlast 8 s keine Ergebnisse mehr, fällt der Schritt als „GPU hängt“ durch (zählte früher als bestanden, bis ein Treiber-Reset sie beendete)
 - **GPU-Wächter:** bei jedem App-Start GPU-Hänger / Treiber-Resets seit dem Übernehmen des Profils (eigene Tunes und Stresstests ausgenommen) → „Entschärfen“, „Standard“ oder „Behalten“
+- **Flugschreiber + Live-Wächter:** solange die App läuft (Fenster oder Tray), werden Takt, Spannung, Leistung, Temperatur und Auslastung einmal pro Sekunde aufgezeichnet (die letzte Minute auch auf der Platte — ein Absturz, der den PC neu startet, hinterlässt sie), und das Ereignisprotokoll wird alle paar Sekunden gelesen. Ein GPU-Hänger im Spiel gibt eine Windows-Benachrichtigung — kein Fenster über dem Spiel; der Dialog kommt, wenn du wieder in der App bist. Er nennt den Zustand kurz vor dem Hänger (z. B. „1050 mV / 2880 MHz“) und bietet an, **nur die betroffenen Kurvenpunkte** um 30 MHz zu senken; hakt es an denselben Punkten erneut, wird das ganze Profil entschärft. Ein unerwarteter Neustart zählt nur, wenn die Karte bis zum Ende der Aufzeichnung unter Last war. Wo Spiele gehakt haben, hält der nächste Tune 30 MHz mehr Abstand
 - **Entschärfen** (Profile: Knopf oder Rechtsklick): eine Kopie mit Kurve / Takt −30 MHz und Speicher −200 MHz, danach das Slot-Menü zum Anwenden. Wer ein Profil anwendet, zu dem es so eine entschärfte Kopie gibt, wird vorher gefragt („die sichere nehmen?“)
 - **Nur eine Instanz:** „Im Tray weiterlaufen“ versteckt das Fenster nur — ein zweiter Start holt jetzt die laufende App nach vorne, statt eine zweite daneben zu starten
 - **Womit der PC startet:** Afterburner wendet bei jedem Windows-Start seinen eigenen Boot-Eintrag an
@@ -177,6 +178,8 @@ GameOptimizerPro/
 │   ├── bios_guide.py         ← BIOS-Guide: 16 Plattformen, Menüpfade je Board-Hersteller
 │   ├── bios_detector.py      ← Was Windows weiß (RAM-Profil, ReBAR, Secure Boot, CSM)
 │   ├── health_report.py      ← 30-Tage Windows-Health-Report
+│   ├── gpu_watchdog.py       ← GPU-Hänger / Resets seit dem übernommenen Profil, Fehlerpunkt
+│   ├── gpu_flight.py         ← Flugschreiber + Live-Ereignisprüfung (solange die App läuft)
 │   ├── interrupts.py         ← Interrupt-Ansicht: MSI / Leitung je PCI-Gerät (nur lesend)
 │   ├── game_profiles.py      ← Spiel-Profile: CPU-/Datenträger-Priorität je .exe, Vollbild-Flag
 │   ├── remnant_detector.py   ← Erkennung von Tweak-Tool-Resten

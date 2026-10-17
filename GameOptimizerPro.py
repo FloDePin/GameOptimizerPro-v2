@@ -308,6 +308,12 @@ class GameOptimizerApp:
         self._abort_tuning_if_running()      # GPU back to stock BEFORE we die
         try: self.temp_monitor.stop()
         except Exception: pass
+        live = getattr(self, "_live", None)
+        if live is not None:
+            try:
+                live.stop()                  # before NVML closes; the loop writes its recording once more
+            except Exception:
+                pass
         try:
             self.monitor.close()
         except Exception:
@@ -512,30 +518,100 @@ class GameOptimizerApp:
                 self._watchdog_dialog(box["found"])
         self._window.after(400, poll)
 
+    # Round 31: while the app runs (window or tray) a flight recorder keeps the last
+    # minutes of clock / voltage / power and sees GPU events within seconds. A fault
+    # gives a Windows notification (no window over a game); the dialog comes when the
+    # user is back in the app — the window has the focus — or at the next start.
+
+    def _live_watch_start(self):
+        from core import gpu_flight, gpu_watchdog
+        self._watchdog_pending = False
+        try:
+            gpu = self.monitor.read().name or ""
+        except Exception:
+            gpu = ""
+        try:
+            self._live = gpu_flight.LiveWatch(
+                self.monitor.read, self._logs_dir,
+                is_busy=self._gpu_busy, on_fault=self._on_live_fault,
+                profile_fn=self.cr.load_last_applied, gpu_name=gpu)
+            self._live.start()
+        except Exception as e:
+            self._live = None
+            print(f"[GameOptimizerPro] GPU flight recorder not started: {e}")
+            return
+        self._window.after(1500, self._watchdog_pending_poll)
+
+    def _gpu_busy(self) -> bool:
+        """The app's own GPU work right now: a tune, a stress test / FurMark run, or an
+        Afterburner restart for a profile — their events are not a game's fault."""
+        from core import gpu_watchdog
+        if self.tuner.is_running or gpu_watchdog.own_load_active():
+            return True
+        r = getattr(getattr(self.monitor, "mahm", None), "restarting", False)
+        try:
+            return bool(r() if callable(r) else r)
+        except Exception:
+            return False
+
+    def _on_live_fault(self, fault: dict):
+        """From the recorder's thread: remember it, tell the user without a window."""
+        from core import gpu_flight
+        from core.i18n import tr as _tr
+        self._watchdog_pending = True
+        pt = fault.get("point") or {}
+        where = (_tr(f"Bei etwa {pt['mv']:.0f} mV / {pt.get('mhz', 0):.0f} MHz. ",
+                     f"At about {pt['mv']:.0f} mV / {pt.get('mhz', 0):.0f} MHz. ") if pt.get("mv") else "")
+        gpu_flight.toast(_tr("GPU-Fehler erkannt", "GPU fault detected"),
+                         where + _tr("Details in GameOptimizerPro.", "Details in GameOptimizerPro."))
+
+    def _watchdog_pending_poll(self):
+        """Main thread: show the watchdog once the user is in the app again."""
+        try:
+            if self._watchdog_pending and self._window.state() == "normal" and self._window.focus_displayof():
+                self._watchdog_pending = False
+                self._watchdog_start()
+        except Exception:
+            pass
+        try:
+            self._window.after(1500, self._watchdog_pending_poll)
+        except Exception:
+            pass
+
     def _watchdog_dialog(self, found: dict):
         from core import app_settings, gpu_watchdog
         from core.i18n import current_lang
         from ui.components import ChoiceDialog
         from ui.theme import AMBER, tr
         de = current_lang() == "de"
+        anchors = found.get("anchors") or []
+        pts = ", ".join(str(a) for a in anchors)
+        opts = []
+        if anchors and not found.get("escalate"):
+            opts.append(("point", tr(f"Gezielt entschärfen: {pts} mV −30 MHz (empfohlen)",
+                                     f"Make safer at these points: {pts} mV −30 MHz (recommended)")))
+            opts.append(("safer", tr("Ganzes Profil entschärfen (Kurve −30 MHz, Speicher −200 MHz)",
+                                     "Make the whole profile safer (curve −30 MHz, memory −200 MHz)")))
+        else:
+            opts.append(("safer", tr("Profil entschärfen und anwenden (empfohlen)", "Make the profile safer and "
+                                                                                     "apply it (recommended)")))
+        opts += [("stock", tr("Grafikkarte auf Standard setzen", "Put the graphics card back to stock")),
+                 ("keep", tr("Profil behalten — erst beim nächsten Ereignis wieder fragen",
+                             "Keep the profile — ask again only after the next event"))]
         choice = ChoiceDialog(
             self._window, tr("GPU-Wächter", "GPU watchdog"), gpu_watchdog.describe(found, de),
-            [("safer", tr("Profil entschärfen und anwenden (empfohlen)", "Make the profile safer and apply it "
-                                                                          "(recommended)")),
-             ("stock", tr("Grafikkarte auf Standard setzen", "Put the graphics card back to stock")),
-             ("keep", tr("Profil behalten — erst beim nächsten Ereignis wieder fragen",
-                         "Keep the profile — ask again only after the next event"))],
-            current="safer", ok_text="OK", accent=AMBER).show()
+            opts, current=opts[0][0], ok_text="OK", accent=AMBER).show()
         if choice is None:
             return                                   # closed: ask again at the next start
         app_settings.set("watchdog_seen_until", found["last"])
         if choice == "keep":
             return
-        if choice == "safer":
+        if choice in ("safer", "point"):
             if self.pm.load(found["profile"]) is None and found.get("data"):
                 from core.nvtune_core import TuneProfile          # e.g. manual offsets: no saved profile
                 self.pm.save(TuneProfile.from_dict(found["data"]))
-            p = self.pm.derate(found["profile"])
+            p = self.pm.derate_points(found["profile"], anchors) if choice == "point" else None
+            p = p or self.pm.derate(found["profile"])
             if p is None:
                 messagebox.showerror("GameOptimizerPro", tr(f"Profil „{found['profile']}“ nicht gefunden.",
                                                             f"Profile '{found['profile']}' not found."),
@@ -565,9 +641,9 @@ class GameOptimizerApp:
             if ok:
                 self.cr.save_last_applied(applied.to_dict())
                 messagebox.showinfo("GameOptimizerPro", tr(
-                    f"„{applied.name}“ ist jetzt aktiv (Afterburner-Platz 2)." if choice == "safer" else
+                    f"„{applied.name}“ ist jetzt aktiv (Afterburner-Platz 2)." if choice != "stock" else
                     "Die Grafikkarte läuft jetzt mit Standardwerten.",
-                    f"'{applied.name}' is active now (Afterburner slot 2)." if choice == "safer" else
+                    f"'{applied.name}' is active now (Afterburner slot 2)." if choice != "stock" else
                     "The graphics card runs at stock now."), parent=self._window)
             else:
                 messagebox.showerror("GameOptimizerPro", str(err), parent=self._window)
@@ -599,6 +675,7 @@ class GameOptimizerApp:
             self._window.after(8000, self._window.update_flow.start)
         # GPU watchdog: did a game hang / crash on the applied profile since it was set?
         self._window.after(5000, self._watchdog_start)
+        self._live_watch_start()            # round 31: recording + live check while the app runs
         self._listen_for_show()             # a second start shows this window instead
 
         # 3. Tray icon in its own background thread

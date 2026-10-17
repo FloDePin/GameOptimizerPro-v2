@@ -2137,8 +2137,18 @@ class AutoTuner:
                             f"Tune gespeichert (Messpunkte nur bis dorthin)",
                             f"  The card's minimum voltage under load: {floor_mv:.0f} mV — saved for the "
                             f"next tune (points only down to it)"))
+        # where games hung on this card before (GPU watchdog, seen live): the same extra
+        # margin as after a reset in the search
+        from core import gpu_watchdog as WD
+        field_mv = WD.field_voltages(self._log_dir, gpu_key) if gpu_key else []
         CT.apply_margins(results, cfg.curve_safety_mhz, cfg.curve_safety_top_mhz,
-                         cfg.curve_reset_extra_mhz)
+                         cfg.curve_reset_extra_mhz, field_mv=field_mv)
+        near = [r.mv for r in results if getattr(r, "field_fault", False) and r.best_mhz]
+        if near:
+            self._log(T(f"  Im Spiel gab es auf dieser Karte schon GPU-Hänger bei {', '.join(map(str, field_mv))} mV "
+                        f"— dort +{cfg.curve_reset_extra_mhz} MHz Sicherheit ({', '.join(map(str, near))} mV)",
+                        f"  Games hung on this card before at {', '.join(map(str, field_mv))} mV — "
+                        f"+{cfg.curve_reset_extra_mhz} MHz margin there ({', '.join(map(str, near))} mV)"))
         anchors = CT.curve_anchors(results)
         if not anchors:
             return self._curve_fail(T("Kein Spannungspunkt stabil messbar — kein Profil gespeichert",

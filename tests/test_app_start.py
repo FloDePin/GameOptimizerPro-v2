@@ -44,6 +44,7 @@ import core.tweak_runner as TRM            # the tweak log / state: the temp fol
 _tr_init = TRM.TweakRunner.__init__
 TRM.TweakRunner.__init__ = lambda self, log_dir=None, *a, **k: _tr_init(self, os.path.join(TMP, "logs"), *a, **k)
 G.GameOptimizerApp._watchdog_start = lambda self: None     # reads the real event log; test_round16
+G.GameOptimizerApp._live_watch_start = lambda self: None   # writes the flight recording into logs/; test_round31
 try:
     import pystray
     pystray.Icon.run = lambda self, setup=None: None       # built and validated, never shown

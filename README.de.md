@@ -4,7 +4,7 @@
 
 **Windows-Gaming-Optimierer mit einem GPU-Auto-Tuner, der die V/F-Kurve deiner Grafikkarte Punkt für Punkt vermisst — dazu 109 umkehrbare Windows-Tweaks, Spiel-Profile, ein BIOS-Guide und Stresstests.**
 
-[![Version](https://img.shields.io/badge/version-2.0%20%C2%B7%20build%2037-d9480f?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
+[![Version](https://img.shields.io/badge/version-2.0%20%C2%B7%20build%2038-d9480f?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
 [![CI](https://github.com/FloDePin/GameOptimizerPro-v2/actions/workflows/ci.yml/badge.svg)](https://github.com/FloDePin/GameOptimizerPro-v2/actions/workflows/ci.yml)
 [![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4?style=flat-square&logo=windows)](https://www.microsoft.com/windows)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
@@ -23,7 +23,7 @@
 | | |
 |---|---|
 | 🎮 **GPU-Auto-Tuner** | Misst jeden Spannungspunkt einzeln und baut eine eigene V/F-Kurve — Ziele *Max. Leistung*, *Ausgewogen*, *Effizienz*. Dazu ein Schnell-Modus (Offset + Power-Limit). |
-| ✅ **Geprüft, nicht geraten** | Gespeichert wird nur, was FurMark, eine Rechenprüfung und einen Spiel-Endtest mit Lastwechseln bestanden hat. Ein Wächter meldet GPU-Hänger im Spiel und bietet ein entschärftes Profil an. |
+| ✅ **Geprüft, nicht geraten** | Gespeichert wird nur, was FurMark, eine Rechenprüfung und einen Spiel-Endtest mit Lastwechseln bestanden hat. Ein Wächter zeichnet Takt und Spannung auf, solange die App läuft, erkennt einen GPU-Hänger im Spiel binnen Sekunden und entschärft nur die betroffenen Kurvenpunkte — der nächste Tune hält dort mehr Abstand. |
 | 📊 **Profilvergleich** | Jedes Profil gegen Standard im selben Benchmark: Punkte, Watt, Punkte pro Watt — und die V/F-Kurven im Diagramm. |
 | 🛠 **109 Windows-Tweaks** | Mit Live-Prüfung (● aktiv · ◑ angewendet · ○ inaktiv), Presets von *Minimal* bis *Hard*, Registry-Backup vor jeder Änderung, *Alles zurücksetzen*. |
 | 🎯 **Spiel-Profile** | Pro Spiel-`.exe`: höhere CPU- und Datenträger-Priorität, auf Wunsch ohne Vollbildoptimierungen — Windows setzt das bei jedem Start selbst, ohne Hintergrundprozess. Läuft das Spiel, zeigt der Status, welche Priorität es wirklich bekommen hat. |
@@ -74,7 +74,7 @@ Jede Karte ist anders — deine Werte zeigt der Profilvergleich in der App.
 
 - Keine BIOS- oder Treiberänderungen — die GPU läuft über MSI Afterburner und NVML; der BIOS-Guide zeigt nur, was einzustellen ist.
 - Jeder Tweak lässt sich einzeln oder komplett zurücksetzen; vor jeder Änderung ein Registry-Backup, ein Wiederherstellungspunkt ist ein Klick.
-- *Abbrechen* setzt die GPU sofort auf Standard; der GPU-Wächter meldet Abstürze im Spiel und bietet ein entschärftes Profil an.
+- *Abbrechen* setzt die GPU sofort auf Standard; der GPU-Wächter meldet Abstürze im Spiel (auch einen, der den PC neu startet) und entschärft das Profil dort, wo es gehakt hat.
 
 ## FAQ
 
@@ -99,7 +99,7 @@ Windows 10 / 11 · Python 3.10+ · Admin-Rechte (der Launcher fragt per UAC) · 
 
 - 📖 [Alle Funktionen im Detail](docs/FEATURES.de.md) — samt Projektstruktur
 - 📜 [Changelog](CHANGELOG.md) (Englisch)
-- 🧪 1214 automatische Prüfungen in 33 Test-Suiten (`python tests\run_all_tests.py`), bei jedem Push
+- 🧪 1266 automatische Prüfungen in 34 Test-Suiten (`python tests\run_all_tests.py`), bei jedem Push
 - 🤝 Pull Requests sind willkommen — bei größeren Änderungen bitte zuerst ein Issue öffnen.
 
 <div align="center">

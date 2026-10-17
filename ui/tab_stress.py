@@ -230,6 +230,7 @@ class StressTab(Page):
         self.btn_int_start.configure(state="disabled")
         self.btn_int_stop.configure(state="normal")
         self._int_t0 = time.time()           # own GPU load: the GPU watchdog leaves it out
+        gpu_watchdog.own_load_started(self._int_t0)
         self.log.append("Internal stress test started.", "header")
         self.log.append(f"Duration: {self.v_int_dur.get()}s | Max temp: {self.v_max_temp.get()}°C")
 
@@ -471,6 +472,7 @@ class StressTab(Page):
         gen = self._ext_gen
         s = {"name": name, "t0": time.time(), "peak": 0, "clk": [], "pwr": 0.0, "use": [],
              "use_all": [], "tdr": False, "status": status, "stopped": False, "out": []}
+        gpu_watchdog.own_load_started(s["t0"])
         pipe = getattr(proc, "stdout", None)
         if pipe is not None:           # drain continuously: a full pipe would block FurMark
             threading.Thread(target=lambda: s["out"].append(pipe.read() or ""), daemon=True).start()

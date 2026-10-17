@@ -1,5 +1,5 @@
 {
-  "build": 37,
+  "build": 38,
   "date": "2026-10-17",
-  "notes": "Neu: Spiel-Profile (CPU-/Datenträger-Priorität pro Spiel), Netzwerk-Tweaks Energy-Efficient Ethernet und Interrupt Moderation, Interrupt-Ansicht in der Diagnose; der Timer-Tweak beschreibt jetzt ehrlich, was er tut."
+  "notes": "Genauerer GPU-Wächter: Flugschreiber für Takt und Spannung, erkennt Spiel-Hänger binnen Sekunden, entschärft nur die betroffenen Kurvenpunkte; der nächste Tune hält dort mehr Abstand."
 }

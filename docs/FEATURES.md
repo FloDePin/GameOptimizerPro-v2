@@ -32,6 +32,7 @@ Everything the app does, in detail. Results quoted from live runs are from one t
 - **Game test after the final test (both modes)** — what a game does that steady tests don't: 1 min cool-down with the settings applied (a cold card runs its curve higher), 5 min of **load changes at the top clock** (bursts of random length with short pauses — where the supply voltage dips), 4 min at the boost point. Every result checked; a failure steps back and runs the final test again. *(A game can hang — D3D12 "device hung" — on a profile that passed every steady test; this catches more of that.)*
 - **Hang detection:** a test load that stops delivering results for 8 s fails as "GPU hangs" (it used to count as passed until a driver reset killed it)
 - **GPU watchdog:** at every app start, GPU hang / driver reset events since the applied profile was set (own tunes and stress tests left out) → "make safer", "stock" or "keep"
+- **Flight recorder + live watch:** while the app runs (window or tray) clock, voltage, power, temperature and load are recorded once a second (the last minute also on disk, so a crash that restarts the PC leaves it behind), and the event log is read every few seconds. A game's GPU hang gives a Windows notification — no window over the game; the dialog comes when you are back in the app. It names the state just before the hang (e.g. "1050 mV / 2880 MHz") and offers to lower **only the curve points involved** by 30 MHz; if the same points fail again, the whole profile is made safer. An unexpected restart counts only when the card was under load until the recording ended. Where games hung, the next tune adds 30 MHz margin
 - **Make safer** (profiles: button or right click): a copy with the curve / core −30 MHz and memory −200 MHz, then the slot menu to apply it. Applying a profile that has such a safer copy asks first ("use the safer one?")
 - **One instance at a time:** "close to tray" only hides the window — a second start now brings the running app to the front instead of starting a second copy next to it
 - **What the PC boots with:** Afterburner applies its own boot entry at every Windows start (with "Apply
@@ -192,7 +193,8 @@ GameOptimizerPro/
 │   ├── tune_history.py       ← Tune log parser
 │   ├── profile_score.py      ← Profile scores vs stock (comparison)
 │   ├── profile_curves.py     ← V/F curves of the profiles (comparison chart)
-│   ├── gpu_watchdog.py       ← GPU hang / reset events since the applied profile
+│   ├── gpu_watchdog.py       ← GPU hang / reset events since the applied profile, fault point
+│   ├── gpu_flight.py         ← Flight recorder + live event watch (while the app runs)
 │   ├── startup_loader.py     ← Autostart + startup profile loader
 │   ├── gpu_defaults.py       ← GPU generation defaults table
 │   ├── app_settings.py       ← Small persistent settings (logs/settings.json)

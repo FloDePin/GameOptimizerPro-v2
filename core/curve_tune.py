@@ -66,6 +66,7 @@ class AnchorResult:
     ran_mv: float = 0.0          # not reachable: the voltage the card ran at instead
     margin_mhz: int = 0          # what apply_margins took off
     steps: list = field(default_factory=list)   # (mhz, passed, reason)
+    field_fault: bool = False    # a game hung near this voltage (GPU watchdog, round 31)
 
     @property
     def offset(self) -> int:
@@ -152,17 +153,24 @@ RESET_EXTRA_MHZ = 30     # + where the search caused a driver reset / a hang
 TOP_BAND_MV = 75
 
 
+FIELD_BAND_MV = 25       # round 31: a point this close to where a game hung (seen live)
+
+
 def apply_margins(results: list[AnchorResult], safety: int = SAFETY_MHZ, top_safety: int = TOP_SAFETY_MHZ,
-                  reset_extra: int = RESET_EXTRA_MHZ, top_band_mv: int = TOP_BAND_MV) -> list[AnchorResult]:
+                  reset_extra: int = RESET_EXTRA_MHZ, top_band_mv: int = TOP_BAND_MV,
+                  field_mv=(), field_band_mv: int = FIELD_BAND_MV) -> list[AnchorResult]:
     """target = best − margin: `top_safety` at the points within top_band_mv of
     the highest measured point (where games boost), `safety` below, +reset_extra
-    where a driver reset or a hang happened at that point. No point faster than
-    a point above it (monotonic from the top, only lowering)."""
+    where a driver reset or a hang happened at that point — in the search, or in a
+    game at a voltage in `field_mv` (the GPU watchdog's recordings). Not stacked: one
+    extra per point. No point faster than a point above it (monotonic from the top,
+    only lowering)."""
     found = [r for r in results if r.best_mhz]
     top_mv = max((r.mv for r in found), default=0)
     for r in found:
+        r.field_fault = any(abs(r.mv - f) <= field_band_mv for f in field_mv)
         r.margin_mhz = ((top_safety if r.mv >= top_mv - top_band_mv else safety)
-                        + (reset_extra if r.tdr else 0))
+                        + (reset_extra if (r.tdr or r.field_fault) else 0))
         r.target_mhz = int(r.best_mhz - r.margin_mhz)
     usable = sorted((r for r in results if r.best_mhz), key=lambda r: r.mv)
     for hi, lo in zip(reversed(usable), list(reversed(usable))[1:]):
