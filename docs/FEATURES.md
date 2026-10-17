@@ -76,7 +76,9 @@ Everything the app does, in detail. Results quoted from live runs are from one t
 - **Registry Backup** — exports every registry branch the tweaks can touch as `.reg` files (double-click to restore). Runs **automatically before every Apply Selected, preset, Revert All and "fix deviations"**, plus on demand; keeps the 10 newest backups and prunes older ones so it can't fill your disk
 
 ### 🛠 Windows Optimizer
-- **107 Tweaks** across Windows, Gaming, Network, Audio categories (incl. AMD GPU tweaks)
+- **109 Tweaks** across Windows, Gaming, Network, Audio categories (incl. AMD GPU tweaks)
+- **Network adapter settings:** Energy-Efficient Ethernet off and Interrupt Moderation off — only on physical wired adapters and only with the keywords the driver itself offers (vendors name them differently); the value found before is kept and put back on revert. No connection drop when applied, effective after a restart
+- **Honest timer tweak:** *Let timer requests apply system-wide* (`GlobalTimerResolutionRequests`) brings back the system-wide effect of a program's timer request on Windows 11 — it sets no resolution itself (that needs a running program), and it says so
 - **Windows 11 24H2/26H2 AI & bloat:** Recall (policy + component removal), Click to Do, Paint AI (Cocreator, Image Creator, generative fill/erase), Notepad AI, on-device text/image generation, the AI host service (`WSAIFabricSvc`), and removal of the Microsoft 365 Copilot app / Dev Home that feature updates re-install — using Microsoft's documented policies where they exist
 - **Storage & RAM:** long paths, reserved storage, pagefile, memory compression, SSD TRIM, scheduled defrag, NVMe queue depth (only offered with an NVMe drive), write-cache buffer flushing (advanced), plus a one-time **safe Disk Cleanup** (no Downloads, no Recycle Bin, no Windows.old)
 - **Drift check at start:** tweaks you applied that a Windows update has reset are listed with one tick box each — ticked ones are re-applied (after a registry backup), unticked ones are no longer tracked; "later" asks again next time
@@ -90,6 +92,7 @@ Everything the app does, in detail. Results quoted from live runs are from one t
 - **Power Plan tweaks write to *every* power scheme** — Windows can activate a different plan after a reboot, which would otherwise make a setting look reverted. Plan GUIDs are read from `powercfg /L`, never the localized plan name, so it works in any language
 - Export / Import settings as `.nextune` files
 - Tooltips (hover `?`) on every single tweak
+- **Game profiles** (Optimizer → Games): choose a game's `.exe` — Windows then starts it with a *High* or *Above normal* CPU priority and a high disk priority (Image File Execution Options), optionally without fullscreen optimizations for that game only. No background process; Windows applies it at every start. While the game runs, the status shows the priority it really got (some anti-cheat systems reset it). Never *Realtime*; Windows and system programs are refused; removing a profile — or *Revert all* — puts back what was there before
 
 ### 🖥 BIOS Guide
 - **Every desktop platform since Intel 8th gen / Ryzen 1000** — 16 platforms: Ryzen 9000X3D / 9000 / 7000X3D / 7000 / 8000G (AM5), Ryzen 5000X3D / 5000 / APUs / 3000 / 1000–2000 (AM4), Core Ultra 200S, Core 12th / 13th–14th gen, 10th–11th gen, 8th–9th gen, plus the basics for anything else (laptops, workstations)
@@ -100,6 +103,7 @@ Everything the app does, in detail. Results quoted from live runs are from one t
 ### 🩺 Diagnose
 - **Health Report** — read-only summary of what Windows already recorded in the last 30 days: WHEA hardware errors, bluescreens, unexpected shutdowns, GPU driver timeouts (TDR), disk errors, app crashes — with severity and last occurrence
 - **Remnant Scan** — read-only detection of leftovers from *other* tweak tools (WinRing0 / inpout drivers, ISLC, TimerResolution autostarts, third-party power plans, Razer Cortex). Reports only — removes nothing
+- **Interrupts** — per PCI device: MSI or the old line interrupt (read from what Windows really allocated, not just the registry flag), number of messages, interrupt priority and core assignment, shared line interrupts — with a note where it matters (a GPU without MSI points to the MSI tweak; a driver that turns MSI off on purpose is left alone). Read-only
 
 ### 📊 Profile Compare
 - Compare up to **4 saved GPU profiles side-by-side** by what they do **against stock in the same benchmark**: a **stock column** as point 0, performance (points vs stock) and efficiency (points per watt vs stock) with ▲ / ▼ / ≈ (within the ±0.7 % run-to-run noise), the FurMark points themselves, power draw, memory and mode
@@ -160,7 +164,7 @@ GameOptimizerPro/
 │   ├── nvtune_tuner.py       ← Auto-tuner: All-round (own V/F curve) + Quick (OC + UV), memory; TDR + error detection
 │   ├── curve_tune.py         ← All-round tuner logic: point search, margins, goals, report
 │   ├── hardware.py           ← WMI hardware detection
-│   ├── tweaks.py             ← 107 tweaks database (Windows, Gaming, Network, Audio)
+│   ├── tweaks.py             ← 109 tweaks database (Windows, Gaming, Network, Audio)
 │   ├── network_test.py       ← Gateway/DNS ping latency test
 │   ├── system_cleaner.py     ← Safe temp/junk cleaner + opt-in Deep Clean
 │   ├── services.py           ← Services Manager logic (remembers original start types)
@@ -178,6 +182,8 @@ GameOptimizerPro/
 │   ├── bios_guide.py         ← BIOS guide: 16 platforms, menu paths per board maker
 │   ├── bios_detector.py      ← What Windows can tell (RAM profile, ReBAR, Secure Boot, CSM)
 │   ├── health_report.py      ← 30-day Windows event/health report
+│   ├── interrupts.py         ← Interrupt view: MSI / line per PCI device (read-only)
+│   ├── game_profiles.py      ← Game profiles: CPU / disk priority per .exe, fullscreen flag
 │   ├── remnant_detector.py   ← leftover tweak-tool detection
 │   ├── crash_recovery.py     ← TDR detection, crash flag system
 │   ├── temp_monitor.py       ← GPU temp toast notifications
@@ -208,7 +214,7 @@ GameOptimizerPro/
     ├── tab_bios.py           ← BIOS guide with live detection
     ├── tune_history_view.py  ← Tune history (a view of the GPU tuner)
     ├── update_flow.py        ← Update check / question (start-up + settings)
-    ├── tab_diagnose.py       ← Health report + remnant scan
+    ├── tab_diagnose.py       ← Health report + remnant scan + interrupts
     ├── tab_settings.py       ← Autostart, setup checker, about
     ├── live_graph.py         ← Rolling voltage/clock/temp graph
     ├── startup_manager.py    ← Startup manager page

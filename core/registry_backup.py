@@ -48,6 +48,9 @@ BACKUP_KEYS: list[str] = [
     r"HKLM\SOFTWARE\Microsoft\Dfrg\BootOptimizeFunction",
     r"HKLM\SOFTWARE\Microsoft\DirectX",
     r"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia",
+    # game profiles (CPU / I/O priority per .exe, fullscreen flag per path)
+    r"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options",
+    r"HKCU\Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers",
     r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore",
     r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Communications",
     r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved",
@@ -110,9 +113,10 @@ class BackupResult:
     def summary(self) -> str:
         if not self.ok:
             return _tr(f"✗ Registry-Backup fehlgeschlagen: {self.error}", f"✗ Registry backup failed: {self.error}")
-        return (f"✓ Registry-Backup: {self.saved} Zweige gesichert"
-                f"{_tr(f', {self.skipped} nicht vorhanden', f', {self.skipped} not present') if self.skipped else ''}"
-                f" → {self.path}")
+        return (_tr(f"✓ Registry-Backup: {self.saved} Zweige gesichert",
+                    f"✓ Registry backup: {self.saved} branches saved")
+                + (_tr(f", {self.skipped} nicht vorhanden", f", {self.skipped} not present") if self.skipped else "")
+                + f" → {self.path}")
 
 
 def backup_root() -> str:

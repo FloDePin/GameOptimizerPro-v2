@@ -2,9 +2,9 @@
 
 # ⚡ GameOptimizerPro v2.0
 
-**A Windows gaming optimizer with a GPU auto-tuner that measures your card's V/F curve point by point — plus 107 reversible Windows tweaks, a BIOS guide and stress tests.**
+**A Windows gaming optimizer with a GPU auto-tuner that measures your card's V/F curve point by point — plus 109 reversible Windows tweaks, game profiles, a BIOS guide and stress tests.**
 
-[![Version](https://img.shields.io/badge/version-2.0%20%C2%B7%20build%2036-d9480f?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
+[![Version](https://img.shields.io/badge/version-2.0%20%C2%B7%20build%2037-d9480f?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
 [![CI](https://github.com/FloDePin/GameOptimizerPro-v2/actions/workflows/ci.yml/badge.svg)](https://github.com/FloDePin/GameOptimizerPro-v2/actions/workflows/ci.yml)
 [![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4?style=flat-square&logo=windows)](https://www.microsoft.com/windows)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
@@ -23,9 +23,10 @@
 | 🎮 **GPU auto-tuner** | Measures every voltage point on its own and builds its own V/F curve — goals *Max performance*, *Balanced*, *Efficiency*. Plus a quick mode (offset + power limit). |
 | ✅ **Tested, not guessed** | Only what passed FurMark, a compute check and a game test with load changes is saved. A watchdog reports in-game GPU hangs and offers a safer profile. |
 | 📊 **Profile comparison** | Every profile against stock in the same benchmark: points, watts, points per watt — and the V/F curves in a chart. |
-| 🛠 **107 Windows tweaks** | Live-verified (● active · ◑ applied · ○ inactive), presets from *Minimal* to *Hard*, a registry backup before every change, *Revert all*. |
+| 🛠 **109 Windows tweaks** | Live-verified (● active · ◑ applied · ○ inactive), presets from *Minimal* to *Hard*, a registry backup before every change, *Revert all*. |
+| 🎯 **Game profiles** | Per game `.exe`: a higher CPU and disk priority, optionally no fullscreen optimizations — Windows applies it at every start, no background process. While the game runs, the status shows the priority it really got. |
 | 🖥 **BIOS guide** | 16 platforms (Intel 8th gen / Ryzen 1000 and newer) with menu paths for ASUS, MSI, Gigabyte and ASRock; live status only where Windows really knows it. |
-| 🩺 **Stress test & diagnosis** | Internal stress test, FurMark 1/2 and 3DMark with recording, a 30-day health report, services and startup managers, cleaner, dashboard. |
+| 🩺 **Stress test & diagnosis** | Internal stress test, FurMark 1/2 and 3DMark with recording, a 30-day health report, an interrupt view (MSI or line interrupt per device), services and startup managers, cleaner, dashboard. |
 
 <p align="center"><img src="docs/img/gpu-tuner.png" alt="GPU tuner: All-round mode with goal and parameters" width="49%"> <img src="docs/img/optimizer.png" alt="Optimizer presets from Minimal to Hard" width="49%"></p>
 
@@ -77,7 +78,7 @@ Every card differs — the profile comparison in the app shows yours.
 
 <details><summary>Does the app have to keep running?</summary>
 
-No. The tweaks are Windows settings, and Afterburner loads the GPU profile at start-up ("Apply overclocking at system startup").
+No. The tweaks and game profiles are Windows settings, and Afterburner loads the GPU profile at start-up ("Apply overclocking at system startup").
 </details>
 <details><summary>AMD or Intel graphics?</summary>
 
@@ -85,7 +86,7 @@ Tweaks, BIOS guide, stress tests and diagnosis work everywhere; the GPU tuner ne
 </details>
 <details><summary>Trouble with anti-cheat?</summary>
 
-The app doesn't touch any game; it changes Windows and Afterburner settings only.
+The app never touches a game's files or memory; it changes Windows and Afterburner settings only. A game profile just tells Windows which priority to start the game with — some anti-cheat systems reset it, and the status in the app shows that.
 </details>
 
 ## Requirements
@@ -96,7 +97,7 @@ Windows 10 / 11 · Python 3.10+ · admin rights (the launcher asks through UAC) 
 
 - 📖 [All features in detail](docs/FEATURES.md) — including the project structure
 - 📜 [Changelog](CHANGELOG.md)
-- 🧪 1150 automated checks in 32 test suites (`python tests\run_all_tests.py`), run on every push
+- 🧪 1214 automated checks in 33 test suites (`python tests\run_all_tests.py`), run on every push
 - 🤝 Pull requests are welcome — for bigger changes please open an issue first.
 
 <div align="center">

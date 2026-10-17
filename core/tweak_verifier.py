@@ -12,7 +12,8 @@ import subprocess, os
 from dataclasses import dataclass
 from typing import Optional
 
-from core.tweaks import _AMD_KEYS_PS   # same AMD-only adapter filter as the tweaks
+from core.tweaks import (_AMD_KEYS_PS,   # same AMD-only adapter filter as the tweaks
+                         NIC_EEE_KEYWORDS, NIC_IM_KEYWORDS, _nic_ps)
 
 
 @dataclass
@@ -450,6 +451,9 @@ VERIFY_MAP: dict[str, str] = {
         'if($v -ne 24){$ok=$false} } }; '
         'if($any -and $ok){"1"}else{"0"}'
     ),
+    # every wired adapter setting the driver offers is 0 (none offered: inactive)
+    "disable_eee": _nic_ps("verify", "EEE", NIC_EEE_KEYWORDS),
+    "disable_interrupt_moderation": _nic_ps("verify", "IM", NIC_IM_KEYWORDS),
     # powercfg: die LETZTEN zwei Hex-Werte der Ausgabe sind der aktuelle AC- bzw.
     # DC-Index (die Zeilen davor sind statische "mögliche Einstellungen").
     # Checked on 'Ausbalanciert': the high-performance plans keep the screen on.

@@ -1,7 +1,7 @@
 """
 GameOptimizerPro v2.0 — Optimizer page
 Sections (segmented bar): Presets | Windows | Gaming | Netzwerk | Audio |
-Prüfen | Export/Import. Tweak lists are light tk rows (see ui/components) with
+Spiele | Prüfen | Export/Import. Tweak lists are light tk rows (see ui/components) with
 a live status dot; the log stays visible at the bottom.
 """
 
@@ -12,9 +12,11 @@ from typing import Optional
 
 import customtkinter as ctk
 
+from core                import game_profiles
 from core.export_import  import ExportImport
 from core.hardware       import HardwareInfo
-from core.tweak_i18n     import tweak_desc, tweak_name
+from core.i18n           import current_lang
+from core.tweak_i18n     import preset_name, tweak_desc, tweak_name
 from core.tweak_presets  import TweakPreset, get_all_presets
 from core.tweak_runner   import TweakRunner
 from core.tweak_verifier import TweakVerifier, VERIFY_MAP
@@ -26,6 +28,7 @@ from ui.theme import (ACC, AMBER, APP_BG, BORDER, CARD_BG, CARD_BG2, CYAN, DIM, 
                       VIOLET, ctk_font, emoji_image, icon_image, mix, named_font, on_color, tr)
 
 ACC3 = AMBER
+GAMES_COLOR = "#f472b6"
 
 # Section definitions: (key, German label, English label, color)
 SECTIONS = [
@@ -34,6 +37,7 @@ SECTIONS = [
     ("gaming",  "Gaming",        "Gaming",        AMBER),
     ("network", "Netzwerk",      "Network",       CYAN),
     ("audio",   "Audio",         "Audio",         VIOLET),
+    ("games",   "Spiele",        "Games",         GAMES_COLOR),
     ("verify",  "Prüfen",        "Verify",        GREEN),
     ("exim",    "Export/Import", "Export/Import", PURPLE),
 ]
@@ -42,6 +46,25 @@ CAT_COLORS = {"Windows": "#4f9cf9", "Gaming": AMBER, "Network": CYAN, "Audio": V
 RISK_TEXT = {"safe": ("sicher", "safe"), "moderate": ("moderat", "moderate"),
              "advanced": ("riskant", "advanced")}
 DOT_OFF = "#3a4452"
+
+
+def _priority_names() -> dict:
+    """psutil priority class -> name in the app's language."""
+    try:
+        import psutil
+    except ImportError:
+        return {}
+    return {psutil.IDLE_PRIORITY_CLASS: tr("Leerlauf", "Idle"),
+            psutil.BELOW_NORMAL_PRIORITY_CLASS: tr("Niedriger als normal", "Below normal"),
+            psutil.NORMAL_PRIORITY_CLASS: "Normal",
+            psutil.ABOVE_NORMAL_PRIORITY_CLASS: tr("Höher als normal", "Above normal"),
+            psutil.HIGH_PRIORITY_CLASS: tr("Hoch", "High"),
+            psutil.REALTIME_PRIORITY_CLASS: tr("Echtzeit", "Realtime")}
+
+
+def _io_name(v: int) -> str:
+    return {0: tr("sehr niedrig", "very low"), 1: tr("niedrig", "low"), 2: "normal",
+            3: tr("hoch", "high")}.get(v, str(v))
 ROW_HOVER = mix(CARD_BG, "#ffffff", 0.035)
 
 
@@ -155,6 +178,7 @@ class OptimizerTab(Page):
         self._build_presets(self._section_frames["presets"])
         for key, cat in CATEGORY_OF.items():
             self._build_tweaks_section(self._section_frames[key], key, cat)
+        self._build_games(self._section_frames["games"])
         self._build_verify(self._section_frames["verify"])
         self._build_exim(self._section_frames["exim"])
 
@@ -173,6 +197,8 @@ class OptimizerTab(Page):
         self.seg.set(label)
         if key in CATEGORY_OF:
             self._apply_filter()
+        elif key == "games":
+            self._refresh_games()
 
     # ── Presets Section ───────────────────────────────────────────────────────
 
@@ -256,36 +282,36 @@ class OptimizerTab(Page):
         to_apply = [t for t in tweaks
                     if self._is_applicable(t) and not self.runner.is_applied(t.id)]
         if not to_apply:
-            messagebox.showinfo("Preset", tr(f"'{preset.name}' ist bereits vollständig aktiv.", f"'{preset.name}' is already fully active."))
+            messagebox.showinfo("Preset", tr(f"'{preset_name(preset, current_lang())}' ist bereits vollständig aktiv.", f"'{preset_name(preset, current_lang())}' is already fully active."))
             return
         needs_rb = any(t.requires_reboot for t in to_apply)
-        msg = tr(f"Preset '{preset.name}' anwenden?\n{len(to_apply)} Tweak(s) werden aktiviert.", f"Apply preset '{preset.name}'?\n{len(to_apply)} tweak(s) will be enabled.")
+        msg = tr(f"Preset '{preset_name(preset, current_lang())}' anwenden?\n{len(to_apply)} Tweak(s) werden aktiviert.", f"Apply preset '{preset_name(preset, current_lang())}'?\n{len(to_apply)} tweak(s) will be enabled.")
         if skipped:
             msg += (tr(f"\n\n{len(skipped)} Tweak(s) passen nicht zu deiner Hardware und "
-                    f"werden übersprungen ({', '.join(t.name for t in skipped)}).", f"\n\n{len(skipped)} tweak(s) don't fit your hardware and are skipped ({', '.join(t.name for t in skipped)})."))
+                    f"werden übersprungen ({', '.join(tweak_name(t, current_lang()) for t in skipped)}).", f"\n\n{len(skipped)} tweak(s) don't fit your hardware and are skipped ({', '.join(tweak_name(t, current_lang()) for t in skipped)})."))
         if needs_rb: msg += tr("\n\n⚠ Einige benötigen einen Neustart.", "\n\n⚠ Some need a restart.")
-        if not messagebox.askyesno("Preset anwenden", msg): return
+        if not messagebox.askyesno(tr("Preset anwenden", "Apply preset"), msg): return
 
         def _run():
-            self.log.append(f"Preset: {preset.icon} {preset.name}", "header")
+            self.log.append(f"Preset: {preset.icon} {preset_name(preset, current_lang())}", "header")
             self._backup_before("PreApply")
             for i, t in enumerate(to_apply):
                 self._apply_one(t, prefix=f"  [{i+1}/{len(to_apply)}] ")
-            self.log.append("Fertig.", "success")
+            self.log.append(tr("Fertig.", "Done."), "success")
             self.after(0, self._refresh_presets)
             self.after(600, self._live_verify)
         self._run_batch(_run)
 
     def _preview_preset(self, preset):
-        lines = [f"{preset.icon} {preset.name}\n"]
+        lines = [f"{preset.icon} {preset_name(preset, current_lang())}\n"]
         for tid in preset.tweak_ids:
             t = get_by_id(tid)
             if t and not self._is_applicable(t):
                 state = "— n/a  "          # passt nicht zu dieser Hardware
             else:
                 state = "✓ aktiv" if self.runner.is_applied(tid) else "○ inaktiv"
-            lines.append(f"  {state}  {t.name if t else tid}")
-        messagebox.showinfo(f"Preset: {preset.name}", "\n".join(lines))
+            lines.append(f"  {state}  {tweak_name(t, current_lang()) if t else tid}")
+        messagebox.showinfo(f"Preset: {preset_name(preset, current_lang())}", "\n".join(lines))
 
     def _backup_before(self, label: str):
         """Registry backup before a batch of changes (runs in the worker thread).
@@ -316,7 +342,7 @@ class OptimizerTab(Page):
         self._refresh_presets()
 
     def _delete_user_preset(self, preset):
-        if messagebox.askyesno(tr("Löschen", "Delete"), tr(f"Preset '{preset.name}' löschen?", f"Delete preset '{preset.name}'?")):
+        if messagebox.askyesno(tr("Löschen", "Delete"), tr(f"Preset '{preset_name(preset, current_lang())}' löschen?", f"Delete preset '{preset_name(preset, current_lang())}'?")):
             self._user_presets = [p for p in self._user_presets if p.id != preset.id]
             self._refresh_presets()
 
@@ -734,16 +760,16 @@ class OptimizerTab(Page):
                     self.verify_tree.delete(row)
                 for tid, res in sorted(results.items(), key=lambda x: order[kinds[x[0]]]):
                     t = get_by_id(tid)
-                    name = t.name if t else tid
+                    name = tweak_name(t, current_lang()) if t else tid
                     kind = kinds[tid]
                     if kind == "unknown":     tag, status = "unknown",  f"? {res.error[:30]}"
-                    elif kind == "regressed": tag, status = "mismatch", "⚠ zurückgesetzt"
-                    elif kind == "external":  tag, status = "external", "ℹ extern aktiv"
+                    elif kind == "regressed": tag, status = "mismatch", tr("⚠ zurückgesetzt", "⚠ reset")
+                    elif kind == "external":  tag, status = "external", tr("ℹ extern aktiv", "ℹ active externally")
                     else:                     tag, status = "ok",       "✓ OK"
                     self.verify_tree.insert("", "end", iid=tid,
                         values=(name,
-                                "aktiv" if res.expected else "inaktiv",
-                                "aktiv" if res.actual   else "inaktiv",
+                                tr("aktiv", "active") if res.expected else tr("inaktiv", "inactive"),
+                                tr("aktiv", "active") if res.actual else tr("inaktiv", "inactive"),
                                 status),
                         tags=(tag,))
                 col = GREEN if mis_c == 0 else AMBER
@@ -774,15 +800,167 @@ class OptimizerTab(Page):
             return
         if self._batch_busy():
             return
-        if not messagebox.askyesno("Beheben", tr(f"{len(mis)} Tweak(s) erneut anwenden?", f"Apply {len(mis)} tweak(s) again?")):
+        if not messagebox.askyesno(tr("Beheben", "Fix"), tr(f"{len(mis)} Tweak(s) erneut anwenden?", f"Apply {len(mis)} tweak(s) again?")):
             return
         def _do():
             self._backup_before("PreFix")
             ok_c = sum(1 for t in mis if self._apply_one(t)[0])
             self.after(0, lambda: self.lbl_fix_result.config(
-                text=f"{ok_c}/{len(mis)} behoben.", fg=GREEN))
+                text=tr(f"{ok_c}/{len(mis)} behoben.", f"{ok_c}/{len(mis)} fixed."), fg=GREEN))
             self.after(500, self._run_verify)
         self._run_batch(_do)
+
+    # ── Game profiles ─────────────────────────────────────────────────────────
+
+    def _build_games(self, p):
+        card = Card(p, tr("Spiel-Profile", "Game profiles"),
+                    subtitle=tr("Pro Spiel einmal eingetragen: Windows startet die .exe danach immer mit "
+                                "höherer CPU- und Datenträger-Priorität, auf Wunsch ohne "
+                                "Vollbildoptimierungen. Windows liest die Einträge selbst beim Spielstart — "
+                                "GameOptimizerPro muss dafür nicht laufen, nichts läuft im Hintergrund.",
+                                "Entered once per game: from then on Windows always starts the .exe with a "
+                                "higher CPU and disk priority, optionally without fullscreen optimizations. "
+                                "Windows reads the entries itself when the game starts — GameOptimizerPro "
+                                "does not need to run, nothing runs in the background."),
+                    accent=GAMES_COLOR)
+        card.pack(fill="both", expand=True)
+        button(card.actions, tr("Spiel hinzufügen (.exe)", "Add game (.exe)"), self._add_game,
+               kind="primary", color=GAMES_COLOR, height=30,
+               image=icon_image("add", on_color(GAMES_COLOR), 14), compound="left").pack(side="right")
+        button(card.actions, tr("Status prüfen", "Check status"), self._refresh_games, kind="ghost",
+               height=30, image=icon_image("refresh", TEXT2, 14), compound="left").pack(side="right", padx=(0, 6))
+        self._games_list = scroll_area(card.body, bg=CARD_BG, height=220)
+        self._games_list._outer.pack(fill="both", expand=True)
+        WrapLabel(card.body, text=tr(
+            "Gut zu wissen: Ein Profil gilt für jede Datei mit diesem Namen. Die Priorität bekommt ein Spiel "
+            "beim Start — läuft es schon, wirkt das Profil ab dem nächsten Start. Manche Anti-Cheat-Systeme "
+            "setzen die Priorität zurück; läuft das Spiel, zeigt der Status, was Windows wirklich vergeben "
+            "hat. Echtzeit-Priorität gibt es bewusst nicht (kann Maus, Tastatur und Ton blockieren). Ist "
+            "'Disable Fullscreen Optimizations' (Gaming) aktiv, gilt das schon für alle Spiele.",
+            "Good to know: a profile applies to every file with this name. A game gets its priority when it "
+            "starts — if it already runs, the profile works from the next start. Some anti-cheat systems "
+            "reset the priority; while the game runs, the status shows what Windows really gave it. There "
+            "is deliberately no realtime priority (it can block mouse, keyboard and sound). If 'Disable "
+            "Fullscreen Optimizations' (Gaming) is active, that already applies to all games."),
+            font=F_XS, fg=DIM, bg=CARD_BG).pack(fill="x", pady=(10, 0))
+
+    def _game_status(self, prof) -> tuple[str, str]:
+        """(text, color) for one profile: registry entry + what a running game really got."""
+        s = game_profiles.status(prof)
+        if not s.perf_ok or not s.fso_ok:
+            return tr("⚠ Eintrag fehlt oder wurde geändert — Option neu wählen",
+                      "⚠ Entry missing or changed — choose the option again"), AMBER
+        if not s.running:
+            return tr("● eingetragen — wirkt beim nächsten Spielstart",
+                      "● set — takes effect the next time the game starts"), GREEN
+        if s.run_cpu is None:
+            return tr("● läuft — Priorität nicht lesbar (geschützter Prozess)",
+                      "● running — priority not readable (protected process)"), DIM
+        names = _priority_names()
+        got = names.get(s.run_cpu, str(s.run_cpu))
+        io = ""
+        if prof.io_high and s.run_io is not None:
+            io = tr("  ·  E/A hoch ✓", "  ·  I/O high ✓") if s.run_io == 3 else \
+                tr(f"  ·  E/A {_io_name(s.run_io)}", f"  ·  I/O {_io_name(s.run_io)}")
+        if game_profiles.cpu_matches(prof, s.run_cpu):
+            return tr(f"● läuft mit Priorität {got} ✓", f"● running with priority {got} ✓") + io, GREEN
+        return tr(f"◑ läuft mit Priorität {got} — vor dem Profil gestartet oder vom Spiel zurückgesetzt",
+                  f"◑ running with priority {got} — started before the profile or reset by the game") + io, AMBER
+
+    def _refresh_games(self):
+        lst = getattr(self, "_games_list", None)
+        if lst is None:
+            return
+        for w in lst.winfo_children():
+            w.destroy()
+        profs = game_profiles.list_profiles()
+        if not profs:
+            tk.Label(lst, text=tr("Noch keine Spiele — „Spiel hinzufügen (.exe)“ wählen.",
+                                  "No games yet — choose 'Add game (.exe)'."),
+                     font=F_S, fg=DIM, bg=CARD_BG, anchor="w").pack(fill="x", pady=8)
+            return
+        cpu_vals = {game_profiles.CPU_HIGH: tr("Hoch", "High"),
+                    game_profiles.CPU_ABOVE: tr("Höher als normal", "Above normal")}
+        for prof in profs:
+            row = tk.Frame(lst, bg=CARD_BG2, padx=12, pady=8)
+            row.pack(fill="x", pady=(0, 6))
+            top = tk.Frame(row, bg=CARD_BG2)
+            top.pack(fill="x")
+            tk.Label(top, text=prof.exe, font=F_BB, fg=TEXT, bg=CARD_BG2).pack(side="left")
+            if game_profiles.is_generic(prof.exe):
+                badge(top, tr("häufiger Name", "common name"), AMBER, bg=CARD_BG2).pack(side="left", padx=8)
+            text, col = self._game_status(prof)
+            tk.Label(top, text=text, font=F_XS, fg=col, bg=CARD_BG2).pack(side="right")
+            tk.Label(row, text=prof.path, font=F_XS, fg=DIM, bg=CARD_BG2, anchor="w").pack(fill="x")
+            ctl = tk.Frame(row, bg=CARD_BG2)
+            ctl.pack(fill="x", pady=(6, 0))
+            tk.Label(ctl, text=tr("CPU-Priorität:", "CPU priority:"), font=F_XS, fg=TEXT2,
+                     bg=CARD_BG2).pack(side="left")
+            seg = ctk.CTkSegmentedButton(ctl, values=list(cpu_vals.values()), height=26, font=ctk_font(11),
+                                         selected_color=mix(CARD_BG2, GAMES_COLOR, 0.55),
+                                         selected_hover_color=mix(CARD_BG2, GAMES_COLOR, 0.7))
+            seg.set(cpu_vals.get(prof.cpu, cpu_vals[game_profiles.CPU_HIGH]))
+            seg.pack(side="left", padx=(6, 12))
+            io_var = tk.BooleanVar(value=prof.io_high)
+            fso_var = tk.BooleanVar(value=prof.fso_off)
+
+            def _changed(_v=None, prof=prof, seg=seg, io_var=io_var, fso_var=fso_var):
+                cpu = next(k for k, v in cpu_vals.items() if v == seg.get())
+                self._save_game(prof.path, cpu, io_var.get(), fso_var.get())
+            seg.configure(command=_changed)
+            CheckBox(ctl, io_var, accent=GAMES_COLOR, bg=CARD_BG2, size=16, font=F_XS,
+                     text=tr("Datenträger-Priorität hoch", "High disk priority"),
+                     command=_changed).pack(side="left", padx=(0, 12))
+            CheckBox(ctl, fso_var, accent=GAMES_COLOR, bg=CARD_BG2, size=16, font=F_XS,
+                     text=tr("Vollbildoptimierungen aus", "Fullscreen optimizations off"),
+                     command=_changed).pack(side="left")
+            button(ctl, tr("Entfernen", "Remove"), lambda e=prof.exe: self._remove_game(e),
+                   kind="ghost", height=26).pack(side="right")
+
+    def _save_game(self, path, cpu, io_high, fso_off) -> bool:
+        try:
+            p = game_profiles.save(path, cpu=cpu, io_high=io_high, fso_off=fso_off)
+        except game_profiles.GameProfileError as e:
+            messagebox.showerror(tr("Spiel-Profil", "Game profile"), str(e))
+            self.after(10, self._refresh_games)
+            return False
+        self.log.append(tr(f"Spiel-Profil {p.exe}: gespeichert", f"Game profile {p.exe}: saved"), "success")
+        # rebuilt after the click: the clicked widget must not be destroyed inside its own command
+        self.after(10, self._refresh_games)
+        return True
+
+    def _add_game(self):
+        path = filedialog.askopenfilename(title=tr("Spiel auswählen", "Choose a game"),
+                                          filetypes=[(tr("Programme", "Programs"), "*.exe")])
+        if not path:
+            return
+        try:
+            exe = game_profiles.check_path(path)
+        except game_profiles.GameProfileError as e:
+            messagebox.showerror(tr("Spiel-Profil", "Game profile"), str(e))
+            return
+        if game_profiles.is_generic(exe) and not messagebox.askyesno(
+                tr("Häufiger Name", "Common name"),
+                tr(f"„{exe}“ heißen viele Programme. Das Profil gilt für jede Datei mit diesem Namen. "
+                   "Trotzdem anlegen?",
+                   f"Many programs are called '{exe}'. The profile applies to every file with this name. "
+                   "Create it anyway?")):
+            return
+        old = game_profiles.get_profile(exe)
+        if old:
+            self._save_game(path, old.cpu, old.io_high, old.fso_off)
+        else:
+            self._save_game(path, game_profiles.CPU_HIGH, True, False)
+
+    def _remove_game(self, exe):
+        try:
+            game_profiles.remove(exe)
+        except game_profiles.GameProfileError as e:
+            messagebox.showerror(tr("Spiel-Profil", "Game profile"), str(e))
+            return
+        self.log.append(tr(f"Spiel-Profil {exe}: entfernt (vorheriger Zustand wiederhergestellt)",
+                           f"Game profile {exe}: removed (previous state restored)"), "success")
+        self.after(10, self._refresh_games)
 
     # ── Export / Import Section ───────────────────────────────────────────────
 
@@ -937,7 +1115,7 @@ class OptimizerTab(Page):
     def _batch_busy(self) -> bool:
         if self._batch_running:
             messagebox.showinfo(
-                "Bitte warten",
+                tr("Bitte warten", "Please wait"),
                 tr("Es läuft noch ein Vorgang — z. B. die Datenträgerbereinigung dauert einige "
                 "Minuten. Bitte warten, bis im Protokoll „Fertig.“ steht.", "A task is still running — e.g. the disk cleanup takes a few minutes. Please wait until the log says \u201cDone.\u201d"))
             return True
@@ -967,13 +1145,13 @@ class OptimizerTab(Page):
     def _apply_one(self, t, prefix: str = "  "):
         """Apply one tweak with visible progress; untick replaced alternatives."""
         if getattr(t, "timeout_s", 60) > 60:
-            self.log.append(tr(f"{prefix}{t.name} … läuft (kann einige Minuten dauern)", f"{prefix}{t.name} … running (can take a few minutes)"), "dim")
+            self.log.append(tr(f"{prefix}{tweak_name(t, current_lang())} … läuft (kann einige Minuten dauern)", f"{prefix}{tweak_name(t, current_lang())} … running (can take a few minutes)"), "dim")
         ok, out = self.runner.apply(t)
-        self.log.append(f"{prefix}{t.name}: {'✓' if ok else '✗ ' + out[:100]}",
+        self.log.append(f"{prefix}{tweak_name(t, current_lang())}: {'✓' if ok else '✗ ' + out[:100]}",
                         "success" if ok else "error")
         sup = list(self.runner.last_superseded)
         if ok and sup:
-            names = ", ".join((get_by_id(x).name if get_by_id(x) else x) for x in sup)
+            names = ", ".join((tweak_name(get_by_id(x), current_lang()) if get_by_id(x) else x) for x in sup)
             self.log.append(tr(f"{prefix}  ↳ ersetzt: {names}", f"{prefix}  ↳ replaces: {names}"), "dim")
 
             def _untick(ids=sup):
@@ -1000,14 +1178,14 @@ class OptimizerTab(Page):
                                 self.runner._applied)
         selected = [get_by_id(i) for i in ids]
         if not selected:
-            messagebox.showinfo("Nichts", tr("Keine neuen Tweaks ausgewählt.", "No new tweaks selected."))
+            messagebox.showinfo(tr("Nichts", "Nothing"), tr("Keine neuen Tweaks ausgewählt.", "No new tweaks selected."))
             return
         needs_rb = any(t.requires_reboot for t in selected)
-        msg = f"{len(selected)} Tweak(s) anwenden?"
+        msg = tr(f"{len(selected)} Tweak(s) anwenden?", f"Apply {len(selected)} tweak(s)?")
         replaced = [get_by_id(a) for t in selected for a in alternatives_of(t.id)
                     if self.runner.is_applied(a)]
         if replaced:
-            msg += tr("\n\nErsetzt (Entweder-oder): ", "\n\nReplaced (either-or): ") + ", ".join(t.name for t in replaced if t)
+            msg += tr("\n\nErsetzt (Entweder-oder): ", "\n\nReplaced (either-or): ") + ", ".join(tweak_name(t, current_lang()) for t in replaced if t)
         if needs_rb: msg += tr("\n\n⚠ Einige benötigen einen Neustart.", "\n\n⚠ Some need a restart.")
         if not messagebox.askyesno(tr("Anwenden", "Apply"), msg): return
 
@@ -1016,7 +1194,7 @@ class OptimizerTab(Page):
             self._backup_before("PreApply")
             for i, t in enumerate(selected):
                 self._apply_one(t, prefix=f"  [{i+1}/{len(selected)}] ")
-            self.log.append("Fertig.", "success")
+            self.log.append(tr("Fertig.", "Done."), "success")
             # Re-verify dots after apply
             self.after(500, self._live_verify)
         self._run_batch(_run)
@@ -1025,18 +1203,31 @@ class OptimizerTab(Page):
         if self._batch_busy():
             return
         applied = [t for t in ALL_TWEAKS if self.runner.is_applied(t.id) and t.revert_cmd]
-        if not applied:
-            messagebox.showinfo("Nichts", tr("Keine aktiven Tweaks mit Revert-Befehl.", "No active tweaks with a revert command."))
+        games = game_profiles.list_profiles()
+        if not applied and not games:
+            messagebox.showinfo(tr("Nichts", "Nothing"), tr("Keine aktiven Tweaks mit Revert-Befehl.", "No active tweaks with a revert command."))
             return
-        if not messagebox.askyesno(tr("Zurücksetzen", "Revert"), tr(f"{len(applied)} Tweak(s) zurücksetzen?", f"Revert {len(applied)} tweak(s)?")):
+        msg = tr(f"{len(applied)} Tweak(s) zurücksetzen?", f"Revert {len(applied)} tweak(s)?")
+        if games:
+            msg += tr(f"\n\nDazu werden {len(games)} Spiel-Profil(e) entfernt.",
+                      f"\n\n{len(games)} game profile(s) are removed as well.")
+        if not messagebox.askyesno(tr("Zurücksetzen", "Revert"), msg):
             return
         def _run():
             self.log.append(tr(f"Setze {len(applied)} zurück...", f"Reverting {len(applied)}..."), "warning")
             self._backup_before("PreRevert")
             for t in applied:
                 ok, out = self.runner.revert(t)
-                self.log.append(f"  ↩ {t.name}: {'OK' if ok else out[:80]}",
+                self.log.append(f"  ↩ {tweak_name(t, current_lang())}: {'OK' if ok else out[:80]}",
                                 "success" if ok else "error")
+            for g in games:
+                try:
+                    game_profiles.remove(g.exe)
+                    self.log.append(tr(f"  ↩ Spiel-Profil {g.exe}: OK", f"  ↩ Game profile {g.exe}: OK"), "success")
+                except game_profiles.GameProfileError as e:
+                    self.log.append(tr(f"  ↩ Spiel-Profil {g.exe}: {e}", f"  ↩ Game profile {g.exe}: {e}"), "error")
             self.log.append(tr("Revert abgeschlossen.", "Revert finished."), "success")
             self.after(500, self._live_verify)
+            if games:
+                self.after(600, self._refresh_games)
         self._run_batch(_run)

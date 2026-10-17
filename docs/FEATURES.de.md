@@ -75,7 +75,9 @@ Alles, was die App macht, im Detail. Zitierte Ergebnisse aus Live-Läufen stamme
 - **Registry-Backup** — exportiert alle Registry-Zweige, die die Tweaks anfassen können, als `.reg`-Dateien (zum Zurückspielen genügt ein Doppelklick). Läuft **automatisch vor jedem „Apply Selected", Preset, „Revert All" und „Abweichungen beheben"** sowie auf Knopfdruck; behält die 10 neuesten Backups und löscht ältere automatisch, damit die Platte nicht vollläuft
 
 ### 🛠 Windows Optimizer
-- **107 Tweaks** in den Kategorien Windows, Gaming, Network, Audio (inkl. AMD-GPU-Tweaks)
+- **109 Tweaks** in den Kategorien Windows, Gaming, Network, Audio (inkl. AMD-GPU-Tweaks)
+- **Netzwerkadapter-Einstellungen:** Energy-Efficient Ethernet aus und Interrupt Moderation aus — nur an physischen LAN-Adaptern und nur mit den Schlüsselwörtern, die der Treiber selbst anbietet (jeder Hersteller nennt sie anders); der vorherige Wert wird gemerkt und beim Revert zurückgeschrieben. Kein Verbindungsabbruch beim Anwenden, wirkt nach einem Neustart
+- **Ehrlicher Timer-Tweak:** *Timer-Anfragen systemweit gelten lassen* (`GlobalTimerResolutionRequests`) stellt unter Windows 11 die systemweite Wirkung der Timer-Anfrage eines Programms wieder her — er setzt selbst keine Auflösung (das braucht ein laufendes Programm) und sagt das auch
 - **Windows 11 24H2/26H2 — KI & Bloat:** Recall (Richtlinie + Entfernen der Komponente), Click to Do, Paint-KI (Cocreator, Image Creator, generatives Füllen/Löschen), Notepad-KI, geräteinterne Text-/Bildgenerierung, der KI-Hostdienst (`WSAIFabricSvc`) und das Entfernen der Microsoft-365-Copilot-App / Dev Home, die Funktionsupdates wieder installieren — über Microsofts dokumentierte Richtlinien, wo es sie gibt
 - **Speicher & RAM:** lange Pfade, reservierter Speicher, Auslagerungsdatei, Speicherkomprimierung, SSD-TRIM, geplante Defragmentierung, NVMe-Queue-Tiefe (nur mit NVMe-Laufwerk angeboten), Schreibcache-Leerung (fortgeschritten), dazu eine einmalige **sichere Datenträgerbereinigung** (kein Downloads-Ordner, kein Papierkorb, kein Windows.old)
 - **Drift-Prüfung beim Start:** Tweaks, die du angewendet hast und die ein Windows-Update zurückgesetzt hat, werden mit je einem Haken aufgelistet — mit Haken erneut anwenden (vorher Registry-Backup), ohne Haken nicht mehr nachfragen; „Später“ fragt beim nächsten Start wieder
@@ -89,6 +91,7 @@ Alles, was die App macht, im Detail. Zitierte Ergebnisse aus Live-Läufen stamme
 - **Power-Plan-Tweaks schreiben in *alle* Energieschemata** — Windows kann nach einem Neustart ein anderes Schema aktivieren, wodurch eine Einstellung sonst „zurückgesetzt" aussieht. Die Plan-GUIDs kommen aus `powercfg /L`, nie der lokalisierte Planname — also sprachunabhängig
 - Export/Import der Einstellungen als `.nextune`-Dateien
 - Tooltips (Hover über `?`) für jeden einzelnen Tweak
+- **Spiel-Profile** (Optimizer → Spiele): die `.exe` eines Spiels wählen — Windows startet es danach mit CPU-Priorität *Hoch* oder *Höher als normal* und hoher Datenträger-Priorität (Image File Execution Options), auf Wunsch ohne Vollbildoptimierungen nur für dieses Spiel. Kein Hintergrundprozess; Windows setzt das bei jedem Start selbst. Läuft das Spiel, zeigt der Status, welche Priorität es wirklich bekommen hat (manche Anti-Cheat-Systeme setzen sie zurück). Nie *Echtzeit*; Windows- und Systemprogramme werden abgelehnt; Entfernen — oder *Alles zurücksetzen* — stellt den vorherigen Zustand wieder her
 
 ### 🖥 BIOS Guide
 - **Jede Desktop-Plattform seit Intel 8. Gen / Ryzen 1000** — 16 Plattformen: Ryzen 9000X3D / 9000 / 7000X3D / 7000 / 8000G (AM5), Ryzen 5000X3D / 5000 / APUs / 3000 / 1000–2000 (AM4), Core Ultra 200S, Core 12. / 13.–14. Gen, 10.–11. Gen, 8.–9. Gen, dazu die Grundlagen für alles andere (Laptops, Workstations)
@@ -99,6 +102,7 @@ Alles, was die App macht, im Detail. Zitierte Ergebnisse aus Live-Läufen stamme
 ### 🩺 Diagnose
 - **Health Report** — read-only-Übersicht dessen, was Windows in den letzten 30 Tagen schon protokolliert hat: WHEA-Hardwarefehler, Bluescreens, unerwartete Neustarts, GPU-Treiber-Timeouts (TDR), Datenträgerfehler, App-Abstürze — mit Schweregrad und letztem Auftreten
 - **Remnant-Scan** — read-only-Erkennung von Resten *anderer* Tweak-Tools (WinRing0-/inpout-Treiber, ISLC, TimerResolution-Autostarts, Fremd-Energiepläne, Razer Cortex). Meldet nur — entfernt nichts
+- **Interrupts** — je PCI-Gerät: MSI oder der alte Leitungs-Interrupt (gelesen aus dem, was Windows wirklich zugeteilt hat, nicht nur aus dem Registry-Wert), Zahl der Meldungen, Interrupt-Priorität und Kern-Zuordnung, geteilte Leitungs-Interrupts — mit Hinweis, wo es zählt (eine GPU ohne MSI verweist auf den MSI-Tweak; ein Treiber, der MSI absichtlich abschaltet, bleibt in Ruhe). Nur lesend
 
 ### 📊 Profil-Vergleich
 - Vergleicht bis zu **4 gespeicherte GPU-Profile nebeneinander** danach, was sie **gegenüber Standard im selben Benchmark** bringen: eine **Standard-Spalte** als Punkt 0, Leistung (Punkte ggü. Standard) und Effizienz (Punkte pro Watt ggü. Standard) mit ▲ / ▼ / ≈ (innerhalb des Messrauschens von ±0,7 %), dazu die FurMark-Punkte selbst, Leistungsaufnahme, Speicher und Modus
@@ -155,7 +159,7 @@ GameOptimizerPro/
 │   ├── nvtune_tuner.py       ← Auto-Tuner: Rundum (eigene V/F-Kurve) + Schnell (OC + UV), Speicher; TDR- + Fehlererkennung
 │   ├── curve_tune.py         ← Rundum-Logik: Punktsuche, Sicherheitsabzug, Ziele, Bericht
 │   ├── hardware.py           ← WMI-Hardware-Erkennung
-│   ├── tweaks.py             ← 107-Tweaks-Datenbank (Windows, Gaming, Network, Audio)
+│   ├── tweaks.py             ← 109-Tweaks-Datenbank (Windows, Gaming, Network, Audio)
 │   ├── network_test.py       ← Gateway/DNS-Ping-Latenztest
 │   ├── system_cleaner.py     ← Sicherer Temp-/Junk-Cleaner + freiwilliger Deep Clean
 │   ├── services.py           ← Services-Manager-Logik (merkt sich Original-Starttypen)
@@ -173,6 +177,8 @@ GameOptimizerPro/
 │   ├── bios_guide.py         ← BIOS-Guide: 16 Plattformen, Menüpfade je Board-Hersteller
 │   ├── bios_detector.py      ← Was Windows weiß (RAM-Profil, ReBAR, Secure Boot, CSM)
 │   ├── health_report.py      ← 30-Tage Windows-Health-Report
+│   ├── interrupts.py         ← Interrupt-Ansicht: MSI / Leitung je PCI-Gerät (nur lesend)
+│   ├── game_profiles.py      ← Spiel-Profile: CPU-/Datenträger-Priorität je .exe, Vollbild-Flag
 │   ├── remnant_detector.py   ← Erkennung von Tweak-Tool-Resten
 │   ├── crash_recovery.py     ← TDR-Erkennung, Crash-Flag-System
 │   ├── temp_monitor.py       ← GPU-Temperatur-Toast-Benachrichtigungen
@@ -200,7 +206,7 @@ GameOptimizerPro/
     ├── tab_bios.py           ← BIOS-Guide mit Live-Erkennung
     ├── tune_history_view.py  ← Tune-Verlauf (Ansicht im GPU-Tuner)
     ├── update_flow.py        ← Update-Prüfung / -Frage (Start + Einstellungen)
-    ├── tab_diagnose.py       ← Health-Report + Remnant-Scan
+    ├── tab_diagnose.py       ← Health-Report + Remnant-Scan + Interrupts
     ├── tab_settings.py       ← Autostart, Setup-Checker, Über
     ├── live_graph.py         ← Rollierendes Spannungs-/Takt-/Temperatur-Diagramm
     ├── startup_manager.py    ← Autostart-Manager (Seite)

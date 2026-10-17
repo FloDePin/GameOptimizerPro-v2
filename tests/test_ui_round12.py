@@ -835,8 +835,8 @@ def s_bios():
 
     d = w._tab_frames["diagnose"]
     d._show_view("health")
-    check(set(d._views) == {"health", "remn"} and d._views["health"].winfo_manager(),
-          "diagnose sub-pages (the FPS capture is gone)")
+    check(set(d._views) == {"health", "remn", "irq"} and d._views["health"].winfo_manager(),
+          "diagnose sub-pages (the FPS capture is gone; interrupts since round 30)")
 
 @step(300)
 def s_pages():

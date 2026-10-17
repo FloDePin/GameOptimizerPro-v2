@@ -37,7 +37,10 @@ TWEAK_DESC_EN: dict[str, str] = {
     "disable_hpet":
         "Disables the High Precision Event Timer. Reduces system latency and improves frame times in games.",
     "timer_resolution":
-        "Sets the Windows timer resolution to 0.5ms (default 15.6ms). Better frame timing and less input lag.",
+        "Since Windows 10 2004 a finer timer resolution (e.g. 0.5 ms instead of 15.6 ms) only applies to the "
+        "program that requests it, and Windows 11 ignores it for minimized windows. This value brings back "
+        "the former system-wide behaviour. Honest note: it sets no resolution itself — games and tools "
+        "request it when they start. Takes effect after a restart.",
     "disable_prefetch":
         "Disables SysMain. Useful on SSDs, not recommended on HDDs.",
     "visual_effects_perf":
@@ -221,6 +224,18 @@ TWEAK_DESC_EN: dict[str, str] = {
         "Disables the 'Host for Windows AI components'. Since 24H2/26H2 it starts automatically and serves local AI models (AI search in Settings, Click to Do, AI actions). Saves RAM and CPU in the background; those AI features are off afterwards. Reversible.",
     'remove_m365_copilot_devhome':
         "Removes the 'Microsoft 365 Copilot' app (Office Hub) and the discontinued Dev Home — feature updates like 26H2 re-install both. Also removes the provisioned packages so they don't come back for new users. Office in the browser keeps working.",
+    "disable_eee":
+        "Turns off Energy-Efficient Ethernet (EEE, 'Green Ethernet') on every wired adapter that offers it. "
+        "With EEE the link drops into a power-saving state during pauses and has to wake up for the next "
+        "packet, which can cause small latency spikes. On a desktop turning it off costs practically "
+        "nothing. Only settings the driver itself offers are changed; revert puts the previous value back. "
+        "No connection drop now, takes effect after a restart.",
+    "disable_interrupt_moderation":
+        "The wired adapter reports every packet right away instead of collecting several and reporting "
+        "them together. Lowers network latency by a fraction of a millisecond, but causes noticeably more "
+        "CPU load at high download rates. Meant for online games — if you often download big files or "
+        "stream, better leave it on. Only settings the driver itself offers are changed; revert puts the "
+        "previous value back. Takes effect after a restart.",
     'tcp_optimize':
         'Turns ECN and TCP timestamps off and SACK on — slightly less overhead per packet. Honest note: the effect on ping is small; turning ECN off mainly helps behind routers that mishandle ECN packets.',
     'disable_qos_limit':
@@ -233,6 +248,9 @@ TWEAK_DESC_EN: dict[str, str] = {
 
 # English names, only where the German name differs. Most names are already English.
 TWEAK_NAME_EN: dict[str, str] = {
+    "timer_resolution":     "Let Timer Requests Apply System-wide",
+    "disable_eee":          "Disable Energy-Efficient Ethernet",
+    "disable_interrupt_moderation": "Disable Interrupt Moderation",
     "windowed_game_optimizations": "Optimizations for windowed games",
     "end_task_right_click": "End Task via Right-Click (Taskbar)",
     "show_file_extensions": "Show File Extensions",

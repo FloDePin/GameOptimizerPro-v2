@@ -115,6 +115,65 @@ _NV_LATENCY_REVERT = (
 
 # ── Helpers for the v1-parity / 26H2 tweaks ──────────────────────────────────
 
+# ── Advanced settings of the wired network adapters ─────────────────────────
+# Only physical (NCF_PHYSICAL) Ethernet adapters (*IfType 6), and only keywords the
+# driver itself declares in Ndi\params with "0" as a valid choice — vendors name the
+# same setting differently. All registry access goes through the .NET API: the
+# PowerShell cmdlets treat "*" in "*EEE" as a wildcard (Remove-ItemProperty would
+# delete every value ending in EEE). The value found before the first apply is kept
+# under HKLM\SOFTWARE\GameOptimizerPro\NicOrig and put back on revert. The driver
+# reads the values when the adapter starts: no connection drop now, effective after a
+# restart.
+NIC_EEE_KEYWORDS = ("*EEE", "EEE", "EEELinkAdvertisement", "AdvancedEEE",
+                    "EnableGreenEthernet", "GreenEthernet")
+NIC_IM_KEYWORDS = ("*InterruptModeration",)
+
+_NIC_LOOP_PS = (
+    "$kws=@(__KWS__); $tag='__TAG__'; $n=0; "
+    "$lm=[Microsoft.Win32.Registry]::LocalMachine; "
+    "$cls='SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e972-e325-11ce-bfc1-08002be10318}'; "
+    "$c=$lm.OpenSubKey($cls); $subs=@(); if($c){ $subs=@($c.GetSubKeyNames() | Where-Object { $_ -match '^\\d{4}$' }) }; "
+    "foreach($s in $subs){ "
+    "$k=$lm.OpenSubKey(\"$cls\\$s\", __WRITE__); if(-not $k){ continue }; "
+    "if(-not $k.GetValue('NetCfgInstanceId') -or -not ([int64]$k.GetValue('Characteristics',0) -band 4) "
+    "-or \"$($k.GetValue('*IfType'))\" -ne '6'){ continue }; "
+    "foreach($kw in $kws){ "
+    "$e=$lm.OpenSubKey(\"$cls\\$s\\Ndi\\params\\$kw\\enum\"); if(-not $e -or $null -eq $e.GetValue('0')){ continue }; "
+    "$def=$lm.OpenSubKey(\"$cls\\$s\\Ndi\\params\\$kw\").GetValue('default'); $cur=$k.GetValue($kw); "
+    "__BODY__ } }; "
+)
+
+
+def _nic_ps(mode: str, tag: str, keywords) -> str:
+    """apply / revert / verify script for one adapter setting (see above)."""
+    kws = ",".join(f"'{k}'" for k in keywords)
+    if mode == "apply":
+        body = ("$id=\"$tag|$s|$kw\"; "
+                "if($null -eq $st.GetValue($id)){ $st.SetValue($id, $(if($null -eq $cur){'*none*'}else{\"$cur\"})) }; "
+                "$k.SetValue($kw,'0',[Microsoft.Win32.RegistryValueKind]::String); $n++")
+        head = "$st=[Microsoft.Win32.Registry]::LocalMachine.CreateSubKey('SOFTWARE\\GameOptimizerPro\\NicOrig'); "
+        tail = ("if($n -gt 0){ Write-Output \"$n adapter setting(s) set to 0 (effective after a restart)\"; exit 0 }; "
+                "Write-Output 'Kein LAN-Adapter bietet diese Einstellung an / no wired adapter offers this setting'; exit 1")
+        write = "$true"
+    elif mode == "revert":
+        body = ("$id=\"$tag|$s|$kw\"; $o=$null; if($st){ $o=$st.GetValue($id) }; "
+                "if($null -ne $o){ if($o -eq '*none*'){ $k.DeleteValue($kw,$false) } "
+                "else { $k.SetValue($kw,\"$o\",[Microsoft.Win32.RegistryValueKind]::String) }; $st.DeleteValue($id,$false) } "
+                "elseif(\"$cur\" -eq '0' -and $null -ne $def -and \"$def\" -ne '0'){ "
+                "$k.SetValue($kw,\"$def\",[Microsoft.Win32.RegistryValueKind]::String) }; $n++")
+        head = "$st=[Microsoft.Win32.Registry]::LocalMachine.OpenSubKey('SOFTWARE\\GameOptimizerPro\\NicOrig', $true); "
+        tail = "exit 0"
+        write = "$true"
+    else:   # verify: every offered setting is 0 (a missing value counts as the driver default)
+        body = "$n++; $v=$(if($null -ne $cur){\"$cur\"}else{\"$def\"}); if($v -ne '0'){ $bad=$true }"
+        head = "$bad=$false; "
+        tail = "if($n -gt 0 -and -not $bad){'1'}else{'0'}"
+        write = "$false"
+    loop = (_NIC_LOOP_PS.replace("__KWS__", kws).replace("__TAG__", tag)
+            .replace("__WRITE__", write).replace("__BODY__", body))
+    return head + loop + tail
+
+
 def _remove_apps_ps(patterns: list[str]) -> str:
     """Remove Store apps for ALL users AND their provisioned package — a feature
     update (e.g. 26H2) re-installs apps that are only removed per user."""
@@ -555,13 +614,19 @@ bcdedit /deletevalue disabledynamictick 2>$null
 ''',
         requires_reboot=True, risk="moderate",
     ),
+    # The value sets no resolution itself — only a running program can (timeBeginPeriod /
+    # NtSetTimerResolution). It brings back the system-wide effect of such requests.
     Tweak(
         id="timer_resolution",
-        name="Set 0.5ms Timer Resolution",
-        desc="Setzt Windows Timer-Auflösung auf 0.5ms (Standard: 15.6ms). Besseres Frame-Timing, weniger Input-Lag.",
+        name="Timer-Anfragen systemweit gelten lassen",
+        desc="Seit Windows 10 2004 gilt eine feinere Timer-Auflösung (z. B. 0,5 ms statt 15,6 ms) nur für "
+             "das Programm, das sie anfordert, und Windows 11 ignoriert sie bei minimierten Fenstern. Der "
+             "Wert stellt das frühere systemweite Verhalten wieder her. Ehrlich: Er setzt selbst keine "
+             "Auflösung — die fordern Spiele und Tools beim Start selbst an. Wirkt nach einem Neustart.",
         category="Windows", group="Performance",
         ps_command='reg add "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\kernel" /v GlobalTimerResolutionRequests /t REG_DWORD /d 1 /f',
-        revert_cmd='reg add "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\kernel" /v GlobalTimerResolutionRequests /t REG_DWORD /d 0 /f',
+        revert_cmd='reg delete "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\kernel" /v GlobalTimerResolutionRequests /f 2>$null; exit 0',
+        requires_reboot=True,
     ),
     Tweak(
         id="disable_prefetch",
@@ -1420,6 +1485,34 @@ powercfg -setactive SCHEME_CURRENT
         ps_command='$c=\'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e972-e325-11ce-bfc1-08002be10318}\'; $n=0; foreach($k in @(Get-ChildItem $c -EA SilentlyContinue | Where-Object { $_.PSChildName -match \'^\\d{4}$\' })){ if((Get-ItemProperty $k.PSPath -EA SilentlyContinue).NetCfgInstanceId){ Set-ItemProperty -Path $k.PSPath -Name PnPCapabilities -Value 24 -Type DWord -Force -EA SilentlyContinue; if($?){ $n++ } } }; if($n -gt 0){ Write-Output "Energiesparen aus fuer $n Netzwerkadapter"; exit 0 } else { exit 1 }',
         revert_cmd="$c='HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e972-e325-11ce-bfc1-08002be10318}'; $n=0; foreach($k in @(Get-ChildItem $c -EA SilentlyContinue | Where-Object { $_.PSChildName -match '^\\d{4}$' })){ if((Get-ItemProperty $k.PSPath -EA SilentlyContinue).NetCfgInstanceId){ Remove-ItemProperty -Path $k.PSPath -Name PnPCapabilities -Force -EA SilentlyContinue; if($?){ $n++ } } }; exit 0",
         requires_reboot=True,
+        tags=["latency", "network"],
+    ),
+    Tweak(
+        id="disable_eee",
+        name="Energy-Efficient Ethernet aus",
+        desc="Schaltet Energy-Efficient Ethernet (EEE, 'Green Ethernet') an allen LAN-Adaptern ab, die es "
+             "anbieten. Mit EEE geht die Leitung in Sendepausen in einen Stromsparzustand und muss für das "
+             "nächste Paket erst aufwachen — das kann kleine Latenzspitzen geben. Am Desktop kostet das "
+             "Abschalten praktisch nichts. Geändert wird nur, was der Treiber selbst anbietet; der Revert "
+             "stellt den vorherigen Wert wieder her. Kein Verbindungsabbruch jetzt, wirkt nach einem Neustart.",
+        category="Network", group="Adapter",
+        ps_command=_nic_ps("apply", "EEE", NIC_EEE_KEYWORDS),
+        revert_cmd=_nic_ps("revert", "EEE", NIC_EEE_KEYWORDS),
+        requires_reboot=True,
+        tags=["latency", "network"],
+    ),
+    Tweak(
+        id="disable_interrupt_moderation",
+        name="Interrupt Moderation aus",
+        desc="Der LAN-Adapter meldet jedes Paket sofort, statt mehrere zu sammeln und gebündelt zu melden. "
+             "Senkt die Netzwerk-Latenz um Bruchteile einer Millisekunde, erzeugt aber bei hohen "
+             "Download-Raten deutlich mehr CPU-Last. Gedacht für Online-Spiele — wer oft große Dateien lädt "
+             "oder streamt, lässt es besser an. Geändert wird nur, was der Treiber selbst anbietet; der "
+             "Revert stellt den vorherigen Wert wieder her. Wirkt nach einem Neustart.",
+        category="Network", group="Adapter",
+        ps_command=_nic_ps("apply", "IM", NIC_IM_KEYWORDS),
+        revert_cmd=_nic_ps("revert", "IM", NIC_IM_KEYWORDS),
+        requires_reboot=True, risk="moderate",
         tags=["latency", "network"],
     ),
 

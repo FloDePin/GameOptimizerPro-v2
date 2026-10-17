@@ -2,9 +2,9 @@
 
 # ⚡ GameOptimizerPro v2.0
 
-**Windows-Gaming-Optimierer mit einem GPU-Auto-Tuner, der die V/F-Kurve deiner Grafikkarte Punkt für Punkt vermisst — dazu 107 umkehrbare Windows-Tweaks, ein BIOS-Guide und Stresstests.**
+**Windows-Gaming-Optimierer mit einem GPU-Auto-Tuner, der die V/F-Kurve deiner Grafikkarte Punkt für Punkt vermisst — dazu 109 umkehrbare Windows-Tweaks, Spiel-Profile, ein BIOS-Guide und Stresstests.**
 
-[![Version](https://img.shields.io/badge/version-2.0%20%C2%B7%20build%2036-d9480f?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
+[![Version](https://img.shields.io/badge/version-2.0%20%C2%B7%20build%2037-d9480f?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
 [![CI](https://github.com/FloDePin/GameOptimizerPro-v2/actions/workflows/ci.yml/badge.svg)](https://github.com/FloDePin/GameOptimizerPro-v2/actions/workflows/ci.yml)
 [![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4?style=flat-square&logo=windows)](https://www.microsoft.com/windows)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
@@ -25,9 +25,10 @@
 | 🎮 **GPU-Auto-Tuner** | Misst jeden Spannungspunkt einzeln und baut eine eigene V/F-Kurve — Ziele *Max. Leistung*, *Ausgewogen*, *Effizienz*. Dazu ein Schnell-Modus (Offset + Power-Limit). |
 | ✅ **Geprüft, nicht geraten** | Gespeichert wird nur, was FurMark, eine Rechenprüfung und einen Spiel-Endtest mit Lastwechseln bestanden hat. Ein Wächter meldet GPU-Hänger im Spiel und bietet ein entschärftes Profil an. |
 | 📊 **Profilvergleich** | Jedes Profil gegen Standard im selben Benchmark: Punkte, Watt, Punkte pro Watt — und die V/F-Kurven im Diagramm. |
-| 🛠 **107 Windows-Tweaks** | Mit Live-Prüfung (● aktiv · ◑ angewendet · ○ inaktiv), Presets von *Minimal* bis *Hard*, Registry-Backup vor jeder Änderung, *Alles zurücksetzen*. |
+| 🛠 **109 Windows-Tweaks** | Mit Live-Prüfung (● aktiv · ◑ angewendet · ○ inaktiv), Presets von *Minimal* bis *Hard*, Registry-Backup vor jeder Änderung, *Alles zurücksetzen*. |
+| 🎯 **Spiel-Profile** | Pro Spiel-`.exe`: höhere CPU- und Datenträger-Priorität, auf Wunsch ohne Vollbildoptimierungen — Windows setzt das bei jedem Start selbst, ohne Hintergrundprozess. Läuft das Spiel, zeigt der Status, welche Priorität es wirklich bekommen hat. |
 | 🖥 **BIOS-Guide** | 16 Plattformen (ab Intel 8. Gen / Ryzen 1000) mit Menüpfaden für ASUS, MSI, Gigabyte und ASRock; Live-Status nur dort, wo Windows ihn wirklich kennt. |
-| 🩺 **Stresstest & Diagnose** | Interner Stresstest, FurMark 1/2 und 3DMark mit Aufzeichnung, Gesundheitsbericht der letzten 30 Tage, Dienste- und Autostart-Manager, Bereinigung, Dashboard. |
+| 🩺 **Stresstest & Diagnose** | Interner Stresstest, FurMark 1/2 und 3DMark mit Aufzeichnung, Gesundheitsbericht der letzten 30 Tage, Interrupt-Ansicht (MSI oder Leitungs-Interrupt je Gerät), Dienste- und Autostart-Manager, Bereinigung, Dashboard. |
 
 <p align="center"><img src="docs/img/gpu-tuner.png" alt="GPU-Tuner: Rundum-Modus mit Ziel und Parametern" width="49%"> <img src="docs/img/optimizer.png" alt="Optimierer-Presets von Minimal bis Hard" width="49%"></p>
 
@@ -79,7 +80,7 @@ Jede Karte ist anders — deine Werte zeigt der Profilvergleich in der App.
 
 <details><summary>Muss die App die ganze Zeit laufen?</summary>
 
-Nein. Die Tweaks sind Windows-Einstellungen, und das GPU-Profil lädt Afterburner beim Start („Übertaktung beim Systemstart anwenden“).
+Nein. Die Tweaks und Spiel-Profile sind Windows-Einstellungen, und das GPU-Profil lädt Afterburner beim Start („Übertaktung beim Systemstart anwenden“).
 </details>
 <details><summary>AMD- oder Intel-Grafik?</summary>
 
@@ -87,7 +88,7 @@ Tweaks, BIOS-Guide, Stresstests und Diagnose laufen überall; der GPU-Tuner brau
 </details>
 <details><summary>Ärger mit Anti-Cheat?</summary>
 
-Die App greift in kein Spiel ein; sie ändert nur Windows- und Afterburner-Einstellungen.
+Die App greift nie in Dateien oder Speicher eines Spiels ein; sie ändert nur Windows- und Afterburner-Einstellungen. Ein Spiel-Profil sagt Windows nur, mit welcher Priorität das Spiel startet — manche Anti-Cheat-Systeme setzen sie zurück, das zeigt der Status in der App.
 </details>
 
 ## Voraussetzungen
@@ -98,7 +99,7 @@ Windows 10 / 11 · Python 3.10+ · Admin-Rechte (der Launcher fragt per UAC) · 
 
 - 📖 [Alle Funktionen im Detail](docs/FEATURES.de.md) — samt Projektstruktur
 - 📜 [Changelog](CHANGELOG.md) (Englisch)
-- 🧪 1150 automatische Prüfungen in 32 Test-Suiten (`python tests\run_all_tests.py`), bei jedem Push
+- 🧪 1214 automatische Prüfungen in 33 Test-Suiten (`python tests\run_all_tests.py`), bei jedem Push
 - 🤝 Pull Requests sind willkommen — bei größeren Änderungen bitte zuerst ein Issue öffnen.
 
 <div align="center">

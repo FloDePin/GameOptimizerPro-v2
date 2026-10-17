@@ -43,7 +43,7 @@ _MEDIUM_EXTRA = [
     "disable_nagle", "disable_network_throttle", "enable_rss", "disable_delivery_optimization",
     "disable_hibernation", "disable_storage_sense", "end_task_right_click",
     "disable_click_to_do", "disable_paint_ai", "disable_notepad_ai",
-    "tcp_optimize", "mmcss_audio_profile", "w11_remove_chat_icon",
+    "tcp_optimize", "mmcss_audio_profile", "w11_remove_chat_icon", "disable_eee",
 ]
 
 _HARD_EXTRA = [
@@ -59,7 +59,7 @@ _HARD_EXTRA = [
     "power_pcie_aspm_off", "power_disk_never_sleep", "show_hidden_files",
     "remove_m365_copilot_devhome", "disable_ai_fabric_service", "disable_reserved_storage",
     "disable_memory_compression", "audio_service_priority", "disable_qos_limit",
-    "w11_hide_recommended",
+    "w11_hide_recommended", "disable_interrupt_moderation",
 ]
 
 _TIER_MEDIUM = _TIER_MINIMAL + _MEDIUM_EXTRA
@@ -182,6 +182,7 @@ BUILTIN_PRESETS: list[TweakPreset] = [
             "disable_delivery_optimization",
             "tcp_optimize",
             "disable_qos_limit",
+            "disable_eee",
         ],
     ),
 

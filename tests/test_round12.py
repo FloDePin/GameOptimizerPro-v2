@@ -154,7 +154,7 @@ check(r.ok and not pp.present, "one copy of Ultimate Performance is not reported
 rd._gather = gather(["1|Ultimate Performance", "2|Ultimate Performance", "3|Ultimate Performance",
                      "4|Driver Booster Power Plan"])
 pp = next(i for i in rd.scan().items if i.key == "powerplans")
-check(pp.present and "Ultimate Performance ×3 (Duplikate" in pp.detail and "Driver Booster Power Plan" in pp.detail,
+check(pp.present and "Ultimate Performance ×3 (duplicates" in pp.detail and "Driver Booster Power Plan" in pp.detail,
       f"duplicates + foreign plans reported: {pp.detail!r}")
 rd._gather = _real_gather
 

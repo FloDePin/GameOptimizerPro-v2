@@ -183,7 +183,8 @@ def scan() -> RemnantScan:
         counts[label] = counts.get(label, 0) + 1
     extra = [f"{name} ×{n}" if n > 1 else name for name, n in counts.items()]
     if len(ultimate) > 1:
-        extra.append(f"{ultimate[0]} ×{len(ultimate)} (Duplikate — eine Kopie reicht)")
+        extra.append(f"{ultimate[0]} ×{len(ultimate)} "
+                     + _tr("(Duplikate — eine Kopie reicht)", "(duplicates — one copy is enough)"))
     items.append(RemnantItem(
         "powerplans", _tr("Fremd-Energiepläne", "Third-party power plans"), bool(extra),
         ", ".join(extra),

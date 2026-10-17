@@ -576,6 +576,28 @@ verifiers (VERIFY_MAP stays 1:1) and full English descriptions.
     architecture). The first-upload guide left the repository.
   - 1150 checks in 32 suites, all green.
 
+- **Round 30 — game profiles, adapter tweaks, interrupt view, honest timer tweak** (build 37):
+  - New: **game profiles** (Optimizer → Games). Choose a game's .exe and Windows starts it with a High or
+    Above normal CPU priority and a high disk priority, optionally without fullscreen optimizations for
+    that game only. Written once into the registry (Image File Execution Options, compatibility flag per
+    path) and applied by Windows at every start — no background process. While the game runs, the status
+    shows the priority it really got. No Realtime; Windows and system programs are refused; removing a
+    profile or *Revert all* puts back what was there before (values set by the user or another tool stay).
+  - New tweaks: **Energy-Efficient Ethernet off** and **Interrupt Moderation off** (Network → Adapter) —
+    physical wired adapters only, only keywords the driver itself offers, the previous value is kept for
+    the revert; registry access through .NET (the PowerShell cmdlets read "*EEE" as a wildcard). Effective
+    after a restart, no connection drop. EEE in *Medium* and *Network*, Interrupt Moderation in *Hard*.
+  - New: **interrupt view** (Diagnose → Interrupts, read-only) — per PCI device MSI or line interrupt as
+    Windows really allocated it, messages, priority, core assignment, shared line interrupts, with notes.
+  - Fixed: "Set 0.5ms Timer Resolution" set no resolution — `GlobalTimerResolutionRequests` only lets a
+    program's request apply system-wide again. Renamed to *Let timer requests apply system-wide* with an
+    honest description; marked as needing a restart; revert now removes the value (Windows default).
+  - Fixed: German texts in the English app — tweak and preset names in the log and dialogs, the status
+    table (active / reset / active externally), dialog titles, "Done.", the registry backup summary, the
+    duplicate power plan note; leftovers found by the remnant scan are now shown in amber in English too.
+  - Registry backup also covers the game profile keys. 109 tweaks.
+  - 1214 checks in 33 suites, all green.
+
 ### 🔎 Reviewed, verified NOT a bug
 
 Some reported items were checked against the actual code and left unchanged

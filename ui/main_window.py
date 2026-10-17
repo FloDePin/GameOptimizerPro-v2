@@ -516,6 +516,8 @@ class GameOptimizerWindow(ctk.CTk):
         """Another choice of an either-or group is active (e.g. DNS changed by
         hand): take it over quietly instead of offering to switch it back."""
         from core.tweaks import get_by_id
+        from core.tweak_i18n import tweak_name
+        from core.i18n import current_lang
         opt = self._tab_frames.get("optimizer")
         names = []
         for old, new in switched:
@@ -532,7 +534,7 @@ class GameOptimizerWindow(ctk.CTk):
                 if opt is not None:
                     opt._bulk = False
             t = get_by_id(new)
-            names.append(t.name if t else new)
+            names.append(tweak_name(t, current_lang()) if t else new)
         self.set_status(tr("Übernommen (aktuell aktive Wahl): ", "Taken over (the choice active now): ") + ", ".join(names))
 
     def _ask_drift(self, drifted: list):

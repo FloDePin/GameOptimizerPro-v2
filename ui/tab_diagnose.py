@@ -3,6 +3,7 @@ GameOptimizerPro v2.0 — Diagnose page
 Measure, don't guess:
   • Health Report    — 30 days of what Windows already recorded (read-only)
   • Remnant Scan     — leftovers of other tweak tools (read-only)
+  • Interrupts       — MSI or line interrupt per PCI device, priority, cores (read-only)
 
 Threading: worker threads write results straight into the thread-safe LogView
 (queue-backed). All other widget updates go through a main-thread pump queue —
@@ -15,22 +16,23 @@ import tkinter as tk
 
 import customtkinter as ctk
 
-from core import health_report, remnant_detector
-from ui.components import LogView, Page, WrapLabel, button
-from ui.theme import (ACC, AMBER, APP_BG, BORDER, CARD_BG, CARD_BG2, F_S, GREEN,
+from core import health_report, interrupts, remnant_detector
+from ui.components import LogView, Page, Table, WrapLabel, button
+from ui.theme import (ACC, AMBER, APP_BG, BORDER, CARD_BG, CARD_BG2, DIM, F_MONO, F_S, GREEN,
                       INPUT_BG, TEXT2, ctk_font, icon_image, mix, on_color, tr)
 
 HEALTH_COLOR = GREEN
 REMN_COLOR   = AMBER
+IRQ_COLOR    = ACC
 
 
 class DiagnoseTab(Page):
     def __init__(self, parent, **kw):
         super().__init__(parent, "Diagnose",
-                         tr("Messen statt raten: Windows-Fehlerprotokoll und Reste anderer "
-                            "Tweak-Tools — alles nur lesend",
-                            "Measure, don't guess: the Windows error log and leftovers of other "
-                            "tweak tools — all read-only"),
+                         tr("Messen statt raten: Windows-Fehlerprotokoll, Reste anderer Tweak-Tools "
+                            "und Interrupts — alles nur lesend",
+                            "Measure, don't guess: the Windows error log, leftovers of other tweak "
+                            "tools and interrupts — all read-only"),
                          color=ACC, scroll=False, **kw)
         self._ui_q: queue.Queue = queue.Queue()
         self._build()
@@ -67,7 +69,7 @@ class DiagnoseTab(Page):
     def _build(self):
         bar = tk.Frame(self.body, bg=APP_BG)
         bar.pack(fill="x", pady=(0, 10))
-        self._view_keys = {"Health-Report": "health", "Remnant-Scan": "remn"}
+        self._view_keys = {"Health-Report": "health", "Remnant-Scan": "remn", "Interrupts": "irq"}
         self.seg = ctk.CTkSegmentedButton(bar, values=list(self._view_keys), height=32,
                                           font=ctk_font(12), selected_color=mix(CARD_BG2, ACC, 0.45),
                                           selected_hover_color=mix(CARD_BG2, ACC, 0.6),
@@ -76,7 +78,8 @@ class DiagnoseTab(Page):
         holder = tk.Frame(self.body, bg=APP_BG)
         holder.pack(fill="both", expand=True)
         self._views = {}
-        for key, builder in (("health", self._build_health), ("remn", self._build_remnants)):
+        for key, builder in (("health", self._build_health), ("remn", self._build_remnants),
+                             ("irq", self._build_irq)):
             card = ctk.CTkFrame(holder, fg_color=CARD_BG, corner_radius=12, border_width=1,
                                 border_color=BORDER)
             inner = tk.Frame(card, bg=CARD_BG)
@@ -169,7 +172,7 @@ class DiagnoseTab(Page):
                 self.remn_log.append(f"✗ {res.error}", "error")
             else:
                 self.remn_log.append(res.summary,
-                                     "warning" if "mögliche" in res.summary else "success")
+                                     "warning" if any(i.present for i in res.items) else "success")
                 for it in res.items:
                     if it.present:
                         self.remn_log.append(f"⚠ {it.label}: {it.detail}", "warning")
@@ -177,4 +180,63 @@ class DiagnoseTab(Page):
                     else:
                         self.remn_log.append(tr(f"✓ {it.label}: nichts gefunden", f"✓ {it.label}: nothing found"), "info")
             self._on_main(lambda: self.btn_remn.configure(state="normal"))
+        threading.Thread(target=work, daemon=True).start()
+
+    # ── Interrupts ──────────────────────────────────────────────────────────────
+    def _build_irq(self, p):
+        self._head(p, tr("Interrupts — MSI oder Leitung, je Gerät", "Interrupts — MSI or line, per device"),
+                   IRQ_COLOR, tr(
+            "Zeigt für jedes PCI-Gerät, ob es wirklich mit MSI (Message Signaled Interrupts) läuft oder "
+            "noch mit dem alten Leitungs-Interrupt — gelesen aus dem, was Windows dem Gerät zugeteilt "
+            "hat, nicht nur aus der Registry. Dazu Priorität und Kern-Zuordnung. Es wird nichts geändert.",
+            "Shows for every PCI device whether it really runs with MSI (Message Signaled Interrupts) or "
+            "still with the old line interrupt — read from what Windows allocated to the device, not "
+            "only from the registry. Plus priority and core assignment. Nothing is changed."))
+        bar = tk.Frame(p, bg=CARD_BG)
+        bar.pack(fill="x")
+        self.btn_irq = button(bar, tr("Geräte lesen", "Read devices"), self._run_irq, kind="primary",
+                              color=IRQ_COLOR, height=32,
+                              image=icon_image("search", on_color(IRQ_COLOR), 14), compound="left")
+        self.btn_irq.pack(side="left")
+        self.lbl_irq = tk.Label(bar, text="", font=F_MONO, fg=DIM, bg=CARD_BG, anchor="w")
+        self.lbl_irq.pack(side="left", padx=12)
+        tbl = Table(p, [("dev", tr("Gerät", "Device"), 290, "w"), ("kind", tr("Typ", "Type"), 80, "w"),
+                        ("mode", tr("Modus", "Mode"), 120, "w"), ("msg", tr("Meldungen", "Messages"), 80, "center"),
+                        ("prio", tr("Priorität", "Priority"), 80, "center"),
+                        ("cores", tr("Kerne", "Cores"), 170, "w")], height=8, selectmode="browse")
+        tbl.pack(fill="both", expand=True, pady=(10, 0))
+        self.irq_tree = tbl.tree
+        self.irq_tree.tag_configure("msi", foreground=GREEN)
+        self.irq_tree.tag_configure("line", foreground=AMBER)
+        self.irq_log = self._logbox(p, height=5)
+
+    def _run_irq(self):
+        self.btn_irq.configure(state="disabled")
+        self.lbl_irq.configure(text=tr("Lese Geräte …", "Reading devices …"), fg=DIM)
+        self.irq_log.clear()
+
+        def work():
+            res = interrupts.scan()
+
+            def show():
+                self.btn_irq.configure(state="normal")
+                for row in self.irq_tree.get_children():
+                    self.irq_tree.delete(row)
+                if not res.ok:
+                    self.lbl_irq.configure(text=f"✗ {res.error}", fg=AMBER)
+                    return
+                line = sum(1 for d in res.devices if d.mode == "line")
+                self.lbl_irq.configure(text=interrupts.summary(res.devices), fg=GREEN if not line else AMBER)
+                for d in res.devices:
+                    self.irq_tree.insert("", "end", values=(
+                        d.name, interrupts.kind_label(d.kind), interrupts.mode_text(d), d.messages,
+                        interrupts.priority_text(d.priority), interrupts.cores_text(d)), tags=(d.mode,))
+                said = False
+                for d in res.devices:
+                    for lvl, txt in interrupts.notes(d):
+                        self.irq_log.append(f"{d.name}: {txt}", lvl)
+                        said = True
+                if not said:
+                    self.irq_log.append(tr("✓ Nichts Auffälliges.", "✓ Nothing unusual."), "success")
+            self._on_main(show)
         threading.Thread(target=work, daemon=True).start()
