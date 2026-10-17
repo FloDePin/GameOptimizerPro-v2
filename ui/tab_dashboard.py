@@ -49,10 +49,12 @@ class DashboardTab(Page):
         grid.pack(**pad)
         for icon, color, title, main, sub in (
             ("chip", CYAN, "CPU", hw.cpu_name,
-             f"{hw.cpu_cores} Kerne / {hw.cpu_threads} Threads · {hw.cpu_freq_mhz} MHz"),
+             tr(f"{hw.cpu_cores} Kerne / {hw.cpu_threads} Threads · {hw.cpu_freq_mhz} MHz",
+                f"{hw.cpu_cores} cores / {hw.cpu_threads} threads · {hw.cpu_freq_mhz} MHz")),
             ("gpu", GREEN, "GPU", hw.gpu_name, f"{hw.gpu_vendor} · {vram} VRAM"),
             ("bios", VIOLET, "RAM", f"{hw.ram_total_gb:.0f} GB {hw.ram_type}",
-             f"{hw.ram_slots_used} Module · {hw.ram_speed_mhz} MHz"),
+             tr(f"{hw.ram_slots_used} Module · {hw.ram_speed_mhz} MHz",
+                f"{hw.ram_slots_used} modules · {hw.ram_speed_mhz} MHz")),
             ("monitor", AMBER, "Board / OS", f"{hw.mb_manufacturer} {hw.mb_product}".strip() or "—",
              f"{'Windows 11' if hw.is_win11 else 'Windows 10' if hw.is_win10 else 'Windows'} · "
              f"Build {hw.os_build} · NVMe: {str(hw.nvme_count) + 'x' if hw.has_nvme else tr('nein', 'no')}"),
@@ -185,12 +187,12 @@ class DashboardTab(Page):
             try:
                 from core import optimization_score
                 r = optimization_score.compute_score(self.hw)
-                txt = f"{r.score} %   ·   {r.active}/{r.checkable} sichere Tweaks aktiv"
-                txt += f", {r.unknown} nicht prüfbar" if r.unknown else ""
+                txt = tr(f"{r.score} %   ·   {r.active}/{r.checkable} sichere Tweaks aktiv", f"{r.score} %   ·   {r.active}/{r.checkable} safe tweaks active")
+                txt += tr(f", {r.unknown} nicht prüfbar", f", {r.unknown} not checkable") if r.unknown else ""
                 col = GREEN if r.score >= 80 else (AMBER if r.score >= 50 else ERR)
                 pct = r.score / 100
             except Exception as e:
-                txt, col = f"Prüfung fehlgeschlagen: {e}", AMBER
+                txt, col = tr(f"Prüfung fehlgeschlagen: {e}", f"Check failed: {e}"), AMBER
             try:
                 self.after(0, lambda: self._show_score(txt, col, pct))
             except Exception:
@@ -219,7 +221,7 @@ class DashboardTab(Page):
             row = tk.Frame(self._mon_rows, bg=CARD_BG)
             row.pack(fill="x", pady=2)
             icon_label(row, "monitor", AMBER if d.below_max else ACC, 11, bg=CARD_BG).pack(side="left", padx=(0, 8), anchor="n")
-            tk.Label(row, text=f"Monitor {n}{' (primär)' if d.primary else ''}", font=F_BB,
+            tk.Label(row, text=f"Monitor {n}{tr(' (primär)', ' (primary)') if d.primary else ''}", font=F_BB,
                      fg=TEXT, bg=CARD_BG, width=17, anchor="nw").pack(side="left", anchor="n")
             WrapLabel(row, text=d.advice(), font=F_S, fg=AMBER if d.below_max else TEXT2,
                       bg=CARD_BG).pack(side="left", fill="x", expand=True)
@@ -249,11 +251,11 @@ class DashboardTab(Page):
             if r.reachable:
                 rating = network_test.rate_latency(r.avg_ms)
                 lbl.config(
-                    text=(f"{r.avg_ms:.0f} ms Ø  (min {r.min_ms:.0f} / max {r.max_ms:.0f})  ·  "
-                          f"Jitter {r.jitter_ms:.0f} ms  ·  Verlust {r.loss_pct:.0f}%  ·  {r.host}"),
+                    text=(tr(f"{r.avg_ms:.0f} ms Ø  (min {r.min_ms:.0f} / max {r.max_ms:.0f})  ·  "
+                          f"Jitter {r.jitter_ms:.0f} ms  ·  Verlust {r.loss_pct:.0f}%  ·  {r.host}", f"{r.avg_ms:.0f} ms avg  (min {r.min_ms:.0f} / max {r.max_ms:.0f})  ·  Jitter {r.jitter_ms:.0f} ms  ·  Loss {r.loss_pct:.0f}%  ·  {r.host}")),
                     fg=colmap.get(rating, DIM))
             else:
-                lbl.config(text=f"nicht erreichbar — {r.error}  ·  {r.host}", fg=ERR)
+                lbl.config(text=tr(f"nicht erreichbar — {r.error}  ·  {r.host}", f"not reachable — {r.error}  ·  {r.host}"), fg=ERR)
         self.btn_nettest.configure(state="normal", text=tr("Test starten", "Run test"))
 
     # ── Live values ───────────────────────────────────────────────────────────

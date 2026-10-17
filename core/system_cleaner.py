@@ -20,6 +20,7 @@ import glob
 import os
 import subprocess
 from dataclasses import dataclass, field
+from core.i18n import tr as _tr
 
 
 @dataclass
@@ -66,9 +67,9 @@ def get_targets() -> list[CleanTarget]:
     win = os.environ.get("SystemRoot", r"C:\Windows")
     tmp = os.environ.get("TEMP") or (os.path.join(la, "Temp") if la else "")
     raw = [
-        ("Benutzer-Temp", tmp),
-        ("Windows-Temp",  os.path.join(win, "Temp") if win else ""),
-        ("Absturz-Dumps", os.path.join(la, "CrashDumps") if la else ""),
+        (_tr("Benutzer-Temp", "User temp"), tmp),
+        (_tr("Windows-Temp", "Windows temp"), os.path.join(win, "Temp") if win else ""),
+        (_tr("Absturz-Dumps", "Crash dumps"), os.path.join(la, "CrashDumps") if la else ""),
     ]
     out, seen = [], set()
     for label, path in raw:
@@ -101,6 +102,28 @@ DEEP_GROUPS: dict[str, tuple[str, str, bool]] = {
 }
 
 
+DEEP_GROUPS_EN: dict[str, tuple[str, str]] = {
+    "browser":   ("Browser caches", "Chrome, Edge, Firefox — cache only, no passwords / history / "
+                  "bookmarks. Close the browsers first."),
+    "wucache":   ("Windows Update cache", "Downloaded update files (SoftwareDistribution\\Download). "
+                  "The update service is stopped briefly; Windows downloads again when needed."),
+    "thumbs":    ("Thumbnails", "Explorer's thumbnail database — rebuilt when needed, also fixes broken "
+                  "previews."),
+    "prefetch":  ("Prefetch data", "Prefetch files (*.pf) — Windows rebuilds them; the first start "
+                  "afterwards is slightly slower."),
+    "logs":      ("System logs & error reports", "CBS logs, minidumps, Windows error reports (pure "
+                  "diagnostic data)."),
+    "recyclebin": ("Empty the Recycle Bin", "Empties the Recycle Bin of ALL drives for good — deleted "
+                   "files can't be restored afterwards."),
+}
+
+
+def group_text(key: str) -> tuple[str, str]:
+    """(label, description) of a deep-clean group in the app's language."""
+    label, desc, _confirm = DEEP_GROUPS[key]
+    return _tr(label, DEEP_GROUPS_EN[key][0]), _tr(desc, DEEP_GROUPS_EN[key][1])
+
+
 def get_deep_targets(keys) -> list[CleanTarget]:
     """Folders of the chosen deep-clean groups (the Recycle Bin is handled by
     recycle_bin_info()/empty_recycle_bin(), not as folders)."""
@@ -125,9 +148,10 @@ def get_deep_targets(keys) -> list[CleanTarget]:
         for prof in sorted(glob.glob(os.path.join(la, "Mozilla", "Firefox", "Profiles", "*"))):
             add("browser", f"Firefox-Cache ({os.path.basename(prof)})", os.path.join(prof, "cache2"))
     if "wucache" in keys and win:
-        add("wucache", "Windows-Update-Download", os.path.join(win, "SoftwareDistribution", "Download"))
+        add("wucache", _tr("Windows-Update-Download", "Windows Update download"),
+            os.path.join(win, "SoftwareDistribution", "Download"))
     if "thumbs" in keys and la:
-        add("thumbs", "Miniaturansichten", os.path.join(la, "Microsoft", "Windows", "Explorer"),
+        add("thumbs", _tr("Miniaturansichten", "Thumbnails"), os.path.join(la, "Microsoft", "Windows", "Explorer"),
             pattern="thumbcache_*.db", recursive=False)
     if "prefetch" in keys and win:
         add("prefetch", "Prefetch", os.path.join(win, "Prefetch"), pattern="*.pf", recursive=False)
@@ -136,7 +160,7 @@ def get_deep_targets(keys) -> list[CleanTarget]:
             add("logs", "CBS-Logs", os.path.join(win, "Logs", "CBS"), pattern="*.log", recursive=False)
             add("logs", "Minidumps", os.path.join(win, "Minidump"))
         if pd:
-            add("logs", "Fehlerberichte (Warteschlange)",
+            add("logs", _tr("Fehlerberichte (Warteschlange)", "Error reports (queue)"),
                 os.path.join(pd, "Microsoft", "Windows", "WER", "ReportQueue"))
             add("logs", "Fehlerberichte (Archiv)",
                 os.path.join(pd, "Microsoft", "Windows", "WER", "ReportArchive"))

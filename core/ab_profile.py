@@ -51,6 +51,7 @@ import re
 import struct
 from dataclasses import dataclass
 from typing import Optional
+from core.i18n import tr as _tr
 
 
 # ── VFCurve blob ──────────────────────────────────────────────────────────────
@@ -103,7 +104,7 @@ class VFCurve:
             raise ProfileError(f"unbekannte VFCurve-Version {version:#010x}")
         n = min(count, (len(raw) - VF_HEADER_SIZE) // VF_POINT_SIZE)
         if n <= 0:
-            raise ProfileError("VFCurve enthält keine Punkte")
+            raise ProfileError(_tr("VFCurve enthält keine Punkte", "VFCurve has no points"))
         self._raw  = bytearray(raw)
         self.count = n
 
@@ -115,7 +116,7 @@ class VFCurve:
         try:
             return cls(bytes.fromhex(s))
         except ValueError as e:
-            raise ProfileError(f"VFCurve ist kein gültiger Hex-Wert ({e})") from None
+            raise ProfileError(_tr(f"VFCurve ist kein gültiger Hex-Wert ({e})", f"VFCurve is not a valid hex value ({e})")) from None
 
     def to_hex(self) -> str:
         return self._raw.hex().upper()
@@ -141,7 +142,7 @@ class VFCurve:
         """Plain core offset: the same offset on every point (what Afterburner
         itself writes when only the core-clock slider was moved)."""
         if abs(mhz) > MAX_CURVE_SHIFT:
-            raise ProfileError(f"Core-Offset {mhz:+d} MHz außerhalb ±{MAX_CURVE_SHIFT} MHz")
+            raise ProfileError(_tr(f"Core-Offset {mhz:+d} MHz außerhalb ±{MAX_CURVE_SHIFT} MHz", f"Core offset {mhz:+d} MHz outside ±{MAX_CURVE_SHIFT} MHz"))
         c = self.copy()
         for p in c.points():
             if p.voltage_mv > 0:
@@ -152,12 +153,12 @@ class VFCurve:
         """The active point closest to lock_mv (ties -> the lower voltage)."""
         act = self.active_points()
         if not act:
-            raise ProfileError("VFCurve hat keine aktiven Punkte")
+            raise ProfileError(_tr("VFCurve hat keine aktiven Punkte", "VFCurve has no active points"))
         p = min(act, key=lambda q: (abs(q.voltage_mv - lock_mv), q.voltage_mv))
         if abs(p.voltage_mv - lock_mv) > 25:
             raise ProfileError(
-                f"{lock_mv:.0f} mV liegt außerhalb der Kurve "
-                f"({act[0].voltage_mv:.0f}–{act[-1].voltage_mv:.0f} mV)")
+                _tr(f"{lock_mv:.0f} mV liegt außerhalb der Kurve "
+                f"({act[0].voltage_mv:.0f}–{act[-1].voltage_mv:.0f} mV)", f"{lock_mv:.0f} mV is outside the curve ({act[0].voltage_mv:.0f}–{act[-1].voltage_mv:.0f} mV)"))
         return p
 
     def with_flatline(self, lock_mv: float, target_mhz: float) -> "VFCurve":
@@ -172,8 +173,8 @@ class VFCurve:
         delta = math.floor(target_mhz - lock.base_mhz)
         if abs(delta) > MAX_CURVE_SHIFT:
             raise ProfileError(
-                f"Kurven-Offset {delta:+d} MHz bei {lock.voltage_mv:.0f} mV "
-                f"außerhalb ±{MAX_CURVE_SHIFT} MHz (Ziel {target_mhz:.0f} MHz)")
+                _tr(f"Kurven-Offset {delta:+d} MHz bei {lock.voltage_mv:.0f} mV "
+                f"außerhalb ±{MAX_CURVE_SHIFT} MHz (Ziel {target_mhz:.0f} MHz)", f"Curve offset {delta:+d} MHz at {lock.voltage_mv:.0f} mV outside ±{MAX_CURVE_SHIFT} MHz (target {target_mhz:.0f} MHz)"))
         c = self.copy()
         for p in c.points():
             if p.voltage_mv <= 0:
@@ -188,8 +189,8 @@ class VFCurve:
                 off = math.floor(target_mhz - ABOVE_FLAT_DROP_MHZ - p.base_mhz)
             if abs(off) > MAX_CURVE_SHIFT:
                 raise ProfileError(
-                    f"Kurven-Offset {off:+d} MHz bei {p.voltage_mv:.0f} mV außerhalb "
-                    f"±{MAX_CURVE_SHIFT} MHz")
+                    _tr(f"Kurven-Offset {off:+d} MHz bei {p.voltage_mv:.0f} mV außerhalb "
+                    f"±{MAX_CURVE_SHIFT} MHz", f"Curve offset {off:+d} MHz at {p.voltage_mv:.0f} mV outside ±{MAX_CURVE_SHIFT} MHz"))
             c._set_offset(p.index, off)
         return c
 
@@ -206,10 +207,10 @@ class VFCurve:
         one above (only ever lowered, never raised past a measurement)."""
         act = self.active_points()
         if not act:
-            raise ProfileError("VFCurve hat keine aktiven Punkte")
+            raise ProfileError(_tr("VFCurve hat keine aktiven Punkte", "VFCurve has no active points"))
         pts = sorted((float(mv), float(mhz)) for mv, mhz in anchors)
         if not pts:
-            raise ProfileError("keine Messpunkte für die Kurve")
+            raise ProfileError(_tr("keine Messpunkte für die Kurve", "no measured points for the curve"))
         aoff = []                                  # (point voltage, offset, target)
         for mv, mhz in pts:
             p = self.lock_point(mv)
@@ -262,23 +263,23 @@ class VFCurve:
             off = offs[p.index]
             if abs(off) > MAX_CURVE_SHIFT:
                 raise ProfileError(
-                    f"Kurven-Offset {off:+d} MHz bei {p.voltage_mv:.0f} mV außerhalb "
-                    f"±{MAX_CURVE_SHIFT} MHz")
+                    _tr(f"Kurven-Offset {off:+d} MHz bei {p.voltage_mv:.0f} mV außerhalb "
+                    f"±{MAX_CURVE_SHIFT} MHz", f"Curve offset {off:+d} MHz at {p.voltage_mv:.0f} mV outside ±{MAX_CURVE_SHIFT} MHz"))
             c._set_offset(p.index, off)
         return c
 
     def summary(self) -> str:
         act = self.active_points()
         if not act:
-            return f"{self.count} Punkte, keiner aktiv"
+            return _tr(f"{self.count} Punkte, keiner aktiv", f"{self.count} points, none active")
         offs = sorted({round(p.offset_mhz) for p in act})
         if len(offs) == 1:
             kind = f"einheitlicher Offset {offs[0]:+d} MHz"
         else:
             top = max(p.effective_mhz for p in act)
             kind = f"eigene Kurve (Offsets {offs[0]:+d}…{offs[-1]:+d} MHz, max {top:.0f} MHz)"
-        return (f"{self.count} Punkte ({len(act)} aktiv, "
-                f"{act[0].voltage_mv:.0f}–{act[-1].voltage_mv:.0f} mV), {kind}")
+        return (_tr(f"{self.count} Punkte ({len(act)} aktiv, "
+                f"{act[0].voltage_mv:.0f}–{act[-1].voltage_mv:.0f} mV), {kind}", f"{self.count} points ({len(act)} active, {act[0].voltage_mv:.0f}–{act[-1].voltage_mv:.0f} mV), {kind}"))
 
 
 # ── INI file (line-preserving) ───────────────────────────────────────────────
@@ -436,8 +437,8 @@ def pick_gpu_file(names: list[str], device: Optional[int] = None,
     never picked. -> (file name or None, explanation)."""
     ids = [g for g in (parse_gpu_filename(n) for n in names) if g and g.vendor == 0x10DE]
     if not ids:
-        return None, ("Afterburner hat noch kein Profil für die NVIDIA-Karte angelegt — "
-                      "Afterburner einmal starten und unten 'Speichern' → Slot 1 klicken.")
+        return None, (_tr("Afterburner hat noch kein Profil für die NVIDIA-Karte angelegt — "
+                      "Afterburner einmal starten und unten 'Speichern' → Slot 1 klicken.", "Afterburner has not created a profile for the NVIDIA card yet — start Afterburner once and click 'Save' → slot 1 at the bottom."))
     if device is not None and subsys is not None:
         same = [g for g in ids if g.device == device and g.subsys == subsys]
         if len(same) > 1 and bus is not None:
@@ -445,12 +446,12 @@ def pick_gpu_file(names: list[str], device: Optional[int] = None,
         if len(same) == 1:
             return same[0].name, "per PCI-ID zugeordnet"
         if not same:
-            return None, (f"Kein Afterburner-Profil passt zur Karte (DEV_{device:04X} "
-                          f"SUBSYS_{subsys:08X}) — gefunden: " + ", ".join(g.name for g in ids))
-        return None, "Mehrere gleiche Karten gefunden — Zuordnung nicht eindeutig."
+            return None, (_tr(f"Kein Afterburner-Profil passt zur Karte (DEV_{device:04X} "
+                          f"SUBSYS_{subsys:08X}) — gefunden: ", f"No Afterburner profile matches the card (DEV_{device:04X} SUBSYS_{subsys:08X}) — found: ") + ", ".join(g.name for g in ids))
+        return None, _tr("Mehrere gleiche Karten gefunden — Zuordnung nicht eindeutig.", "Several identical cards found — the profile can't be matched.")
     if len(ids) == 1:
         return ids[0].name, "einzige NVIDIA-Profildatei"
-    return None, ("Mehrere NVIDIA-Profildateien und keine PCI-ID (NVML) zum Zuordnen: "
+    return None, (_tr("Mehrere NVIDIA-Profildateien und keine PCI-ID (NVML) zum Zuordnen: ", "Several NVIDIA profile files and no PCI ID (NVML) to match them: ")
                   + ", ".join(g.name for g in ids))
 
 
@@ -517,13 +518,13 @@ def apply_slot(text: str, slot: int, s: SlotSettings) -> tuple[str, list[str]]:
     """Write `s` into [Profile<slot>] of a GPU profile file.
     -> (new file text, human-readable notes). Raises ProfileError."""
     if not 1 <= int(slot) <= 5:
-        raise ProfileError(f"Profil-Slot {slot} ungültig (1–5)")
+        raise ProfileError(_tr(f"Profil-Slot {slot} ungültig (1–5)", f"Profile slot {slot} invalid (1–5)"))
     return _apply_section(text, f"Profile{int(slot)}", s)
 
 
 def _apply_section(text: str, section: str, s: SlotSettings) -> tuple[str, list[str]]:
     if not -1000 < int(s.core_mhz) < 1000:      # 1000000 kHz = custom-curve marker
-        raise ProfileError(f"Core-Offset {s.core_mhz:+d} MHz außerhalb ±999 MHz")
+        raise ProfileError(_tr(f"Core-Offset {s.core_mhz:+d} MHz außerhalb ±999 MHz", f"Core offset {s.core_mhz:+d} MHz outside ±999 MHz"))
     pf      = ProfileFile(text)
     notes: list[str] = []
 
@@ -535,8 +536,8 @@ def _apply_section(text: str, section: str, s: SlotSettings) -> tuple[str, list[
     if s.uses_curve:
         if curve is None:
             raise ProfileError(
-                "Das Afterburner-Profil enthält noch keine V/F-Kurve — in Afterburner "
-                "einmal unten auf 'Speichern' und dann auf einen Slot klicken.")
+                _tr("Das Afterburner-Profil enthält noch keine V/F-Kurve — in Afterburner "
+                "einmal unten auf 'Speichern' und dann auf einen Slot klicken.", "The Afterburner profile has no V/F curve yet — in Afterburner click 'Save' at the bottom once, then a slot."))
         if s.curve:
             own = curve.with_anchor_curve(s.curve, s.cap_mv)
             updates["CoreClkBoost"] = str(CORE_CURVE_MARKER)
@@ -562,7 +563,7 @@ def _apply_section(text: str, section: str, s: SlotSettings) -> tuple[str, list[
             notes.append(f"Core {s.core_mhz:+d} MHz auf allen Kurvenpunkten "
                          f"(Basis-Kurve aus [{src}])")
         else:
-            notes.append(f"Core {s.core_mhz:+d} MHz (Profil ohne V/F-Kurve)")
+            notes.append(_tr(f"Core {s.core_mhz:+d} MHz (Profil ohne V/F-Kurve)", f"Core {s.core_mhz:+d} MHz (profile without a V/F curve)"))
 
     created = not pf.has_section(section)
     pf.set_values(section, updates, _template_body(pf) if created else None)
@@ -570,7 +571,7 @@ def _apply_section(text: str, section: str, s: SlotSettings) -> tuple[str, list[
         pf.set_values(section, {"Format": "2"})
     notes.append(f"Mem {s.mem_mhz:+d} MHz, Power-Limit {s.power_pct} %")
     if created:
-        notes.append(f"[{section}] neu angelegt")
+        notes.append(_tr(f"[{section}] neu angelegt", f"[{section}] created"))
     return pf.text(), notes
 
 

@@ -16,6 +16,7 @@ import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from core.i18n import tr as _tr
 
 # Wie viele Backup-Ordner aufgehoben werden (ältere werden automatisch gelöscht).
 KEEP_BACKUPS = 10
@@ -108,9 +109,9 @@ class BackupResult:
 
     def summary(self) -> str:
         if not self.ok:
-            return f"✗ Registry-Backup fehlgeschlagen: {self.error}"
+            return _tr(f"✗ Registry-Backup fehlgeschlagen: {self.error}", f"✗ Registry backup failed: {self.error}")
         return (f"✓ Registry-Backup: {self.saved} Zweige gesichert"
-                f"{f', {self.skipped} nicht vorhanden' if self.skipped else ''}"
+                f"{_tr(f', {self.skipped} nicht vorhanden', f', {self.skipped} not present') if self.skipped else ''}"
                 f" → {self.path}")
 
 
@@ -124,7 +125,7 @@ def create(label: str = "Backup") -> BackupResult:
     """Exportiert alle BACKUP_KEYS als .reg in einen neuen Zeitstempel-Ordner."""
     res = BackupResult()
     if os.name != "nt":
-        res.error = "Registry-Backup nur unter Windows verfügbar."
+        res.error = _tr("Registry-Backup nur unter Windows verfügbar.", "Registry backup is only available on Windows.")
         return res
 
     safe_label = re.sub(r"[^A-Za-z0-9_-]", "", label or "Backup")[:40] or "Backup"
@@ -159,8 +160,8 @@ def create(label: str = "Backup") -> BackupResult:
     res.path = dest_dir
     res.ok = res.saved > 0
     if not res.ok:
-        res.error = ("Kein einziger Zweig konnte exportiert werden "
-                     "(Adminrechte fehlen?).")
+        res.error = (_tr("Kein einziger Zweig konnte exportiert werden "
+                     "(Adminrechte fehlen?).", "Not a single branch could be exported (missing admin rights?)."))
     else:
         # Ein voller Export ist mehrere Dutzend MB gross (HKLM\...\Control allein
         # ist riesig) und laeuft vor JEDEM Stapel-Apply/Revert automatisch. Ohne

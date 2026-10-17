@@ -12,8 +12,8 @@ import tkinter as tk
 import customtkinter as ctk
 
 from core.bios_detector import BiosDetector
-from core.bios_guide    import (PROFILES, VENDORS, BiosSetting, detect_profile, get_impact_color,
-                                get_profile, get_risk_color, vendor_of)
+from core.bios_guide    import (BiosSetting, detect_profile, get_impact_color, get_profile,
+                                get_risk_color, profiles, vendor_of, vendors)
 from core.hardware      import HardwareInfo
 from ui.components import CheckBox, Page, ResponsiveGrid, WrapLabel, badge, button, section_title
 from ui.theme import (ACC, AMBER, APP_BG, BORDER, CARD_BG, CARD_BG2, DIM, ERR, F_BB, F_S, F_XS,
@@ -60,7 +60,7 @@ class BiosGuideTab(Page):
         return p.name + (DETECTED if p.id == self._detected_id else "")
 
     def _vendor_label(self, key: str) -> str:
-        name = dict(VENDORS)[key]
+        name = dict(vendors())[key]
         return name + (DETECTED if key == self._detected_vendor and key != "other" else "")
 
     def _build(self):
@@ -85,8 +85,8 @@ class BiosGuideTab(Page):
         sel.pack(fill="x")
         self._profile_labels = {self._profile_label(p): p.id
                                 for p in [get_profile(self._detected_id)]
-                                + [p for p in PROFILES if p.id != self._detected_id]}
-        self._vendor_labels = {self._vendor_label(k): k for k, _n in VENDORS}
+                                + [p for p in profiles() if p.id != self._detected_id]}
+        self._vendor_labels = {self._vendor_label(k): k for k, _n in vendors()}
         cell = tk.Frame(sel, bg=CARD_BG)
         tk.Label(cell, text=tr("Plattform", "Platform"), font=F_BB, fg=TEXT2, bg=CARD_BG,
                  anchor="w").pack(fill="x")
@@ -297,7 +297,7 @@ class BiosGuideTab(Page):
 
         vendor = self._vendor
         path = s.path_for(vendor)
-        who = dict(VENDORS).get(vendor, "") if vendor in s.paths else tr("allgemein", "generic")
+        who = dict(vendors()).get(vendor, "") if vendor in s.paths else tr("allgemein", "generic")
         WrapLabel(body, text=f"📍 {who}: {path}", font=F_XS, fg=VIOLET, bg=bg).pack(fill="x", pady=(0, 4))
         WrapLabel(body, text=s.explanation, font=F_S, fg=TEXT2, bg=bg).pack(fill="x")
         return card

@@ -2,6 +2,8 @@
 import os, sys, struct, tempfile, shutil, time, threading
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+import core.i18n as _I18N_PIN
+_I18N_PIN._current_lang = "de"   # these checks read the German messages (English: test_round29)
 os.chdir(ROOT)
 
 from core import ab_profile as P

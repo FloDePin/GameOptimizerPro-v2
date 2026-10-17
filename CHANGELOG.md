@@ -454,7 +454,7 @@ verifiers (VERIFY_MAP stays 1:1) and full English descriptions.
 
 - **Round 23 — All-round goals refined from a full test series** (build 30):
   - **Balanced, new rule:** performance **and** efficiency above stock, as evenly as
-    possible — the setting whose smaller gain is the largest. A test series on an RTX 4080
+    possible — the setting whose smaller gain is the largest. A test series on the test card
     showed the old rule (half the gain, most points per watt) picking flat from 1050 mV:
     +2.4 % performance, −0.5 % efficiency — hardly different from Max (+3.9 % / +1.7 %),
     while one cap lower already gave +0.9 % / +6.2 %. The old rule remains the fallback
@@ -484,7 +484,7 @@ verifiers (VERIFY_MAP stays 1:1) and full English descriptions.
     looked slightly worse than they are.
   - **Quick mode: the curve is flat from the game test's highest voltage.** The offset
     shifted the whole curve, also the points above the highest voltage any test reached
-    (RTX 4080: 1075 → 1100 mV at +134 MHz, never tested; a light load can boost there).
+    (test card: 1075 → 1100 mV at +134 MHz, never tested; a light load can boost there).
     Now: below that voltage exactly what was tested, above it lower. The description says
     honestly that the lowered power limit only saves power under full load (FurMark and
     most games stay below it).
@@ -558,6 +558,23 @@ verifiers (VERIFY_MAP stays 1:1) and full English descriptions.
     autostart failures log their reason; the crash dialog's title is localized; the page
     pre-build timer is cancelled on close.
   - 1141 checks in 31 suites, all green.
+
+- **Round 29 — English throughout, new README** (build 36):
+  - English is the default language — and now complete. About 300 texts that showed in
+    German in the English app have their English version: dialogs and status lines, the
+    settings checks, the services and autostart managers (incl. their service table and
+    advice list), the cleaner, health report, remnant scan, audio tweak results, Afterburner
+    and update messages — and the whole BIOS guide (16 platforms, built per language).
+    A new test scans the UI and the core messages and fails on any German-only text.
+  - Fixed: the GPU tuner's left column, built in the background, kept the width its content
+    had then — cards were cut off on the right (mode switch "All-rou…", goal switch showing
+    one option, descriptions in one cut line). Seen on a real desktop only; verified there.
+  - README rewritten (English and German): what the app does, screenshots, install in five
+    steps, which tuner mode for what, results on a test card against stock, safety, FAQ. The
+    full feature description moved to docs/FEATURES.md (corrected: memory margin 200 MHz,
+    language switch restarts the app, profile comparison with stock column and curve chart,
+    architecture). The first-upload guide left the repository.
+  - 1150 checks in 32 suites, all green.
 
 ### 🔎 Reviewed, verified NOT a bug
 

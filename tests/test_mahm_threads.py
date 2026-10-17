@@ -5,6 +5,8 @@ import ctypes, os, struct, subprocess, sys, threading, time
 from ctypes import wintypes
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+import core.i18n as _I18N_PIN
+_I18N_PIN._current_lang = "de"   # these checks read the German messages (English: test_round29)
 
 NAME = f"GopTestMAHM_{os.getpid()}"   # never the real Afterburner section
 ENTRY = 1324

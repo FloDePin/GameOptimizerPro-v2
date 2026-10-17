@@ -4,6 +4,8 @@ so it runs safely next to a real, running Afterburner (never touches it)."""
 import os, sys, shutil, subprocess, tempfile, time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+import core.i18n as _I18N_PIN
+_I18N_PIN._current_lang = "de"   # these checks read the German messages (English: test_round29)
 from core.nvtune_core import AfterburnerController
 import core.mahm_reader as mr
 from core.mahm_reader import section_ready

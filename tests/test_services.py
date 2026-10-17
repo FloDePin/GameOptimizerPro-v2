@@ -4,6 +4,8 @@ of the generated scripts (parsed, never executed)."""
 import json, os, subprocess, sys, tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+import core.i18n as _I18N_PIN
+_I18N_PIN._current_lang = "de"   # these checks read the German messages (English: test_round29)
 from pathlib import Path
 import core.services as sv
 

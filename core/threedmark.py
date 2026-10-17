@@ -18,6 +18,7 @@ import subprocess
 from pathlib import Path
 
 from core import app_settings
+from core.i18n import tr as _tr
 
 SETTING_KEY = "3dmark_path"
 STEAM_APP_ID = "223850"
@@ -114,9 +115,9 @@ def launch(path: str) -> tuple[bool, str]:
     try:
         if is_steam(path):
             os.startfile(f"steam://rungameid/{STEAM_APP_ID}")
-            return True, "3DMark wird über Steam gestartet …"
+            return True, _tr("3DMark wird über Steam gestartet …", "Starting 3DMark through Steam …")
         subprocess.Popen([path], cwd=os.path.dirname(path))
-        return True, "3DMark gestartet."
+        return True, _tr("3DMark gestartet.", "3DMark started.")
     except OSError as e:
         return False, str(e)
 

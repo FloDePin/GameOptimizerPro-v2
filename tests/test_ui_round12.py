@@ -10,6 +10,8 @@ go to a TEMP file."""
 import os, sys, tempfile, threading, time, traceback, shutil
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+import core.i18n as _I18N_PIN
+_I18N_PIN._current_lang = "de"   # these checks read the German messages (English: test_round29)
 os.chdir(ROOT)
 
 FAILS = []
@@ -177,6 +179,23 @@ def s_prebuild():
     w.update()
     check(len(w._tab_frames) == len(mw.TAB_DEFS) == 10 and not ERRORS,
           f"all 10 pages open without errors ({len(ERRORS)})")
+
+@step(400)
+def s_gpu_column():
+    # round 29: the GPU tuner is built in the background; shown later its left column kept the
+    # width its content had then (1925 px in a 490-px column — cards cut off on the right)
+    w.geometry("1400x900+120+90")
+    w._show_tab("gpu")
+    page = w._tab_frames["gpu"]
+    page._show_view("auto")
+    for _i in range(6):
+        w.update()
+        time.sleep(0.06)
+    sa = page.mode_card.master
+    cw, fw = sa._parent_canvas.winfo_width(), sa.winfo_width()
+    check(cw > 100 and fw == cw and page.mode_card.winfo_width() <= cw,
+          f"the GPU tuner's column (built in the background) fits its width: content {fw} px, column {cw} px")
+    w.geometry("1111x777+120+90")
 
 # ── building blocks ───────────────────────────────────────────────────────────
 @step(200)

@@ -124,7 +124,7 @@ class DiagnoseTab(Page):
     def _run_health(self):
         self.btn_health.configure(state="disabled")
         self.health_log.clear()
-        self.health_log.append("Lese Windows-Ereignisprotokoll … (kann einige Sekunden dauern)", "header")
+        self.health_log.append(tr("Lese Windows-Ereignisprotokoll … (kann einige Sekunden dauern)", "Reading the Windows event log … (can take a few seconds)"), "header")
 
         def work():
             rep = health_report.generate()
@@ -135,7 +135,7 @@ class DiagnoseTab(Page):
                                        "success" if "✓" in rep.summary else "warning")
                 for it in rep.items:
                     lvl = {"ok": "info", "warn": "warning", "critical": "error"}[it.severity]
-                    when = f"  (zuletzt: {it.last})" if it.last else ""
+                    when = tr(f"  (zuletzt: {it.last})", f"  (last: {it.last})") if it.last else ""
                     self.health_log.append(f"{it.label}: {it.count}{when}", lvl)
                     if it.count > 0:
                         self.health_log.append(f"    → {it.note}", lvl)
@@ -161,7 +161,7 @@ class DiagnoseTab(Page):
     def _run_remnants(self):
         self.btn_remn.configure(state="disabled")
         self.remn_log.clear()
-        self.remn_log.append("Scanne nach Fremd-Tweak-Resten …", "header")
+        self.remn_log.append(tr("Scanne nach Fremd-Tweak-Resten …", "Scanning for leftovers of third-party tweak tools …"), "header")
 
         def work():
             res = remnant_detector.scan()
@@ -175,6 +175,6 @@ class DiagnoseTab(Page):
                         self.remn_log.append(f"⚠ {it.label}: {it.detail}", "warning")
                         self.remn_log.append(f"    → {it.advice}", "info")
                     else:
-                        self.remn_log.append(f"✓ {it.label}: nichts gefunden", "info")
+                        self.remn_log.append(tr(f"✓ {it.label}: nichts gefunden", f"✓ {it.label}: nothing found"), "info")
             self._on_main(lambda: self.btn_remn.configure(state="normal"))
         threading.Thread(target=work, daemon=True).start()

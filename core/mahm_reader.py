@@ -45,6 +45,7 @@ import time
 from ctypes import wintypes
 from dataclasses import dataclass
 from typing import Optional
+from core.i18n import tr as _tr
 
 # ── Win32: open an EXISTING named section read-only (never create one) ───────
 # The old code used mmap.mmap(-1, 1 MB, tagname="MAHMSharedMemory"). On Windows
@@ -273,20 +274,20 @@ class MAHMReader:
         self._release()
         self._available = False
         if os.name != "nt":
-            self._error = "MAHM nur unter Windows verfügbar."
+            self._error = _tr("MAHM nur unter Windows verfügbar.", "MAHM is only available on Windows.")
             return
         try:
             k = _k32()
             h = k.OpenFileMappingW(_FILE_MAP_READ, False, MAHM_SHARED_MEMORY_NAME)
             if not h:
                 # Normal case when Afterburner isn't running — nothing is created.
-                self._error = "Afterburner-Shared-Memory nicht vorhanden (Afterburner läuft nicht)."
+                self._error = _tr("Afterburner-Shared-Memory nicht vorhanden (Afterburner läuft nicht).", "Afterburner shared memory not there (Afterburner is not running).")
                 return
             # Length 0 maps the WHOLE section, whatever size Afterburner chose.
             view = k.MapViewOfFile(h, _FILE_MAP_READ, 0, 0, 0)
             if not view:
                 k.CloseHandle(h)
-                self._error = f"MapViewOfFile fehlgeschlagen (Win32 {ctypes.get_last_error()})"
+                self._error = _tr(f"MapViewOfFile fehlgeschlagen (Win32 {ctypes.get_last_error()})", f"MapViewOfFile failed (Win32 {ctypes.get_last_error()})")
                 return
             mbi = _MEMORY_BASIC_INFORMATION()
             size = 0
@@ -304,7 +305,7 @@ class MAHMReader:
                 return
             stamp = struct.unpack_from("<I", self._bytes(24), 20)[0]
             if self._stale_time is not None and stamp == self._stale_time:
-                self._error = "Afterburner-Monitoring eingefroren (keine neuen Werte)"
+                self._error = _tr("Afterburner-Monitoring eingefroren (keine neuen Werte)", "Afterburner monitoring frozen (no new values)")
                 self._release()    # still the frozen section — don't hold it
                 return
             self._seen_time, self._seen_at = stamp, time.monotonic()
@@ -331,7 +332,7 @@ class MAHMReader:
         with self._lock:
             self._release()
             self._available = False
-            self._error = "Afterburner wird neu gestartet"
+            self._error = _tr("Afterburner wird neu gestartet", "Afterburner is restarting")
             self._suspended_until = time.monotonic() + seconds
 
     def resume(self):
@@ -403,7 +404,7 @@ class MAHMReader:
                 self._seen_time, self._seen_at = stamp, now
             elif now - self._seen_at > self.STALE_S:
                 # Frozen: Afterburner was killed and nobody updates this section.
-                self._error = "Afterburner-Monitoring eingefroren (keine neuen Werte)"
+                self._error = _tr("Afterburner-Monitoring eingefroren (keine neuen Werte)", "Afterburner monitoring frozen (no new values)")
                 self._stale_time = stamp
                 self._available = False
                 self._release()

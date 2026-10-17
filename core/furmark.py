@@ -16,6 +16,7 @@ import os
 from pathlib import Path
 
 from core import app_settings
+from core.i18n import tr as _tr
 
 APP_DIR = Path(__file__).resolve().parent.parent
 SETTING_KEY = "furmark_path"
@@ -225,7 +226,7 @@ def run_benchmark(path: str, seconds: float, width: int = 1920, height: int = 10
            "max_usage": 0, "exit_code": None, "aborted": False, "error": "",
            "elapsed_s": 0.0, "duration_ms": 0}
     if not path or not os.path.exists(path) or not is_v2(path):
-        res["error"] = "FurMark 2 nicht gefunden"
+        res["error"] = _tr("FurMark 2 nicht gefunden", "FurMark 2 not found")
         return res
     lock = {"on": not focus and _lock_foreground(True)}
 
@@ -243,7 +244,7 @@ def run_benchmark(path: str, seconds: float, width: int = 1920, height: int = 10
                                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                                     startupinfo=None if focus else _no_focus_startupinfo())
         except OSError as e:
-            res["error"] = f"FurMark ließ sich nicht starten: {e}"
+            res["error"] = _tr(f"FurMark ließ sich nicht starten: {e}", f"FurMark could not be started: {e}")
             return res
 
         def _kill():
@@ -270,7 +271,7 @@ def run_benchmark(path: str, seconds: float, width: int = 1920, height: int = 10
                 return res
             if el > seconds + grace_s:
                 _kill()
-                res.update(error=f"FurMark hängt ({el:.0f} s) — abgebrochen", elapsed_s=round(el, 1))
+                res.update(error=_tr(f"FurMark hängt ({el:.0f} s) — abgebrochen", f"FurMark hangs ({el:.0f} s) — stopped"), elapsed_s=round(el, 1))
                 return res
             if on_tick is not None and el - last_tick >= 1.0:
                 last_tick = el
@@ -286,9 +287,9 @@ def run_benchmark(path: str, seconds: float, width: int = 1920, height: int = 10
         for k in ("score", "fps_avg", "fps_min", "max_temp", "max_usage", "duration_ms"):
             res[k] = stats.get(k, 0)
         if proc.returncode != 0:
-            res["error"] = f"FurMark endete mit Code {proc.returncode} (Absturz?)"
+            res["error"] = _tr(f"FurMark endete mit Code {proc.returncode} (Absturz?)", f"FurMark ended with code {proc.returncode} (crash?)")
         elif not res["score"]:
-            res["error"] = "FurMark lieferte keine Punktzahl"
+            res["error"] = _tr("FurMark lieferte keine Punktzahl", "FurMark returned no score")
         else:
             res["ok"] = True
         return res

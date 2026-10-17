@@ -7,6 +7,7 @@ Rein lesend, keine Systemänderung. Läuft über den Windows `ping`-Befehl.
 import subprocess, re, statistics, os
 from dataclasses import dataclass, field
 from typing import Optional
+from core.i18n import tr as _tr
 
 
 @dataclass
@@ -67,7 +68,7 @@ def ping(label: str, host: str, count: int = 10, timeout_ms: int = 1000) -> Ping
     """Pingt einen Host `count` mal und wertet Latenz/Loss/Jitter aus."""
     res = PingResult(label=label, host=host)
     if not host:
-        res.error = "kein Host"
+        res.error = _tr("kein Host", "no host")
         return res
     try:
         if os.name == "nt":
@@ -98,7 +99,7 @@ def ping(label: str, host: str, count: int = 10, timeout_ms: int = 1000) -> Ping
         elif rtts:
             res.loss_pct = round((count - len(rtts)) / count * 100.0, 0)
         if not rtts and res.loss_pct >= 100.0:
-            res.error = "keine Antwort"
+            res.error = _tr("keine Antwort", "no answer")
     except subprocess.TimeoutExpired:
         res.error = "Timeout"
     except Exception as e:
@@ -114,7 +115,7 @@ def run_all(count: int = 10) -> list[PingResult]:
         results.append(ping("Gateway (Router)", gw, count=count))
     else:
         r = PingResult(label="Gateway (Router)", host="?")
-        r.error = "Gateway nicht gefunden"
+        r.error = _tr("Gateway nicht gefunden", "Gateway not found")
         results.append(r)
     for label, host in PUBLIC_TARGETS:
         results.append(ping(label, host, count=count))

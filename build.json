@@ -1,5 +1,5 @@
 {
-  "build": 35,
-  "date": "2026-10-15",
-  "notes": "Prüfbericht abgearbeitet: Update wird nicht mehr unter einer laufenden App installiert, Sprachwechsel startet sauber neu, Tray-Menü in der App-Sprache, eine Last ohne Ergebnis zählt im Tuner als Fehler."
+  "build": 36,
+  "date": "2026-10-17",
+  "notes": "Englisch ist Standard und jetzt vollständig (auch der BIOS-Guide); die linke Spalte im GPU-Tuner wird nicht mehr abgeschnitten; neue README."
 }

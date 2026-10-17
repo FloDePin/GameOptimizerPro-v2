@@ -12,6 +12,7 @@ import ctypes
 import os
 from ctypes import wintypes
 from dataclasses import dataclass
+from core.i18n import tr as _tr
 
 ENUM_CURRENT_SETTINGS = -1
 DISPLAY_DEVICE_ATTACHED_TO_DESKTOP = 0x1
@@ -71,12 +72,12 @@ class DisplayState:
     def advice(self) -> str:
         res = f"{self.width}×{self.height}"
         if self.current_hz <= 0:
-            return f"{res} — Bildwiederholrate unbekannt"
+            return _tr(f"{res} — Bildwiederholrate unbekannt", f"{res} — refresh rate unknown")
         if self.below_max:
-            return (f"{res} @ {self.current_hz} Hz — läuft UNTER dem Maximum! Möglich sind "
+            return (_tr(f"{res} @ {self.current_hz} Hz — läuft UNTER dem Maximum! Möglich sind "
                     f"{self.max_hz} Hz: Einstellungen → System → Bildschirm → Erweiterte "
-                    f"Anzeige → Bildwiederholrate.")
-        return f"{res} @ {self.current_hz} Hz (Maximum bei dieser Auflösung)"
+                    f"Anzeige → Bildwiederholrate.", f"{res} @ {self.current_hz} Hz — BELOW the maximum! {self.max_hz} Hz are possible: Settings → System → Display → Advanced display → Refresh rate."))
+        return _tr(f"{res} @ {self.current_hz} Hz (Maximum bei dieser Auflösung)", f"{res} @ {self.current_hz} Hz (the maximum at this resolution)")
 
 
 def _monitor_name(user32, adapter: str) -> str:

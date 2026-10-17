@@ -30,6 +30,7 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
+from core.i18n import tr as _tr
 
 REPO = "FloDePin/GameOptimizerPro-v2"
 BRANCH = "main"
@@ -134,7 +135,7 @@ def download_and_stage(remote: BuildInfo, progress: Optional[Callable[[str], Non
             progress("download")
         data = fetch(ZIP_URL, 60.0)
         if len(data) > MAX_ZIP_BYTES:
-            return False, "Update-Download zu groß"
+            return False, _tr("Update-Download zu groß", "Update download too large")
         if staging.exists():
             shutil.rmtree(staging, ignore_errors=True)
         staging.mkdir(parents=True, exist_ok=True)
@@ -142,22 +143,22 @@ def download_and_stage(remote: BuildInfo, progress: Optional[Callable[[str], Non
         zpath.write_bytes(data)
         with zipfile.ZipFile(zpath) as zf:
             if zf.testzip() is not None:
-                return False, "Update-Download beschädigt"
+                return False, _tr("Update-Download beschädigt", "Update download damaged")
             _safe_extract(zf, staging / "new")
         zpath.unlink(missing_ok=True)
         roots = [p for p in (staging / "new").iterdir() if p.is_dir()]
         root = roots[0] if len(roots) == 1 else staging / "new"
         got = local_build(root)
         if not (root / "GameOptimizerPro.py").exists() or not (root / "tools" / "apply_update.py").exists():
-            return False, "Update unvollständig (Programmdateien fehlen)"
+            return False, _tr("Update unvollständig (Programmdateien fehlen)", "Update incomplete (program files missing)")
         if got.build != remote.build:
-            return False, f"Update passt nicht (Build {got.build} statt {remote.build})"
+            return False, _tr(f"Update passt nicht (Build {got.build} statt {remote.build})", f"Update does not match (build {got.build} instead of {remote.build})")
         (staging / "pending.json").write_text(json.dumps({"build": got.build, "date": got.date,
                                                           "notes": got.notes, "dir": str(root)}),
                                               encoding="utf-8")
         return True, f"Build {got.build} bereit"
     except (urllib.error.URLError, OSError, zipfile.BadZipFile, ValueError) as e:
-        return False, f"Update-Download fehlgeschlagen: {e}"
+        return False, _tr(f"Update-Download fehlgeschlagen: {e}", f"Update download failed: {e}")
 
 
 def pending(base: Path = BASE) -> Optional[dict]:

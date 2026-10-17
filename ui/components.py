@@ -519,6 +519,7 @@ class ScrollArea(tk.Frame):
         self._parent_canvas.pack(side="left", fill="both", expand=True)
         super().__init__(self._parent_canvas, bg=bg)
         self._win = self._parent_canvas.create_window(0, 0, window=self, anchor="nw")
+        self._sync_job = None
         self._parent_canvas.configure(yscrollcommand=self._sb.set)
         self.bind("<Configure>", self._fit_region, add="+")
         self._parent_canvas.bind("<Configure>", self._fit_width, add="+")
@@ -528,11 +529,37 @@ class ScrollArea(tk.Frame):
             root.bind_all("<MouseWheel>", _wheel_dispatch, add="+")
 
     def _fit_region(self, _e=None):
-        self._parent_canvas.configure(scrollregion=(0, 0, self.winfo_reqwidth(),
+        # as wide as the canvas: a content request wider than it (e.g. a hidden card)
+        # must not make the area scroll sideways
+        cw = self._parent_canvas.winfo_width()
+        self._parent_canvas.configure(scrollregion=(0, 0, cw if cw > 1 else self.winfo_reqwidth(),
                                                     max(self.winfo_reqheight(), 1)))
 
     def _fit_width(self, e):
         self._parent_canvas.itemconfigure(self._win, width=e.width)
+        if self._sync_job is not None:
+            try:
+                self.after_cancel(self._sync_job)
+            except tk.TclError:
+                pass
+        self._sync_job = self.after(30, self._sync_width)
+
+    def _sync_width(self):
+        """A page built in the background (mapped below the visible one, then unmapped)
+        kept the width its content had then — 1925 px in a 490-px column: cards cut off
+        on the right. The canvas had the new width but never moved its window; hiding and
+        showing the window once makes it place it again."""
+        self._sync_job = None
+        cv = self._parent_canvas
+        try:
+            cw = cv.winfo_width()
+            if cw > 1 and self.winfo_width() != cw:
+                cv.itemconfigure(self._win, state="hidden")
+                cv.update_idletasks()
+                cv.itemconfigure(self._win, state="normal")
+                self._fit_region()
+        except tk.TclError:
+            pass                                  # closed
 
     def scrollable(self) -> bool:
         return self._parent_canvas.yview() != (0.0, 1.0)

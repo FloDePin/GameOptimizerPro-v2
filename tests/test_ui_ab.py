@@ -130,8 +130,8 @@ def s5():
             walk(c)
     walk(st.setup_frame)
     joined = " | ".join(str(x) for x in texts)
-    for needle in ("AB: Unlock Voltage Monitoring", "Spannungsüberwachung freischalten",
-                   "AB: Graph 'GPU-Spannung' aktiv", "AB: Profildatei der Grafikkarte",
+    for needle in ("AB: Unlock Voltage Monitoring", "Unlock voltage monitoring",
+                   "AB: graph 'GPU voltage' on", "AB: the graphics card's profile file",   # English app (round 29)
                    "noch kein Profil für die NVIDIA-Karte"):
         check(needle in joined, f"setup row: {needle!r}")
     check("Slot 2" not in joined, "old per-slot lock row gone")

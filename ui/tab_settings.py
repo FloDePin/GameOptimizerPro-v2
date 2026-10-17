@@ -154,7 +154,8 @@ class SettingsTab(Page):
             "documents or browser profiles (passwords, history, bookmarks). Files in use are skipped "
             "and not counted as freed."), font=F_XS, fg=DIM, bg=CARD_BG).pack(fill="x", pady=(0, 8))
         self._deep_vars: dict[str, tk.BooleanVar] = {}
-        for key, (label, desc, confirm) in system_cleaner.DEEP_GROUPS.items():
+        for key, (_label, _desc, confirm) in system_cleaner.DEEP_GROUPS.items():
+            label, desc = system_cleaner.group_text(key)
             row = tk.Frame(cl.body, bg=CARD_BG)
             row.pack(fill="x", pady=3)
             v = tk.BooleanVar(value=False)
@@ -172,7 +173,7 @@ class SettingsTab(Page):
         self.btn_clean = button(cb, tr("Bereinigen", "Clean"), self._cleaner_clean, kind="primary",
                                 color=AMBER, height=30)
         self.btn_clean.pack(side="left")
-        self.lbl_cleaner = tk.Label(cl.body, text="Noch nicht gescannt.", font=F_MONO, fg=DIM,
+        self.lbl_cleaner = tk.Label(cl.body, text=tr("Noch nicht gescannt.", "Not scanned yet."), font=F_MONO, fg=DIM,
                                     bg=CARD_BG, justify="left", anchor="w")
         self.lbl_cleaner.pack(fill="x", pady=(8, 0))
 
@@ -211,8 +212,8 @@ class SettingsTab(Page):
             if ok is not True:
                 messagebox.showerror(
                     "Autostart",
-                    "Konnte den Autostart nicht einrichten.\n"
-                    "Stelle sicher, dass GameOptimizerPro als Administrator läuft.")
+                    tr("Konnte den Autostart nicht einrichten.\n"
+                    "Stelle sicher, dass GameOptimizerPro als Administrator läuft.", "Could not set up the autostart.\nMake sure GameOptimizerPro runs as administrator."))
                 self.v_autostart.set(not want)
         run_async(self, lambda: self.startup_loader.set_autostart(want), done)
 
@@ -235,7 +236,7 @@ class SettingsTab(Page):
     def _load_startup_now(self):
         if not self.startup_loader:
             return
-        self.lbl_startup_result.config(text="Lade Profil über Afterburner …", fg=DIM)
+        self.lbl_startup_result.config(text=tr("Lade Profil über Afterburner …", "Loading the profile through Afterburner …"), fg=DIM)
 
         def done(res):
             ok, msg = res if isinstance(res, tuple) else (False, str(res))
@@ -256,7 +257,7 @@ class SettingsTab(Page):
 
     def _create_registry_backup(self):
         self.btn_regbackup.configure(state="disabled")
-        self.lbl_regbackup.config(text="Sichere Registry-Zweige … (kann einen Moment dauern)", fg=DIM)
+        self.lbl_regbackup.config(text=tr("Sichere Registry-Zweige … (kann einen Moment dauern)", "Backing up registry branches … (can take a moment)"), fg=DIM)
 
         def done(res):
             if isinstance(res, Exception):
@@ -273,7 +274,7 @@ class SettingsTab(Page):
             os.makedirs(root, exist_ok=True)
             sp.Popen(["explorer.exe", root])
         except Exception as e:
-            messagebox.showerror("Fehler", f"Backup-Ordner konnte nicht geöffnet werden:\n{e}")
+            messagebox.showerror(tr("Fehler", "Error"), tr(f"Backup-Ordner konnte nicht geöffnet werden:\n{e}", f"The backup folder could not be opened:\n{e}"))
 
     # ── Cleaner ───────────────────────────────────────────────────────────────
 
@@ -294,41 +295,41 @@ class SettingsTab(Page):
             groups: dict[str, list] = {}
             for t in targets:
                 if t.exists and t.file_count:
-                    g = system_cleaner.DEEP_GROUPS.get(t.key, (t.label,))[0] if t.key else t.label
+                    g = system_cleaner.group_text(t.key)[0] if t.key in system_cleaner.DEEP_GROUPS else t.label
                     acc = groups.setdefault(g, [0, 0])
                     acc[0] += t.file_count
                     acc[1] += t.bytes
             if with_bin:
                 n, size = system_cleaner.recycle_bin_info()
                 if n:
-                    groups["Papierkorb"] = [n, size]
+                    groups[tr("Papierkorb", "Recycle Bin")] = [n, size]
                     tf += n
                     tb += size
-            lines = [f"Gefunden: {tf} Dateien, {system_cleaner.human_size(tb)}"]
+            lines = [tr(f"Gefunden: {tf} Dateien, {system_cleaner.human_size(tb)}", f"Found: {tf} files, {system_cleaner.human_size(tb)}")]
             for g, (n, size) in groups.items():
-                lines.append(f"   • {g}: {n} Dateien, {system_cleaner.human_size(size)}")
+                lines.append(tr(f"   • {g}: {n} Dateien, {system_cleaner.human_size(size)}", f"   • {g}: {n} files, {system_cleaner.human_size(size)}"))
             return "\n".join(lines), (GREEN if tf else DIM)
 
         def done(res):
             if isinstance(res, Exception):
-                self.lbl_cleaner.config(text=f"Scan fehlgeschlagen: {res}", fg=AMBER)
+                self.lbl_cleaner.config(text=tr(f"Scan fehlgeschlagen: {res}", f"Scan failed: {res}"), fg=AMBER)
             else:
                 self.lbl_cleaner.config(text=res[0], fg=res[1])
         run_async(self, work, done)
 
     def _cleaner_clean(self):
         targets, with_bin = self._cleaner_targets()
-        deep = sorted({system_cleaner.DEEP_GROUPS[t.key][0] for t in targets if t.key})
+        deep = sorted({system_cleaner.group_text(t.key)[0] for t in targets if t.key})
         extra = ("\n\nDeep Clean: " + ", ".join(deep)) if deep else ""
         if not messagebox.askyesno(
-            "Bereinigen",
-            "Jetzt bereinigen?\n\nImmer: Temp-/Dump-Ordner. Dateien, die gerade in Benutzung "
-            "sind, werden übersprungen." + extra):
+            tr("Bereinigen", "Clean"),
+            tr("Jetzt bereinigen?\n\nImmer: Temp-/Dump-Ordner. Dateien, die gerade in Benutzung "
+            "sind, werden übersprungen.", "Clean now?\n\nAlways: temp / dump folders. Files in use right now are skipped.") + extra):
             return
         if with_bin and not messagebox.askyesno(
-            "Papierkorb leeren",
-            "Der Papierkorb ALLER Laufwerke wird endgültig geleert.\n\n"
-            "Gelöschte Dateien sind danach nicht mehr wiederherstellbar. Fortfahren?",
+            tr("Papierkorb leeren", "Empty the Recycle Bin"),
+            tr("Der Papierkorb ALLER Laufwerke wird endgültig geleert.\n\n"
+            "Gelöschte Dateien sind danach nicht mehr wiederherstellbar. Fortfahren?", "The Recycle Bin of ALL drives is emptied for good.\n\nDeleted files can't be restored afterwards. Continue?"),
             icon="warning"):
             with_bin = False
         self.lbl_cleaner.config(text="Bereinige…", fg=DIM)
@@ -341,11 +342,11 @@ class SettingsTab(Page):
             if with_bin:
                 ok, size = system_cleaner.empty_recycle_bin()
                 freed += size
-                bin_note = ("   + Papierkorb geleert" if ok else "   (Papierkorb: nicht möglich)")
-            msg = (f"✓ {res.files_deleted} Dateien gelöscht, "
-                   f"{system_cleaner.human_size(freed)} freigegeben{bin_note}")
+                bin_note = (tr("   + Papierkorb geleert", "   + Recycle Bin emptied") if ok else tr("   (Papierkorb: nicht möglich)", "   (Recycle Bin: not possible)"))
+            msg = (tr(f"✓ {res.files_deleted} Dateien gelöscht, "
+                   f"{system_cleaner.human_size(freed)} freigegeben{bin_note}", f"✓ {res.files_deleted} files deleted, {system_cleaner.human_size(freed)} freed{bin_note}"))
             if res.errors:
-                msg += f"   ({res.errors} in Benutzung übersprungen)"
+                msg += tr(f"   ({res.errors} in Benutzung übersprungen)", f"   ({res.errors} skipped, in use)")
             return msg
 
         def done(msg):
@@ -362,9 +363,9 @@ class SettingsTab(Page):
         checks = []
 
         checks.append((
-            "MSI Afterburner installiert",
+            tr("MSI Afterburner installiert", "MSI Afterburner installed"),
             self.ab.available,
-            self.ab.exe or "Nicht gefunden — https://www.msi.com/Landing/afterburner"
+            self.ab.exe or tr("Nicht gefunden — https://www.msi.com/Landing/afterburner", "Not found — https://www.msi.com/Landing/afterburner")
         ))
 
         checks.append((
@@ -375,30 +376,32 @@ class SettingsTab(Page):
 
         mahm = self.monitor.mahm.available
         checks.append((
-            "MAHM Shared Memory (Afterburner-Monitoring)",
+            tr("MAHM Shared Memory (Afterburner-Monitoring)", "MAHM shared memory (Afterburner monitoring)"),
             mahm,
-            "✓ Afterburner-Monitoring wird gelesen" if mahm else
-            "Afterburner starten und im Tray lassen"
+            tr("✓ Afterburner-Monitoring wird gelesen", "✓ Afterburner monitoring is read") if mahm else
+            tr("Afterburner starten und im Tray lassen", "Start Afterburner and leave it in the tray")
         ))
 
         try:
             ab_cfg = self.ab.check_ab_setup() if self.ab.available else {}
         except Exception:
             ab_cfg = {}
-        no_cfg = "Afterburner einmal starten (legt Profiles\\MSIAfterburner.cfg an)"
+        no_cfg = tr("Afterburner einmal starten (legt Profiles\\MSIAfterburner.cfg an)", "Start Afterburner once (creates Profiles\\MSIAfterburner.cfg)")
         checks.append((
             "AB: Unlock Voltage Control",
             ab_cfg.get("voltage_control", False),
             "✓" if ab_cfg.get("voltage_control") else
             (no_cfg if not ab_cfg.get("cfg_found") else
-             "AB → Einstellungen → Allgemein → Spannungssteuerung freischalten")
+             tr("AB → Einstellungen → Allgemein → Spannungssteuerung freischalten",
+                "AB → Settings → General → Unlock voltage control"))
         ))
         checks.append((
             "AB: Unlock Voltage Monitoring",
             ab_cfg.get("voltage_monitoring", False),
             "✓" if ab_cfg.get("voltage_monitoring") else
             (no_cfg if not ab_cfg.get("cfg_found") else
-             "AB → Einstellungen → Allgemein → Spannungsüberwachung freischalten")
+             tr("AB → Einstellungen → Allgemein → Spannungsüberwachung freischalten",
+                "AB → Settings → General → Unlock voltage monitoring"))
         ))
         # Ground truth: does Afterburner's monitoring export a voltage right now?
         # (4.6.6 keeps no graph list in its cfg until the page is changed.)
@@ -406,42 +409,42 @@ class SettingsTab(Page):
         if not mahm and ab_cfg.get("voltage_graph") is not None:
             volt = bool(ab_cfg.get("voltage_graph"))
         checks.append((
-            "AB: Graph 'GPU-Spannung' aktiv",
+            tr("AB: Graph 'GPU-Spannung' aktiv", "AB: graph 'GPU voltage' on"),
             volt,
-            "✓ Spannung wird geliefert" if volt else
-            "AB → Einstellungen → Überwachung → Haken bei 'GPU-Spannung' (für V/F-Tuning)"
+            tr("✓ Spannung wird geliefert", "✓ voltage is delivered") if volt else
+            tr("AB → Einstellungen → Überwachung → Haken bei 'GPU-Spannung' (für V/F-Tuning)", "AB → Settings → Monitoring → tick 'GPU voltage' (for V/F tuning)")
         ))
 
         # Without these two, a reboot starts the card at stock clocks unless
         # GameOptimizerPro itself starts with Windows (it then loads the profile).
         checks.append((
-            "AB: startet mit Windows",
+            tr("AB: startet mit Windows", "AB: starts with Windows"),
             ab_cfg.get("start_with_windows", False),
-            "✓ (dann kann GameOptimizerPro nach dem Tunen geschlossen bleiben)"
+            tr("✓ (dann kann GameOptimizerPro nach dem Tunen geschlossen bleiben)", "✓ (then GameOptimizerPro can stay closed after tuning)")
             if ab_cfg.get("start_with_windows") else
             (no_cfg if not ab_cfg.get("cfg_found") else
-             "AB → Einstellungen → Allgemein → „Mit Windows starten“ (+ „Minimiert starten“) — sonst "
-             "läuft die Karte nach einem Neustart auf Standard, bis du GameOptimizerPro öffnest")
+             tr("AB → Einstellungen → Allgemein → „Mit Windows starten“ (+ „Minimiert starten“) — sonst "
+             "läuft die Karte nach einem Neustart auf Standard, bis du GameOptimizerPro öffnest", "AB → Settings → General → \u201cStart with Windows\u201d (+ \u201cStart minimized\u201d) — otherwise the card runs at stock after a restart until you open GameOptimizerPro"))
         ))
         try:
             apply_on = self.ab.startup_apply_enabled() if self.ab.available else None
         except Exception:
             apply_on = None
         checks.append((
-            "AB: Übertaktung beim Systemstart anwenden",
+            tr("AB: Übertaktung beim Systemstart anwenden", "AB: apply overclocking at system startup"),
             bool(apply_on),
-            "✓ Afterburner setzt dein Profil beim Start selbst" if apply_on else
-            ("Profildatei der Karte nicht gefunden" if apply_on is None else
-             "Profil laden (GPU-Tuner → Profile → Anwenden), dann im Afterburner-Hauptfenster das "
-             "Windows-Symbol „Startup“ einschalten")
+            tr("✓ Afterburner setzt dein Profil beim Start selbst", "✓ Afterburner applies your profile at start-up itself") if apply_on else
+            (tr("Profildatei der Karte nicht gefunden", "The card's profile file not found") if apply_on is None else
+             tr("Profil laden (GPU-Tuner → Profile → Anwenden), dann im Afterburner-Hauptfenster das "
+             "Windows-Symbol „Startup“ einschalten", "Load the profile (GPU Tuner → Profiles → Apply), then turn on the Windows icon \u201cStartup\u201d in Afterburner's main window"))
         ))
 
         if self.ab.available:
             gpu_cfg, why = self.ab.find_gpu_profile()
         else:
-            gpu_cfg, why = None, "Afterburner nicht installiert"
+            gpu_cfg, why = None, tr("Afterburner nicht installiert", "Afterburner not installed")
         checks.append((
-            "AB: Profildatei der Grafikkarte",
+            tr("AB: Profildatei der Grafikkarte", "AB: the graphics card's profile file"),
             bool(gpu_cfg),
             os.path.basename(gpu_cfg) if gpu_cfg else why
         ))
@@ -452,10 +455,11 @@ class SettingsTab(Page):
         except Exception:
             admin = False
         checks.append((
-            "Administrator-Rechte",
+            tr("Administrator-Rechte", "Administrator rights"),
             admin,
-            "✓ Admin-Rechte vorhanden" if admin else
-            "GameOptimizerPro.bat verwenden — fragt automatisch per UAC nach Admin"
+            tr("✓ Admin-Rechte vorhanden", "✓ running as administrator") if admin else
+            tr("GameOptimizerPro.bat verwenden — fragt automatisch per UAC nach Admin",
+               "Use GameOptimizerPro.bat — it asks for admin rights through UAC")
         ))
 
         try:
@@ -464,7 +468,7 @@ class SettingsTab(Page):
         except ImportError:
             tray_ok = False
         checks.append((
-            "Systemtray (pystray + Pillow)",
+            tr("Systemtray (pystray + Pillow)", "System tray (pystray + Pillow)"),
             tray_ok,
             "✓" if tray_ok else "pip install pystray Pillow"
         ))

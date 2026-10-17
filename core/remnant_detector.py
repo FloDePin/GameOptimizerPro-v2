@@ -23,6 +23,7 @@ import os
 import subprocess
 from dataclasses import dataclass
 from typing import Optional
+from core.i18n import tr as _tr
 
 # Standard Windows power-scheme GUIDs — anything else is third-party/custom.
 _STD_POWER_GUIDS = {
@@ -118,11 +119,11 @@ def scan() -> RemnantScan:
     """Scan for third-party tweak-tool remnants. Read-only."""
     res = RemnantScan(items=[])
     if os.name != "nt":
-        res.error = "Remnant-Scan nur unter Windows verfügbar."
+        res.error = _tr("Remnant-Scan nur unter Windows verfügbar.", "Remnant scan is only available on Windows.")
         return res
     data = _gather()
     if data is None:
-        res.error = "Scan konnte nicht ausgeführt werden (PowerShell/Rechte?)."
+        res.error = _tr("Scan konnte nicht ausgeführt werden (PowerShell/Rechte?).", "The scan could not run (PowerShell / rights?).")
         return res
 
     items: list[RemnantItem] = []
@@ -132,35 +133,35 @@ def scan() -> RemnantScan:
 
     wr = g("winring0")
     items.append(RemnantItem(
-        "winring0", "WinRing0-Treiber", bool(wr.get("present")),
+        "winring0", _tr("WinRing0-Treiber", "WinRing0 driver"), bool(wr.get("present")),
         wr.get("detail", ""),
-        "Von OC-/Timer-Tools mitgeliefert und als angreifbar bekannt. Wenn du das "
-        "zugehörige Tool nicht mehr nutzt: Treiberdienst entfernen."))
+        _tr("Von OC-/Timer-Tools mitgeliefert und als angreifbar bekannt. Wenn du das "
+        "zugehörige Tool nicht mehr nutzt: Treiberdienst entfernen.", "Shipped with OC / timer tools and known to be exploitable. If you no longer use the tool: remove the driver service.")))
 
     ip = g("inpout")
     items.append(RemnantItem(
-        "inpout", "inpout32/x64-Treiber", bool(ip.get("present")),
+        "inpout", _tr("inpout32/x64-Treiber", "inpout32/x64 driver"), bool(ip.get("present")),
         ip.get("detail", ""),
-        "Legacy-I/O-Treiber alter Tweak-Tools. Bei Nichtgebrauch entfernbar."))
+        _tr("Legacy-I/O-Treiber alter Tweak-Tools. Bei Nichtgebrauch entfernbar.", "Legacy I/O driver of old tweak tools. Can be removed when not in use.")))
 
     islc = g("islc")
     items.append(RemnantItem(
         "islc", "ISLC Standby-List-Cleaner", bool(islc.get("present")),
         islc.get("detail", ""),
-        "Intelligent Standby List Cleaner als Task gefunden — nur behalten wenn "
-        "bewusst genutzt."))
+        _tr("Intelligent Standby List Cleaner als Task gefunden — nur behalten wenn "
+        "bewusst genutzt.", "Intelligent Standby List Cleaner found as a task — keep it only if you use it on purpose.")))
 
     tr = g("timerres")
     items.append(RemnantItem(
         "timerres", "TimerResolution-Autostart", bool(tr.get("present")),
         tr.get("detail", ""),
-        "Fester Timer-Resolution-Hack im Autostart — auf Win11 meist unnötig."))
+        _tr("Fester Timer-Resolution-Hack im Autostart — auf Win11 meist unnötig.", "Fixed timer-resolution hack in the autostart — usually unnecessary on Windows 11.")))
 
     rc = g("razer_cortex")
     items.append(RemnantItem(
         "razer_cortex", "Razer Cortex (Game Booster)", bool(rc.get("present")),
         rc.get("detail", ""),
-        "Game-Booster-Suite gefunden — häufig ohne messbaren Nutzen, viel Hintergrundlast."))
+        _tr("Game-Booster-Suite gefunden — häufig ohne messbaren Nutzen, viel Hintergrundlast.", "Game booster suite found — often no measurable benefit, a lot of background load.")))
 
     # Third-party power plans (non-standard GUIDs). Duplicated plans (e.g. many
     # "Ultimate Performance" copies) share a name but each has its own GUID, so
@@ -184,17 +185,17 @@ def scan() -> RemnantScan:
     if len(ultimate) > 1:
         extra.append(f"{ultimate[0]} ×{len(ultimate)} (Duplikate — eine Kopie reicht)")
     items.append(RemnantItem(
-        "powerplans", "Fremd-Energiepläne", bool(extra),
+        "powerplans", _tr("Fremd-Energiepläne", "Third-party power plans"), bool(extra),
         ", ".join(extra),
-        "Nicht-Standard-Energiepläne (oft von Tweak-Tools/Duplikate angelegt). "
-        "Prüfen ob gewollt; sonst über 'powercfg /delete <GUID>' entfernbar."))
+        _tr("Nicht-Standard-Energiepläne (oft von Tweak-Tools/Duplikate angelegt). "
+        "Prüfen ob gewollt; sonst über 'powercfg /delete <GUID>' entfernbar.", "Non-standard power plans (often created by tweak tools / duplicates). Check whether you want them; otherwise remove with 'powercfg /delete <GUID>'.")))
 
     res.items = items
     found = [i for i in items if i.present]
     if found:
-        res.summary = f"{len(found)} mögliche(r) Rest/Fund: " + ", ".join(i.label for i in found)
+        res.summary = _tr(f"{len(found)} mögliche(r) Rest/Fund: ", f"{len(found)} possible leftover(s): ") + ", ".join(i.label for i in found)
     else:
-        res.summary = "✓ Keine Reste bekannter Fremd-Tweak-Tools gefunden."
+        res.summary = _tr("✓ Keine Reste bekannter Fremd-Tweak-Tools gefunden.", "✓ No leftovers of known third-party tweak tools found.")
     res.ok = True
     return res
 

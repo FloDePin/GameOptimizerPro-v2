@@ -16,6 +16,7 @@ module builds the PowerShell for it (C# compiled with Add-Type):
 """
 
 from __future__ import annotations
+from core.i18n import tr as _tr
 
 SYSFX = ("{1da5d803-d492-4edd-8c23-e0c0ffee7f0e}", 5)
 EXCL_ALLOW = ("{b3f8fa53-0004-438e-9003-51a46e139bfc}", 3)
@@ -151,19 +152,22 @@ def _ps_set(pairs, ok_text: str, fail_text: str, verify: bool) -> str:
         "  $n++; $bad=$null\n" + body +
         "  if($bad){ $errs+=$bad } else { $ok++ }\n"
         "}\n"
-        f"if($ok -gt 0){{ Write-Output \"{ok_text}: $ok von $n Wiedergabegeraet(en)\"; exit 0 }}\n"
-        f"Write-Output \"{fail_text} (0 von $n; $($errs | Select-Object -First 1))\"; exit 1\n"
+        f"if($ok -gt 0){{ Write-Output \"{ok_text}: $ok {_tr('von', 'of')} $n "
+        f"{_tr('Wiedergabegeraet(en)', 'playback device(s)')}\"; exit 0 }}\n"
+        f"Write-Output \"{fail_text} (0 {_tr('von', 'of')} $n; $($errs | Select-Object -First 1))\"; exit 1\n"
     )
 
 
 def ps_sysfx(disable: bool) -> str:
     return _ps_set([(True, SYSFX, 1 if disable else 0)],
-                   "Audioverbesserungen " + ("aus" if disable else "an"),
-                   "Audio-Dienst hat die Einstellung abgelehnt", verify=True)
+                   (_tr("Audioverbesserungen aus", "Audio enhancements off") if disable
+                    else _tr("Audioverbesserungen an", "Audio enhancements on")),
+                   _tr("Audio-Dienst hat die Einstellung abgelehnt", "The audio service refused the setting"), verify=True)
 
 
 def ps_exclusive(allow: bool) -> str:
     v = 1 if allow else 0
     return _ps_set([(False, EXCL_ALLOW, v), (False, EXCL_PRIORITY, v)],
-                   "Exklusiver Modus " + ("erlaubt" if allow else "aus"),
-                   "Audio-Dienst hat die Einstellung abgelehnt", verify=True)
+                   (_tr("Exklusiver Modus erlaubt", "Exclusive mode allowed") if allow
+                    else _tr("Exklusiver Modus aus", "Exclusive mode off")),
+                   _tr("Audio-Dienst hat die Einstellung abgelehnt", "The audio service refused the setting"), verify=True)

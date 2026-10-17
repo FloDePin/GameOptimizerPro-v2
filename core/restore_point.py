@@ -6,6 +6,7 @@ auf dem Systemlaufwerk. Rein additiv — löscht/ändert nichts.
 """
 
 import subprocess, os, re
+from core.i18n import tr as _tr
 
 
 def _clean_desc(desc: str) -> str:
@@ -17,7 +18,7 @@ def _clean_desc(desc: str) -> str:
 def create(description: str = "GameOptimizerPro Tweaks") -> tuple[bool, str]:
     """Erstellt einen Wiederherstellungspunkt. Gibt (erfolg, meldung) zurück."""
     if os.name != "nt":
-        return False, "Nur unter Windows verfügbar."
+        return False, _tr("Nur unter Windows verfügbar.", "Only available on Windows.")
     desc = _clean_desc(description)
     ps = (
         "$ErrorActionPreference='Stop'; "
@@ -39,17 +40,17 @@ def create(description: str = "GameOptimizerPro Tweaks") -> tuple[bool, str]:
             return True, "✓ Wiederherstellungspunkt erstellt."
         # Häufige Fälle klar benennen
         if "1440" in out or "frequency" in low or "429" in out:
-            return False, ("Windows hat den Punkt übersprungen — es gibt bereits einen aus den "
-                           "letzten 24 Stunden (Standard-Limit von Windows).")
+            return False, (_tr("Windows hat den Punkt übersprungen — es gibt bereits einen aus den "
+                           "letzten 24 Stunden (Standard-Limit von Windows).", "Windows skipped the point — there is already one from the last 24 hours (Windows' default limit)."))
         if ("disabled" in low or "deaktiviert" in low or "turned off" in low
                 or "system restore" in low or "systemwiederherstellung" in low):
-            return False, ("Computerschutz ist auf dem Systemlaufwerk deaktiviert. Aktiviere ihn: "
+            return False, (_tr("Computerschutz ist auf dem Systemlaufwerk deaktiviert. Aktiviere ihn: "
                            "Systemsteuerung → System → Computerschutz → Laufwerk C: → Konfigurieren → "
-                           "Schutz aktivieren.")
+                           "Schutz aktivieren.", "System protection is off on the system drive. Turn it on: Control Panel → System → System protection → drive C: → Configure → Turn on system protection."))
         if "access" in low or "denied" in low or "verweigert" in low or "0x80070005" in out:
             return False, "Zugriff verweigert — GameOptimizerPro muss als Administrator laufen."
-        return False, f"Fehlgeschlagen: {out[:200] or 'unbekannter Fehler'}"
+        return False, _tr(f"Fehlgeschlagen: {out[:200] or 'unbekannter Fehler'}", f"Failed: {out[:200] or 'unknown error'}")
     except subprocess.TimeoutExpired:
-        return False, "Timeout (über 180s) — Systemwiederherstellung reagiert nicht."
+        return False, _tr("Timeout (über 180s) — Systemwiederherstellung reagiert nicht.", "Timeout (over 180 s) — System Restore does not respond.")
     except Exception as e:
         return False, str(e)

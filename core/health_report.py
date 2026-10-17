@@ -23,6 +23,7 @@ import os
 import subprocess
 from dataclasses import dataclass
 from typing import Optional
+from core.i18n import tr as _tr
 
 OK       = "ok"
 WARN     = "warn"
@@ -108,45 +109,45 @@ def generate() -> HealthReport:
     """Build the 30-day health report. Read-only."""
     rep = HealthReport(items=[])
     if os.name != "nt":
-        rep.error = "Health Report nur unter Windows verfügbar."
+        rep.error = _tr("Health Report nur unter Windows verfügbar.", "Health report is only available on Windows.")
         return rep
 
     data = _gather()
     if data is None:
-        rep.error = ("Ereignisprotokoll konnte nicht gelesen werden "
-                     "(PowerShell/Rechte?).")
+        rep.error = (_tr("Ereignisprotokoll konnte nicht gelesen werden "
+                     "(PowerShell/Rechte?).", "The event log could not be read (PowerShell / rights?)."))
         return rep
 
     items = [
-        _mk("whea", "WHEA-Hardwarefehler", data, 1, 5,
-            "Keine Hardwarefehler protokolliert.",
-            "Hardwarefehler (RAM/CPU/PCIe) — prüfe RAM (MemTest) & Temperaturen."),
+        _mk("whea", _tr("WHEA-Hardwarefehler", "WHEA hardware errors"), data, 1, 5,
+            _tr("Keine Hardwarefehler protokolliert.", "No hardware errors logged."),
+            _tr("Hardwarefehler (RAM/CPU/PCIe) — prüfe RAM (MemTest) & Temperaturen.", "Hardware errors (RAM/CPU/PCIe) — check the RAM (MemTest) and temperatures.")),
         _mk("bugcheck", "Bluescreens (Bugchecks)", data, 1, 3,
-            "Keine Bluescreens in 30 Tagen.",
-            "Bluescreens aufgetreten — Treiber/RAM/OC prüfen."),
+            _tr("Keine Bluescreens in 30 Tagen.", "No bluescreens in 30 days."),
+            _tr("Bluescreens aufgetreten — Treiber/RAM/OC prüfen.", "Bluescreens occurred — check drivers / RAM / OC.")),
         _mk("kpower41", "Unerwartete Neustarts", data, 1, 3,
-            "Keine unerwarteten Neustarts.",
-            "Unerwartete Neustarts (Kernel-Power 41) — Netzteil/OC/Temperatur."),
-        _mk("tdr", "GPU-Treiber-Timeouts (TDR)", data, 1, 4,
-            "Keine GPU-Treiber-Timeouts.",
-            "GPU-Timeouts (TDR) — GPU-OC zurücknehmen / Treiber neu."),
-        _mk("disk", "Datenträgerfehler", data, 1, 3,
-            "Keine Datenträgerfehler.",
-            "Datenträgerfehler — SMART/Kabel prüfen, Backup machen."),
-        _mk("appcrash", "App-Abstürze", data, 5, 25,
-            "Kaum/keine App-Abstürze.",
-            "Häufige App-Abstürze — meist unkritisch, aber auffällig."),
+            _tr("Keine unerwarteten Neustarts.", "No unexpected restarts."),
+            _tr("Unerwartete Neustarts (Kernel-Power 41) — Netzteil/OC/Temperatur.", "Unexpected restarts (Kernel-Power 41) — power supply / OC / temperature.")),
+        _mk("tdr", _tr("GPU-Treiber-Timeouts (TDR)", "GPU driver timeouts (TDR)"), data, 1, 4,
+            _tr("Keine GPU-Treiber-Timeouts.", "No GPU driver timeouts."),
+            _tr("GPU-Timeouts (TDR) — GPU-OC zurücknehmen / Treiber neu.", "GPU timeouts (TDR) — take the GPU OC back / reinstall the driver.")),
+        _mk("disk", _tr("Datenträgerfehler", "Disk errors"), data, 1, 3,
+            _tr("Keine Datenträgerfehler.", "No disk errors."),
+            _tr("Datenträgerfehler — SMART/Kabel prüfen, Backup machen.", "Disk errors — check SMART / cables, make a backup.")),
+        _mk("appcrash", _tr("App-Abstürze", "App crashes"), data, 5, 25,
+            _tr("Kaum/keine App-Abstürze.", "Few or no app crashes."),
+            _tr("Häufige App-Abstürze — meist unkritisch, aber auffällig.", "Frequent app crashes — usually harmless, but notable.")),
     ]
     rep.items = items
 
     crit = sum(1 for i in items if i.severity == CRITICAL)
     warn = sum(1 for i in items if i.severity == WARN)
     if crit:
-        rep.summary = f"⚠ {crit} kritische Auffälligkeit(en), {warn} Warnung(en) — bitte prüfen."
+        rep.summary = _tr(f"⚠ {crit} kritische Auffälligkeit(en), {warn} Warnung(en) — bitte prüfen.", f"⚠ {crit} critical finding(s), {warn} warning(s) — please check.")
     elif warn:
-        rep.summary = f"{warn} Warnung(en) in den letzten 30 Tagen."
+        rep.summary = _tr(f"{warn} Warnung(en) in den letzten 30 Tagen.", f"{warn} warning(s) in the last 30 days.")
     else:
-        rep.summary = "✓ Keine relevanten Fehler in den letzten 30 Tagen — System stabil."
+        rep.summary = _tr("✓ Keine relevanten Fehler in den letzten 30 Tagen — System stabil.", "✓ No relevant errors in the last 30 days — the system is stable.")
     rep.ok = True
     return rep
 

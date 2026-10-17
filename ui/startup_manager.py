@@ -86,6 +86,60 @@ KNOWN_PROCESSES = {
 }
 
 
+# English advice for the table above (the German text stays the key data)
+ADVICE_EN = {
+    "SecurityHealthSystray": "Windows Defender tray — don't disable",
+    "SecurityHealthService": "Windows Defender service — critical",
+    "WindowsDefender": "Windows Defender — system protection",
+    "OneDrive": "Cloud sync. Can be disabled when not used",
+    "Teams": "Microsoft Teams — starts with Windows. Safe to disable",
+    "MicrosoftTeams": "Microsoft Teams — safe to disable",
+    "Slack": "Slack — safe to disable when not used daily",
+    "Discord": "Discord — safe to disable. Start it by hand",
+    "Spotify": "Spotify — safe to disable",
+    "Steam": "Steam — safe. Start it by hand for gaming",
+    "EpicGamesLauncher": "Epic launcher — safe to disable",
+    "EABackgroundService": "EA app background service — can be disabled, but EA games need it",
+    "RiotClientServices": "Riot client — can be disabled, starts when needed",
+    "BattleNet": "Battle.net launcher — safe to disable",
+    "upc": "Ubisoft Connect — safe to disable",
+    "GalaxyClient": "GOG Galaxy — safe to disable",
+    "NVDisplay.Container": "NVIDIA Display Container — needed for the OSD / overlay",
+    "nvcontainer": "NVIDIA Container — a driver component",
+    "NvBackend": "NVIDIA GeForce Experience backend — can be disabled when GFE isn't used",
+    "NvTelemetryContainer": "NVIDIA telemetry — safe to disable",
+    "NVIDIAGeForceExperience": "GeForce Experience — safe when started by hand",
+    "RadeonSoftware": "AMD Radeon Software — safe to disable",
+    "AMDRSServ": "AMD Radeon service — needed for driver functions",
+    "RtkAudUService64": "Realtek Audio Manager — needed for audio settings",
+    "RTHDVCPL": "Realtek HD Audio — needed for the audio configuration",
+    "nahimic": "Nahimic audio — can be disabled when not used",
+    "SteelSeriesEngine": "SteelSeries GG / Engine — can be disabled",
+    "iCUE": "Corsair iCUE — can be disabled when RGB doesn't matter",
+    "CORSAIR": "Corsair software — safe to disable",
+    "LGHUBUpdater": "Logitech G Hub — safe to disable",
+    "LGHUB": "Logitech G Hub — can be disabled",
+    "RazerCentral": "Razer Central — can be disabled when no Razer devices are used",
+    "RazerSynapse": "Razer Synapse — can be disabled, macros / DPI profiles are then lost",
+    "SteelSeriesGG": "SteelSeries GG — safe to disable",
+    "ASUS": "ASUS software — usually safe to disable",
+    "ArmouryCrate": "ASUS Armoury Crate — safe to disable",
+    "ctfmon": "Text input / speech recognition — a system component",
+    "sihost": "Shell Infrastructure Host — a critical system component",
+    "taskhostw": "Task Host — a Windows system service",
+    "MSIAfterburner": "MSI Afterburner — safe to disable, OC profiles then have to be loaded by hand",
+    "RTSS": "RivaTuner Statistics Server — needed for the FPS counter",
+    "HWiNFO64": "HWiNFO — safe to disable",
+    "MSICenter": "MSI Center — safe to disable",
+    "GigabyteControlCenter": "Gigabyte Control Center — safe to disable",
+    "EasyTune": "Gigabyte EasyTune — safe to disable",
+    "MsMpEng": "Windows Defender antivirus — don't disable",
+    "avgnt": "Avira antivirus — only when another antivirus is installed",
+    "avastui": "Avast antivirus — only when another antivirus is installed",
+    "mcshield": "McAfee — can be disabled when Windows Defender is used",
+}
+
+
 STATUS_CONFIG = {
     "safe":     (OK,  "✓ Safe",     "Problemlos deaktivierbar"),
     "caution":  (WRN, "⚠ Caution",  "Deaktivierbar aber mit Einschränkungen"),
@@ -143,7 +197,7 @@ class StartupManagerPage(Page):
         act.pack(side="bottom", fill="x", pady=(10, 0))
         button(act, "Details", self._show_details, kind="ghost", height=32,
                image=icon_image("info", TEXT2, 14), compound="left").pack(side="right", padx=(6, 0))
-        button(act, "Task-Manager", self._open_task_manager, kind="ghost", height=32
+        button(act, tr("Task-Manager", "Task Manager"), self._open_task_manager, kind="ghost", height=32
                ).pack(side="right", padx=(6, 0))
         button(act, tr("Aktivieren", "Enable"), lambda: self._toggle(True), height=32,
                image=icon_image("check", GREEN, 14), compound="left").pack(side="right", padx=(6, 0))
@@ -204,9 +258,9 @@ class StartupManagerPage(Page):
                 })
         except Exception as e:
             entries.append({
-                "name": f"Fehler: {e}", "command": "", "source": "", "enabled": True,
+                "name": tr(f"Fehler: {e}", f"Error: {e}"), "command": "", "source": "", "enabled": True,
                 "entry": None, "status": "unknown", "can_disable": False,
-                "publisher": "", "recommendation": "Autostart-Einträge konnten nicht gelesen werden"
+                "publisher": "", "recommendation": tr("Autostart-Einträge konnten nicht gelesen werden", "Autostart entries could not be read")
             })
 
         self._entries = entries
@@ -219,17 +273,21 @@ class StartupManagerPage(Page):
         for key, info in KNOWN_PROCESSES.items():
             if key.upper() in name_upper or key.upper() in cmd_upper:
                 status, can_dis, publisher, rec = info
-                return status, can_dis, publisher, rec
+                return status, can_dis, publisher, tr(rec, ADVICE_EN.get(key, rec))
 
         # Heuristics for unknowns
         if any(s in cmd_upper for s in ["WINDOWS\\SYSTEM32", "WINDOWS\\SYSWOW64"]):
-            return "system", False, "Microsoft / System", "Systemdatei — nicht deaktivieren ohne zu recherchieren"
+            return "system", False, "Microsoft / System", tr("Systemdatei — nicht deaktivieren ohne zu recherchieren",
+                                                             "System file — don't disable without looking it up")
         if "UPDATE" in name_upper or "UPDATER" in name_upper:
-            return "safe", True, "Unbekannt", "Updater-Prozess — sicher deaktivierbar, Updates dann manuell"
+            return "safe", True, tr("Unbekannt", "Unknown"), tr("Updater-Prozess — sicher deaktivierbar, Updates dann manuell",
+                                                                 "Updater — safe to disable, updates then by hand")
         if any(s in name_upper for s in ["TRAY", "HELPER", "AGENT", "LAUNCHER"]):
-            return "safe", True, "Unbekannt", "Hintergrundprozess — meist sicher deaktivierbar"
+            return "safe", True, tr("Unbekannt", "Unknown"), tr("Hintergrundprozess — meist sicher deaktivierbar",
+                                                                 "Background process — usually safe to disable")
 
-        return "unknown", None, "Unbekannt", "Unbekannt — vor Deaktivierung recherchieren"
+        return "unknown", None, tr("Unbekannt", "Unknown"), tr("Unbekannt — vor Deaktivierung recherchieren",
+                                                                "Unknown — look it up before disabling")
 
     # ── Filter & display ──────────────────────────────────────────────────────
 
@@ -267,7 +325,7 @@ class StartupManagerPage(Page):
             enabled = e.get("enabled", True)
             self.tree.insert("", "end", iid=str(i),
                 values=(
-                    "✓ An" if enabled else "⊘ Aus",
+                    tr("✓ An", "✓ On") if enabled else tr("⊘ Aus", "⊘ Off"),
                     label,
                     e["name"],
                     e.get("publisher", ""),
@@ -281,11 +339,11 @@ class StartupManagerPage(Page):
         shown = len(self._filtered)
         n_off = sum(1 for e in self._entries if not e.get("enabled", True))
         self.lbl_count.config(
-            text=f"{shown} von {total} Einträgen  ·  "
+            text=tr(f"{shown} von {total} Einträgen  ·  "
                  f"{sum(1 for e in self._entries if e['status']=='safe')} Safe  ·  "
                  f"{sum(1 for e in self._entries if e['status']=='caution')} Caution  ·  "
                  f"{sum(1 for e in self._entries if e['status'] in ('system','critical'))} System  ·  "
-                 f"{n_off} deaktiviert"
+                 f"{n_off} deaktiviert", f"{shown} of {total} entries  ·  {sum(1 for e in self._entries if e['status']=='safe')} Safe  ·  {sum(1 for e in self._entries if e['status']=='caution')} Caution  ·  {sum(1 for e in self._entries if e['status'] in ('system','critical'))} System  ·  {n_off} disabled")
         )
 
     # Tree column -> entry key. "path" used to sort on a key that doesn't exist
@@ -318,7 +376,7 @@ class StartupManagerPage(Page):
         if not sel:
             return
         if len(sel) > 1:
-            self.lbl_selected.config(text=f"{len(sel)} Einträge ausgewählt", fg=TXT)
+            self.lbl_selected.config(text=tr(f"{len(sel)} Einträge ausgewählt", f"{len(sel)} entries selected"), fg=TXT)
             return
         e = sel[0]
         status_cfg = STATUS_CONFIG.get(e["status"], (DIM, "?", "?"))
@@ -331,20 +389,20 @@ class StartupManagerPage(Page):
     def _show_details(self):
         sel = self._selected_entries()
         if not sel:
-            messagebox.showinfo("Details", "Keinen Eintrag ausgewählt.", parent=self)
+            messagebox.showinfo("Details", tr("Keinen Eintrag ausgewählt.", "No entry selected."), parent=self)
             return
         e = sel[0]
-        status_cfg = STATUS_CONFIG.get(e["status"], (DIM, "?", "Unbekannt"))
+        status_cfg = STATUS_CONFIG.get(e["status"], (DIM, "?", tr("Unbekannt", "Unknown")))
 
         detail = (
-            f"Name:          {e['name']}\n"
+            tr(f"Name:          {e['name']}\n"
             f"Zustand:       {'✓ aktiviert' if e.get('enabled', True) else '⊘ deaktiviert'}\n"
             f"Publisher:     {e.get('publisher', 'Unbekannt')}\n"
             f"Status:        {status_cfg[1]}\n"
             f"Deaktivierbar: {'✓ Ja' if e['can_disable'] else ('✗ Nein' if e['can_disable'] is False else '? Unbekannt')}\n"
             f"Quelle:        {e.get('source', '?')}\n\n"
             f"Empfehlung:\n  {e['recommendation']}\n\n"
-            f"Pfad:\n  {e['command']}"
+            f"Pfad:\n  {e['command']}", f"Name:          {e['name']}\n" f"State:         {'✓ enabled' if e.get('enabled', True) else '⊘ disabled'}\n" f"Publisher:     {e.get('publisher', 'Unknown')}\n" f"Status:        {status_cfg[1]}\n" f"Can disable:   {'✓ Yes' if e['can_disable'] else ('✗ No' if e['can_disable'] is False else '? Unknown')}\n" f"Source:        {e.get('source', '?')}\n\n" f"Recommendation:\n  {e['recommendation']}\n\n" f"Path:\n  {e['command']}")
         )
         messagebox.showinfo(f"Details: {e['name']}", detail, parent=self)
 
@@ -353,30 +411,30 @@ class StartupManagerPage(Page):
         Manager. Nothing is deleted, so every change can be undone here or there."""
         sel = [e for e in self._selected_entries() if e.get("entry") is not None]
         if not sel:
-            messagebox.showinfo("Autostart", "Keinen Eintrag ausgewählt.", parent=self)
+            messagebox.showinfo("Autostart", tr("Keinen Eintrag ausgewählt.", "No entry selected."), parent=self)
             return
         todo = [e for e in sel if e.get("enabled", True) != enable]
         if not todo:
             messagebox.showinfo(
                 "Autostart",
-                f"Bereits {'aktiviert' if enable else 'deaktiviert'}.", parent=self)
+                tr(f"Bereits {'aktiviert' if enable else 'deaktiviert'}.", f"Already {'enabled' if enable else 'disabled'}."), parent=self)
             return
 
         if not enable:
             names = "\n".join(f"  • {e['name']}" for e in todo[:12])
             if len(todo) > 12:
-                names += f"\n  … und {len(todo) - 12} weitere"
-            msg = (f"{len(todo)} Autostart-Eintrag/Einträge deaktivieren?\n\n{names}\n\n"
+                names += tr(f"\n  … und {len(todo) - 12} weitere", f"\n  … and {len(todo) - 12} more")
+            msg = (tr(f"{len(todo)} Autostart-Eintrag/Einträge deaktivieren?\n\n{names}\n\n"
                    "Es wird nichts gelöscht — wie im Task-Manager lässt sich das "
-                   "jederzeit wieder aktivieren.")
+                   "jederzeit wieder aktivieren.", f"Disable {len(todo)} autostart entr(y/ies)?\n\n{names}\n\nNothing is deleted — as in Task Manager it can be enabled again at any time."))
             risky = [e for e in todo
                      if e["status"] in ("system", "critical") or e["can_disable"] is False]
             if risky:
                 msg += ("\n\n⚠ ACHTUNG: " + ", ".join(e["name"] for e in risky) +
-                        " ist als System-/nicht empfohlen markiert. Deaktivieren kann "
+                        tr(" ist als System-/nicht empfohlen markiert. Deaktivieren kann "
                         "Funktionen beeinträchtigen (z.B. Windows-Sicherheit, Audio-, "
-                        "Treiber- oder Geräte-Software).")
-            if not messagebox.askyesno("Autostart deaktivieren", msg,
+                        "Treiber- oder Geräte-Software).", " is marked as system / not recommended. Disabling it can affect functions (e.g. Windows Security, audio, driver or device software)."))
+            if not messagebox.askyesno(tr("Autostart deaktivieren", "Disable autostart"), msg,
                                        icon="warning" if risky else "question",
                                        parent=self):
                 return
@@ -391,13 +449,13 @@ class StartupManagerPage(Page):
         bad = [r for r in results if not r[1]]
         done = len(results) - len(bad)
         self.lbl_selected.config(
-            text=f"{done} Eintrag/Einträge {'aktiviert' if enable else 'deaktiviert'}"
-                 + (f", {len(bad)} fehlgeschlagen" if bad else ""),
+            text=tr(f"{done} Eintrag/Einträge {'aktiviert' if enable else 'deaktiviert'}", f"{done} entr(y/ies) {'enabled' if enable else 'disabled'}")
+                 + (tr(f", {len(bad)} fehlgeschlagen", f", {len(bad)} failed") if bad else ""),
             fg=OK if not bad else WRN)
         if bad:
             messagebox.showwarning(
                 "Autostart",
-                "Nicht alle Änderungen waren möglich:\n\n" +
+                tr("Nicht alle Änderungen waren möglich:\n\n", "Not all changes were possible:\n\n") +
                 "\n".join(f"  • {n}: {m}" for n, _, m in bad), parent=self)
 
     def _open_task_manager(self):
@@ -411,4 +469,4 @@ class StartupManagerPage(Page):
                 creationflags=subprocess.CREATE_NO_WINDOW
             )
         except Exception as e:
-            messagebox.showerror("Fehler", str(e))
+            messagebox.showerror(tr("Fehler", "Error"), str(e))

@@ -328,8 +328,8 @@ class StressTab(Page):
         self.log.append(f"Internal stress: {result} | Peak temp: {peak_temp}°C | "
                         f"Ø GPU-Last: {avg_usage:.0f}%", tag)
         if reason == "" and avg_usage < self.MIN_GPU_LOAD_PCT:
-            self.log.append("Für echte GPU-Last: 'pip install \"cupy-cuda12x[ctk]\"' (NVIDIA) "
-                            "oder FurMark / 3DMark starten.", "warning")
+            self.log.append(tr("Für echte GPU-Last: 'pip install \"cupy-cuda12x[ctk]\"' (NVIDIA) "
+                            "oder FurMark / 3DMark starten.", "For real GPU load: 'pip install \"cupy-cuda12x[ctk]\"' (NVIDIA) or start FurMark / 3DMark."), "warning")
 
     def _stop_internal(self):
         gpu_watchdog.record_own_load(getattr(self, "_int_t0", time.time()), time.time())
@@ -339,7 +339,7 @@ class StressTab(Page):
         self.btn_int_start.configure(state="normal")
         self.btn_int_stop.configure(state="disabled")
         self.int_prog.set(0)
-        self.lbl_int_status.config(text="Stopped (kein Ergebnis).", fg=AMBER)
+        self.lbl_int_status.config(text=tr("Stopped (kein Ergebnis).", "Stopped (no result)."), fg=AMBER)
         self.log.append("Internal stress test stopped by user — no result.", "warning")
 
     @staticmethod
@@ -407,7 +407,7 @@ class StressTab(Page):
             messagebox.showerror("Launch Error", str(e))
             return
         what = furmark.describe(self._furmark_path)
-        self.lbl_fur_status.config(text=f"{what}: {res}, {secs}s — läuft", fg=GREEN)
+        self.lbl_fur_status.config(text=tr(f"{what}: {res}, {secs}s — läuft", f"{what}: {res}, {secs}s — running"), fg=GREEN)
         self.log.append(f"FurMark launched: {what}, {res}, {secs}s"
                         + (f", {self.v_fur_demo.get()}" if furmark.is_v2(self._furmark_path) else ""),
                         "success")
@@ -415,7 +415,7 @@ class StressTab(Page):
 
     def _browse_furmark(self):
         path = filedialog.askopenfilename(
-            title="FurMark wählen (furmark.exe, FurMark_GUI.exe oder FurMark.exe)",
+            title=tr("FurMark wählen (furmark.exe, FurMark_GUI.exe oder FurMark.exe)", "Choose FurMark (furmark.exe, FurMark_GUI.exe or FurMark.exe)"),
             filetypes=[("Executable", "*.exe")]
         )
         if path:
@@ -453,7 +453,7 @@ class StressTab(Page):
             self._start_session("3DMark", prefix=threedmark.PROCESS_PREFIXES, status=self.lbl_3dm_status)
 
     def _browse_3dmark(self):
-        path = filedialog.askopenfilename(title="3DMark.exe wählen", filetypes=[("3DMark", "*.exe")])
+        path = filedialog.askopenfilename(title=tr("3DMark.exe wählen", "Choose 3DMark.exe"), filetypes=[("3DMark", "*.exe")])
         if path:
             self._3dmark_path = threedmark.remember(path)
             self._show_3dmark()
@@ -536,17 +536,19 @@ class StressTab(Page):
         self._ext = None
         dur = int(time.time() - s["t0"])
         if s.get("never"):
-            text, col, tag = (f"{s['name']}: kein Testprozess gesehen — nichts aufgezeichnet.",
+            text, col, tag = (tr(f"{s['name']}: kein Testprozess gesehen — nichts aufgezeichnet.",
+                                 f"{s['name']}: no test process seen — nothing recorded."),
                               DIM, "warning")
         else:
             clk = s["clk"]
             if clk:
-                load = (f"Ø Takt {sum(clk) / len(clk):.0f} MHz (min {min(clk):.0f}), "
-                        f"Ø Last {sum(s['use']) / len(s['use']):.0f} %")
+                load = (tr(f"Ø Takt {sum(clk) / len(clk):.0f} MHz (min {min(clk):.0f}), "
+                        f"Ø Last {sum(s['use']) / len(s['use']):.0f} %", f"avg clock {sum(clk) / len(clk):.0f} MHz (min {min(clk):.0f}), avg load {sum(s['use']) / len(s['use']):.0f} %"))
             else:
-                load = "keine GPU-Last über 50 % gemessen"
-            text = (f"{s['name']}: {dur} s aufgezeichnet — Peak {s['peak']} °C, max. {s['pwr']:.0f} W, "
-                    f"{load}")
+                load = tr("keine GPU-Last über 50 % gemessen", "no GPU load above 50 % measured")
+            text = tr(f"{s['name']}: {dur} s aufgezeichnet — Peak {s['peak']} °C, max. {s['pwr']:.0f} W, "
+                      f"{load}",
+                      f"{s['name']}: {dur} s recorded — peak {s['peak']} °C, max. {s['pwr']:.0f} W, {load}")
             stats = furmark.parse_stats("".join(s.get("out") or [])) if s.get("out") else {}
             if stats.get("fps_avg"):
                 text += (f" — FurMark: Ø {stats['fps_avg']} FPS (min {stats.get('fps_min', '?')}), "
@@ -555,17 +557,17 @@ class StressTab(Page):
             avg_all = sum(use_all) / len(use_all) if use_all else 0.0
             low = (stats.get("max_usage", 100) < 90) or (use_all and avg_all < 85)
             if s["tdr"]:
-                text += " — ⚠ Treiber-Reset (TDR) erkannt: nicht stabil!"
+                text += tr(" — ⚠ Treiber-Reset (TDR) erkannt: nicht stabil!", " — ⚠ driver reset (TDR) detected: not stable!")
                 col, tag = ERR, "error"
             else:
-                text += " — kein Treiber-Reset"
+                text += tr(" — kein Treiber-Reset", " — no driver reset")
                 col, tag = (GREEN, "success") if clk and not low else (AMBER, "warning")
             if low and not s["tdr"]:
-                text += (f"\n⚠ Die GPU war nicht voll ausgelastet (Ø {avg_all:.0f} %) — dann ist das kein "
+                text += (tr(f"\n⚠ Die GPU war nicht voll ausgelastet (Ø {avg_all:.0f} %) — dann ist das kein "
                          "Stresstest. Häufige Ursache: ein FPS-Limit oder erzwungenes VSync/G-Sync "
                          "(NVIDIA App → Grafik → Max. Bildfrequenz / Vertikale Synchronisierung). "
                          "Abhilfe: Kantenglättung „8×“ wählen — damit arbeitet die GPU unter dem Limit "
-                         "voll — oder das Limit für den Test ausschalten.")
+                         "voll — oder das Limit für den Test ausschalten.", f"\n⚠ The GPU was not fully loaded (avg {avg_all:.0f} %) — then this is no stress test. A common cause: an FPS cap or forced VSync/G-Sync (NVIDIA App → Graphics → Max frame rate / Vertical sync). Fix: choose anti-aliasing \u201c8×\u201d — the GPU then works fully under the cap — or turn the cap off for the test."))
         self.lbl_session.config(text=text, fg=col)
         self.log.append(text, tag)
         st = s.get("status")

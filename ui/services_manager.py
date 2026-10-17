@@ -107,14 +107,14 @@ class ServicesManagerPage(Page):
         for s in order:
             tag = "disabled" if s.disabled else ("safe" if s.safe else "caution")
             self.tree.insert("", "end", iid=s.name, tags=(tag,), values=(
-                s.display, s.name, s.status, s.start_text, s.category, "Ja" if s.safe else "Nein"))
+                s.display, s.name, s.status, s.start_text, s.category, tr("Ja", "Yes") if s.safe else tr("Nein", "No")))
         keep = [i for i in sel if i in self._items]
         if keep:
             self.tree.selection_set(keep)
         n_off = sum(1 for s in items if s.disabled)
-        self.lbl_count.config(text=f"{len(items)} Dienste gefunden · {n_off} deaktiviert")
+        self.lbl_count.config(text=tr(f"{len(items)} Dienste gefunden · {n_off} deaktiviert", f"{len(items)} services found · {n_off} disabled"))
         if err:
-            self.lbl_status.config(text=f"Fehler beim Lesen: {err}", fg=ERR)
+            self.lbl_status.config(text=tr(f"Fehler beim Lesen: {err}", f"Error reading: {err}"), fg=ERR)
 
     def _selected(self) -> list:
         return [self._items[i] for i in self.tree.selection() if i in self._items]
@@ -122,14 +122,14 @@ class ServicesManagerPage(Page):
     def _on_select(self, _e=None):
         sel = self._selected()
         if not sel:
-            self.lbl_detail.config(text="Dienst auswählen (Strg/Shift für mehrere).", fg=DIM)
+            self.lbl_detail.config(text=tr("Dienst auswählen (Strg/Shift für mehrere).", "Select a service (Ctrl/Shift for several)."), fg=DIM)
             return
         if len(sel) > 1:
-            self.lbl_detail.config(text=f"{len(sel)} Dienste ausgewählt.", fg=TEXT)
+            self.lbl_detail.config(text=tr(f"{len(sel)} Dienste ausgewählt.", f"{len(sel)} services selected."), fg=TEXT)
             return
         s = sel[0]
         start, delayed, origin = s.restore_target()
-        note = (f"   ·   Aktivieren setzt: {services.start_label(start, delayed)} ({origin})"
+        note = (tr(f"   ·   Aktivieren setzt: {services.start_label(start, delayed)} ({origin})", f"   ·   Enable sets: {services.start_label(start, delayed)} ({origin})")
                 if s.disabled else "")
         self.lbl_detail.config(text=f"{s.display} ({s.name}) — {s.desc}{note}",
                                fg=TEXT if s.safe else WRN)
@@ -161,42 +161,42 @@ class ServicesManagerPage(Page):
         ok = [n for n, (good, _) in res.items() if good]
         bad = [f"{n}: {msg}" for n, (good, msg) in res.items() if not good]
         notes = [f"{n}: {msg}" for n, (good, msg) in res.items() if good and msg]
-        text = f"{verb}: {len(ok)} von {len(res)} erfolgreich."
+        text = tr(f"{verb}: {len(ok)} von {len(res)} erfolgreich.", f"{verb}: {len(ok)} of {len(res)} successful.")
         if notes:
             text += "   " + " · ".join(notes)
         self.lbl_status.config(text=text, fg=OK if not bad else WRN)
         if bad:
             messagebox.showwarning("Services Manager",
-                                   "Nicht geändert:\n\n" + "\n".join(bad), parent=self)
+                                   tr("Nicht geändert:\n\n", "Not changed:\n\n") + "\n".join(bad), parent=self)
         self._load()
 
     def _disable(self):
         sel = [s for s in self._selected() if not s.disabled]
         if not sel:
-            self.lbl_status.config(text="Nichts ausgewählt (oder schon deaktiviert).", fg=DIM)
+            self.lbl_status.config(text=tr("Nichts ausgewählt (oder schon deaktiviert).", "Nothing selected (or already disabled)."), fg=DIM)
             return
         risky = [s for s in sel if not s.safe]
         if risky:
             lines = "\n".join(f"  • {s.display} — {s.desc}" for s in risky)
             if not messagebox.askyesno(
-                    "Services Manager — Vorsicht",
-                    f"{len(risky)} ausgewählte(r) Dienst(e) schalten eine Funktion ab:\n\n{lines}\n\n"
+                    tr("Services Manager — Vorsicht", "Services Manager — caution"),
+                    tr(f"{len(risky)} ausgewählte(r) Dienst(e) schalten eine Funktion ab:\n\n{lines}\n\n"
                     "Trotzdem deaktivieren?  (Rückgängig: 'Aktivieren' stellt den "
-                    "ursprünglichen Starttyp wieder her.)", icon="warning", parent=self):
+                    "ursprünglichen Starttyp wieder her.)", f"{len(risky)} selected service(s) switch a function off:\n\n{lines}\n\nDisable anyway?  (Undo: 'Enable' restores the original start type.)"), icon="warning", parent=self):
                 return
-        self._run(services.disable, [s.name for s in sel], "Deaktivieren")
+        self._run(services.disable, [s.name for s in sel], tr("Deaktivieren", "Disabling"))
 
     def _enable(self):
         sel = [s for s in self._selected() if s.disabled]
         if not sel:
-            self.lbl_status.config(text="Nichts Deaktiviertes ausgewählt.", fg=DIM)
+            self.lbl_status.config(text=tr("Nichts Deaktiviertes ausgewählt.", "Nothing disabled selected."), fg=DIM)
             return
-        self._run(services.enable, [s.name for s in sel], "Aktivieren")
+        self._run(services.enable, [s.name for s in sel], tr("Aktivieren", "Enabling"))
 
     def _open_msc(self):
         try:
             subprocess.Popen(["mmc.exe", "services.msc"],
                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         except Exception as e:
-            messagebox.showerror("Fehler", f"services.msc konnte nicht geöffnet werden:\n{e}",
+            messagebox.showerror(tr("Fehler", "Error"), tr(f"services.msc konnte nicht geöffnet werden:\n{e}", f"services.msc could not be opened:\n{e}"),
                                  parent=self)

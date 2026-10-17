@@ -13,6 +13,7 @@ except ImportError:
     winreg = None
 from pathlib import Path
 from typing import Optional, Callable
+from core.i18n import tr as _tr
 
 
 AUTOSTART_KEY  = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
@@ -59,11 +60,11 @@ class StartupLoader:
             core = crashed_profile.get("core_offset_mhz", 0)
             pwr  = crashed_profile.get("power_limit_pct", 100)
             on_crash_detected(
-                f"Letzter Run hat einen GPU-Crash verursacht!\n\n"
+                _tr(f"Letzter Run hat einen GPU-Crash verursacht!\n\n"
                 f"Aktives Profil beim Crash: {name} "
                 f"(Core+{core}MHz, Power {pwr}%)\n\n"
                 f"GameOptimizerPro hat das letzte stabile Profil geladen.\n"
-                f"Empfehlung: Tuning mit konservativeren Werten wiederholen."
+                f"Empfehlung: Tuning mit konservativeren Werten wiederholen.", f"The last run caused a GPU crash!\n\nActive profile at the crash: {name} (Core+{core}MHz, Power {pwr}%)\n\nGameOptimizerPro loaded the last stable profile.\nRecommendation: repeat the tune with more conservative values.")
             )
         return True
 

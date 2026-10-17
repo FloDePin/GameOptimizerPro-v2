@@ -11,6 +11,7 @@ Format: JSON mit Versionierung und Metadaten.
 import json, os
 from datetime import datetime
 from pathlib import Path
+from core.i18n import tr as _tr
 
 
 EXPORT_VERSION = "1.0"
@@ -69,14 +70,14 @@ class ExportImport:
             n_profiles = len(data.get("gpu_profiles", []))
             n_presets  = len(data.get("user_presets", []))
             return True, (
-                f"Export erfolgreich:\n"
+                _tr(f"Export erfolgreich:\n"
                 f"  {n_tweaks} Tweaks\n"
                 f"  {n_profiles} GPU-Profile\n"
                 f"  {n_presets} User-Presets\n"
-                f"→ {path}"
+                f"→ {path}", f"Export successful:\n  {n_tweaks} tweaks\n  {n_profiles} GPU profiles\n  {n_presets} user presets\n→ {path}")
             )
         except Exception as e:
-            return False, f"Export fehlgeschlagen: {e}"
+            return False, _tr(f"Export fehlgeschlagen: {e}", f"Export failed: {e}")
 
     # ── Import ────────────────────────────────────────────────────────────────
 
@@ -96,24 +97,24 @@ class ExportImport:
         MAX_IMPORT_SIZE = 10 * 1024 * 1024
         try:
             if os.path.getsize(path) > MAX_IMPORT_SIZE:
-                return False, {}, "Datei zu groß (>10 MB) — vermutlich beschädigt."
+                return False, {}, _tr("Datei zu groß (>10 MB) — vermutlich beschädigt.", "File too large (>10 MB) — probably damaged.")
         except OSError as e:
-            return False, {}, f"Datei nicht gefunden: {e}"
+            return False, {}, _tr(f"Datei nicht gefunden: {e}", f"File not found: {e}")
 
         try:
             with open(path, "r", encoding="utf-8") as f:
                 raw = json.load(f)
         except Exception as e:
-            return False, {}, f"Datei konnte nicht gelesen werden: {e}"
+            return False, {}, _tr(f"Datei konnte nicht gelesen werden: {e}", f"File could not be read: {e}")
 
         # Valides JSON heisst nicht "unser Format": eine Liste/Zahl/Zeichenkette
         # hat kein .get() und liess den Import vorher mit einem ungefangenen
         # AttributeError direkt im Button-Handler abstuerzen (keine Meldung).
         if not isinstance(raw, dict):
-            return False, {}, "Ungültige Datei — kein GameOptimizerPro Export"
+            return False, {}, _tr("Ungültige Datei — kein GameOptimizerPro Export", "Invalid file — not a GameOptimizerPro export")
 
         if raw.get("_magic") != EXPORT_MAGIC:
-            return False, {}, "Ungültige Datei — kein GameOptimizerPro Export"
+            return False, {}, _tr("Ungültige Datei — kein GameOptimizerPro Export", "Invalid file — not a GameOptimizerPro export")
 
         # Typen erzwingen: der Inhalt stammt aus einer fremden Datei, und ein
         # falscher Typ (z.B. "tweaks": [1,2]) wuerde sonst erst spaeter beim

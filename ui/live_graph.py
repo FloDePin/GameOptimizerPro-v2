@@ -8,6 +8,7 @@ import tkinter as tk
 from collections import deque
 
 from ui.theme import ACC, BORDER, CARD_BG, DIM, ERR, F_XS, INPUT_BG, MUTED, VIOLET, mix
+from ui.theme import tr
 
 VOLT = VIOLET
 GRID = mix(INPUT_BG, "#ffffff", 0.06)
@@ -101,7 +102,7 @@ class LiveGraph(tk.Frame):
         n = len(self._clocks)
         if n < 2:
             self.cv.create_text(pad_l + plot_w / 2, pad_t + plot_h / 2,
-                                text="Live-Werte erscheinen, sobald der Tune läuft",
+                                text=tr("Live-Werte erscheinen, sobald der Tune läuft", "Live values appear once the tune runs"),
                                 font=F_XS, fill=MUTED)
             return
 

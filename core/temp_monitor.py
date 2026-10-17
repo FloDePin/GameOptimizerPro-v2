@@ -61,8 +61,10 @@ class TempMonitor:
     def _send_toast(self, temp: int):
         """Send Windows Toast Notification via PowerShell."""
         try:
+            from core.i18n import tr as _tr
+            title = _tr("GPU Temperatur-Warnung ⚠", "GPU temperature warning ⚠")
             ps = f'''
-$title = "GPU Temperatur-Warnung ⚠"
+$title = "{title}"
 $msg   = "GPU: {temp}°C — Limit: {self._limit}°C"
 [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType=WindowsRuntime] | Out-Null
 [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType=WindowsRuntime] | Out-Null

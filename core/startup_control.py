@@ -23,6 +23,7 @@ import subprocess
 import time
 from dataclasses import dataclass, field
 from typing import Optional
+from core.i18n import tr as _tr
 
 try:
     import winreg
@@ -192,22 +193,22 @@ def list_entries() -> list[StartupEntry]:
 def set_enabled(entry: StartupEntry, enabled: bool) -> tuple[bool, str]:
     """Enable/disable like Task Manager (flag only). Verifies by reading back."""
     if not winreg:
-        return False, "Nur unter Windows verfügbar."
+        return False, _tr("Nur unter Windows verfügbar.", "Only available on Windows.")
     blob = ENABLED_BLOB if enabled else disabled_blob()
     try:
         with winreg.CreateKeyEx(_hive(entry.hive_label), _APPROVED + "\\" + entry.approved_sub,
                                 0, winreg.KEY_SET_VALUE | winreg.KEY_WOW64_64KEY) as k:
             winreg.SetValueEx(k, entry.name, 0, winreg.REG_BINARY, blob)
     except PermissionError:
-        return False, ("Zugriff verweigert — HKLM-/Alle-Nutzer-Einträge brauchen "
-                       "Administratorrechte.")
+        return False, (_tr("Zugriff verweigert — HKLM-/Alle-Nutzer-Einträge brauchen "
+                       "Administratorrechte.", "Access denied — HKLM / all-users entries need administrator rights."))
     except OSError as e:
-        return False, f"Schreiben fehlgeschlagen: {e}"
+        return False, _tr(f"Schreiben fehlgeschlagen: {e}", f"Writing failed: {e}")
     now_enabled = read_enabled(entry)
     entry.enabled = now_enabled
     if now_enabled != enabled:
-        return False, "Wert geschrieben, aber beim Zurücklesen nicht übernommen."
-    return True, ("aktiviert" if enabled else "deaktiviert")
+        return False, _tr("Wert geschrieben, aber beim Zurücklesen nicht übernommen.", "Value written, but not taken over when read back.")
+    return True, (_tr("aktiviert", "enabled") if enabled else _tr("deaktiviert", "disabled"))
 
 
 if __name__ == "__main__":

@@ -21,6 +21,7 @@ import os
 import subprocess
 from dataclasses import dataclass
 from typing import Optional
+from core.i18n import tr as _tr
 
 
 @dataclass
@@ -124,11 +125,11 @@ class BiosDetector:
                                             "DDR5" if speed > 4000 else "DDR4"))
         if speed > jedec:
             return DetectResult("expo_xmp", True, f"{ddr}-{speed}", "high",
-                                f"RAM läuft mit {ddr}-{speed} — über dem Standardtakt, das Profil ist aktiv")
+                                _tr(f"RAM läuft mit {ddr}-{speed} — über dem Standardtakt, das Profil ist aktiv", f"RAM runs at {ddr}-{speed} — above stock speed, the profile is on"))
         if speed == jedec:
             return None          # top JEDEC speed or a kit whose profile has that speed: can't tell
         return DetectResult("expo_xmp", False, f"{ddr}-{speed}", "high",
-                            f"RAM läuft nur mit {ddr}-{speed} (Standardtakt) — Profil im BIOS aktivieren")
+                            _tr(f"RAM läuft nur mit {ddr}-{speed} (Standardtakt) — Profil im BIOS aktivieren", f"RAM runs at {ddr}-{speed} only (stock speed) — enable the profile in the BIOS"))
 
     @staticmethod
     def detect_rebar(data: dict = None) -> Optional[DetectResult]:
@@ -138,7 +139,7 @@ class BiosDetector:
         bar1, vram = got
         if bar1 > 512:
             return DetectResult("rebar", True, f"BAR1 {bar1:.0f} MB", "high",
-                                f"Resizable BAR aktiv — die CPU sieht {bar1 / 1024:.0f} GB Grafikspeicher am Stück")
+                                _tr(f"Resizable BAR aktiv — die CPU sieht {bar1 / 1024:.0f} GB Grafikspeicher am Stück", f"Resizable BAR on — the CPU sees {bar1 / 1024:.0f} GB of graphics memory at once"))
         return DetectResult("rebar", False, f"BAR1 {bar1:.0f} MB", "high",
                             f"Resizable BAR aus — nur {bar1:.0f} MB Fenster (Grafikspeicher {vram / 1024:.0f} GB)")
 
@@ -159,9 +160,9 @@ class BiosDetector:
         fw = str(data.get("firmware") or "").lower()
         if fw == "legacy":
             return DetectResult("csm", False, "Legacy-Start", "high",
-                                "Windows ist im Legacy-Modus installiert — CSM erst abschalten, wenn "
-                                "Windows auf UEFI umgestellt ist (MBR2GPT)")
+                                _tr("Windows ist im Legacy-Modus installiert — CSM erst abschalten, wenn "
+                                "Windows auf UEFI umgestellt ist (MBR2GPT)", "Windows is installed in legacy mode — only turn CSM off once Windows is converted to UEFI (MBR2GPT)"))
         if fw == "uefi" and str(data.get("secureboot") or "").strip() == "1":
             return DetectResult("csm", True, "UEFI + Secure Boot", "high",
-                                "UEFI-Start mit Secure Boot — CSM ist damit sicher aus")
+                                _tr("UEFI-Start mit Secure Boot — CSM ist damit sicher aus", "UEFI boot with Secure Boot — so CSM is off for sure"))
         return None              # UEFI without Secure Boot: CSM may be on or off

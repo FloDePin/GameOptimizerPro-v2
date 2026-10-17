@@ -161,6 +161,11 @@ def t(key: str, **kwargs) -> str:
     return text
 
 
+def tr(de: str, en: str) -> str:
+    """The text in the app's language — for core modules (the UI has ui.theme.tr)."""
+    return de if _current_lang == "de" else en
+
+
 def current_lang() -> str:
     return _current_lang
 

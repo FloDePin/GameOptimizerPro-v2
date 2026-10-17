@@ -345,7 +345,7 @@ class GpuTunerTab(Page):
         # Log — takes the rest of the column, always visible
         lcard = ctk.CTkFrame(right, fg_color=INPUT_BG, corner_radius=10, border_width=1, border_color=BORDER)
         lcard.pack(fill="both", expand=True)
-        tk.Label(lcard, text="Tuner-Log", font=("Segoe UI Semibold", 8), fg=MUTED,
+        tk.Label(lcard, text=tr("Tuner-Log", "Tuner log"), font=("Segoe UI Semibold", 8), fg=MUTED,
                  bg=INPUT_BG).pack(anchor="w", padx=12, pady=(8, 0))
         self.log = LogView(lcard, height=6)
         self.log.pack(fill="both", expand=True, padx=6, pady=(0, 6))
@@ -462,9 +462,9 @@ class GpuTunerTab(Page):
             mem_start = self._mem_start()
         except Exception:
             mem_start = 500
-        mem_de = (f"4. Speicher: +{mem_start} MHz, dann +100er-Schritte bis +{mem_max} MHz — je Schritt "
-                  f"{step_s} s FurMark + geprüfte Speicherkopien; übernommen: höchster bestandener Schritt"
-                  if mem_on else "4. Speicher: bleibt auf Standard (Haken aus)")
+        mem_de = (tr(f"4. Speicher: +{mem_start} MHz, dann +100er-Schritte bis +{mem_max} MHz — je Schritt "
+                  f"{step_s} s FurMark + geprüfte Speicherkopien; übernommen: höchster bestandener Schritt", f"4. Memory: +{mem_start} MHz, then 100-MHz steps up to +{mem_max} MHz — {step_s} s of FurMark + verified memory copies per step; used: the highest step that passed")
+                  if mem_on else tr("4. Speicher: bleibt auf Standard (Haken aus)", "4. Memory: stays at stock (unticked)"))
         mem_en = (f"4. Memory: +{mem_start} MHz, then +100 MHz steps up to +{mem_max} MHz — {step_s} s "
                   f"of FurMark + verified memory copies per step; used: the highest step that passed"
                   if mem_on else "4. Memory: stays at stock (unticked)")

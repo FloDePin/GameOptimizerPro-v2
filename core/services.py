@@ -26,6 +26,7 @@ import subprocess
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from core.i18n import tr as _tr
 
 STATE_FILE = Path(__file__).resolve().parent.parent / "logs" / "services_state.json"
 
@@ -70,6 +71,47 @@ KNOWN_SERVICES: dict[str, tuple[str, bool, str]] = {
     "wuauserv":         ("System",      False, "Windows Update — aus = KEINE Sicherheitsupdates mehr."),
 }
 
+# English for the table above (the app's language decides; the German text is the key data)
+CATEGORY_EN = {"Datenschutz": "Privacy", "Leistung": "Performance", "Sicherheit": "Security",
+               "Netzwerk": "Network", "Xbox": "Xbox", "Unnötig": "Unneeded", "KI": "AI",
+               "System": "System"}
+DESC_EN = {
+    "DiagTrack": "Telemetry & diagnostics — sends usage data to Microsoft.",
+    "dmwappushservice": "WAP push routing — part of the telemetry / device management infrastructure.",
+    "WerSvc": "Windows Error Reporting — sends crash reports to Microsoft.",
+    "lfsvc": "Geolocation — location requests from apps. Automatic time zone and 'Find my device' need it.",
+    "SysMain": "SysMain (Superfetch) — preloads apps into RAM. Little use on SSDs.",
+    "WSearch": "Windows Search — indexes drives. Off: search in Start / Explorer gets slower, Outlook "
+               "search is limited.",
+    "CscService": "Offline Files — offline copies of network folders. Usually unneeded.",
+    "TrkWks": "Distributed Link Tracking — follows moved files for shortcuts.",
+    "RemoteRegistry": "Remote Registry — registry access over the network. A security risk, off by default "
+                      "on Windows 11 anyway.",
+    "SharedAccess": "Internet Connection Sharing (ICS) — only for ICS / hotspot and the NAT of Hyper-V's "
+                    "'Default Switch'.",
+    "icssvc": "Mobile hotspot — only when the PC opens a Wi-Fi hotspot.",
+    "XblAuthManager": "Xbox Live authentication — Game Pass / Xbox PC games need it to sign in.",
+    "XblGameSave": "Xbox Live game saves — cloud saves of Xbox / Game Pass PC games.",
+    "XboxNetApiSvc": "Xbox Live networking — multiplayer / party of Xbox / Game Pass PC games.",
+    "xbgm": "Xbox Game Monitoring (older Windows versions).",
+    "Fax": "Fax service — hardly anyone uses it.",
+    "MapsBroker": "Downloaded Maps Manager — only for the Maps app.",
+    "RetailDemo": "Retail Demo — only for display devices in shops.",
+    "WMPNetworkSvc": "Windows Media Player network sharing — shares media on the network.",
+    "PhoneSvc": "Phone service — telephony, e.g. calls through Phone Link.",
+    "wisvc": "Windows Insider service — only for Insider builds.",
+    "WpcMonSvc": "Parental controls — Microsoft Family monitoring.",
+    "WdiServiceHost": "Diagnostic Service Host — Windows troubleshooting / diagnostics.",
+    "vmicvss": "Hyper-V Volume Shadow Copy — only INSIDE a Hyper-V VM.",
+    "HvHost": "HV Host Service — performance counters for Hyper-V. Unneeded without VMs.",
+    "WSAIFabricSvc": "Host for Windows AI components (since 24H2/26H2, starts automatically) — AI search in "
+                     "Settings, Click to Do, AI actions.",
+    "Spooler": "Print Spooler — without it printing does NOT work (not even to PDF).",
+    "BITS": "Background Intelligent Transfer Service — the download service of Windows Update, Store and "
+            "Defender.",
+    "wuauserv": "Windows Update — off = NO more security updates.",
+}
+
 # Windows-11-Standard-Starttyp (Start, verzögert) — Rückfall für "Aktivieren",
 # wenn kein Original gemerkt ist (z. B. mit v1 deaktiviert).
 WINDOWS_DEFAULT: dict[str, tuple[int, bool]] = {
@@ -89,10 +131,13 @@ START_LABEL = {0: "Boot", 1: "System", 2: "Automatisch", 3: "Manuell", 4: "Deakt
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9_.\-]+$")
 
 
+START_LABEL_EN = {0: "Boot", 1: "System", 2: "Automatic", 3: "Manual", 4: "Disabled"}
+
+
 def start_label(start: int, delayed: bool = False) -> str:
     if start == 2 and delayed:
-        return "Automatisch (verzögert)"
-    return START_LABEL.get(start, "Unbekannt")
+        return _tr("Automatisch (verzögert)", "Automatic (delayed)")
+    return _tr(START_LABEL.get(start, "Unbekannt"), START_LABEL_EN.get(start, "Unknown"))
 
 
 @dataclass
@@ -123,11 +168,11 @@ class ServiceInfo:
 
 def restore_target(name: str, saved: dict | None) -> tuple[int, bool, str]:
     if saved and saved.get("start") in (2, 3):
-        return int(saved["start"]), bool(saved.get("delayed")), "gemerkt"
+        return int(saved["start"]), bool(saved.get("delayed")), _tr("gemerkt", "remembered")
     start, delayed = WINDOWS_DEFAULT.get(name, (3, False))
     if start not in (2, 3):              # Standard "Deaktiviert" -> Aktivieren = Manuell
         start, delayed = 3, False
-    return start, delayed, "Windows-Standard"
+    return start, delayed, _tr("Windows-Standard", "Windows default")
 
 
 # ── Lesen ─────────────────────────────────────────────────────────────────────
@@ -150,6 +195,9 @@ def _read_start(name: str) -> tuple[int, bool] | None:
 _STATUS_DE = {"running": "Läuft", "stopped": "Beendet", "start_pending": "Startet …",
               "stop_pending": "Stoppt …", "paused": "Angehalten",
               "continue_pending": "Setzt fort …", "pause_pending": "Hält an …"}
+_STATUS_EN = {"running": "Running", "stopped": "Stopped", "start_pending": "Starting …",
+              "stop_pending": "Stopping …", "paused": "Paused",
+              "continue_pending": "Continuing …", "pause_pending": "Pausing …"}
 
 
 def _query(name: str) -> tuple[str, str] | None:
@@ -200,8 +248,10 @@ def list_services() -> list[ServiceInfo]:
         display, status = q
         st = _read_start(name) or (-1, False)
         out.append(ServiceInfo(
-            name=name, display=display, category=cat, safe=safe, desc=desc,
-            status=_STATUS_DE.get(status, status), running=(status == "running"),
+            name=name, display=display, category=_tr(cat, CATEGORY_EN.get(cat, cat)), safe=safe,
+            desc=_tr(desc, DESC_EN.get(name, desc)),
+            status=_tr(_STATUS_DE.get(status, status), _STATUS_EN.get(status, status)),
+            running=(status == "running"),
             start=st[0], delayed=st[1], saved=state.get(name)))
     return out
 
@@ -221,7 +271,7 @@ def _run_ps(script: str, timeout: int = 120) -> str:
 
 
 def _parse(out: str, names: list[str]) -> dict[str, tuple[bool, str]]:
-    res = {n: (False, "keine Rückmeldung") for n in names}
+    res = {n: (False, _tr("keine Rückmeldung", "no response")) for n in names}
     for line in out.splitlines():
         parts = line.strip().split("|", 2)
         if len(parts) >= 2 and parts[0] in res:
@@ -234,7 +284,7 @@ def _check_names(names) -> list[str]:
     names = [n for n in dict.fromkeys(names) if n in KNOWN_SERVICES]
     for n in names:
         if not _SAFE_NAME.match(n):
-            raise ValueError(f"ungültiger Dienstname: {n!r}")
+            raise ValueError(_tr(f"ungültiger Dienstname: {n!r}", f"invalid service name: {n!r}"))
     return names
 
 
@@ -268,7 +318,7 @@ def disable(names) -> dict[str, tuple[bool, str]]:
         res = _parse(_run_ps(script), names)
     except Exception as e:
         res = {n: (False, str(e)) for n in names}
-    res = {n: (ok, "läuft noch bis zum Neustart" if note == "reboot" else note)
+    res = {n: (ok, _tr("läuft noch bis zum Neustart", "running until the next restart") if note == "reboot" else note)
            for n, (ok, note) in res.items()}
     failed = [n for n in fresh if not res[n][0]]
     if failed:                            # nichts geändert -> nichts zu merken

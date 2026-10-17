@@ -256,14 +256,14 @@ class OptimizerTab(Page):
         to_apply = [t for t in tweaks
                     if self._is_applicable(t) and not self.runner.is_applied(t.id)]
         if not to_apply:
-            messagebox.showinfo("Preset", f"'{preset.name}' ist bereits vollständig aktiv.")
+            messagebox.showinfo("Preset", tr(f"'{preset.name}' ist bereits vollständig aktiv.", f"'{preset.name}' is already fully active."))
             return
         needs_rb = any(t.requires_reboot for t in to_apply)
-        msg = f"Preset '{preset.name}' anwenden?\n{len(to_apply)} Tweak(s) werden aktiviert."
+        msg = tr(f"Preset '{preset.name}' anwenden?\n{len(to_apply)} Tweak(s) werden aktiviert.", f"Apply preset '{preset.name}'?\n{len(to_apply)} tweak(s) will be enabled.")
         if skipped:
-            msg += (f"\n\n{len(skipped)} Tweak(s) passen nicht zu deiner Hardware und "
-                    f"werden übersprungen ({', '.join(t.name for t in skipped)}).")
-        if needs_rb: msg += "\n\n⚠ Einige benötigen einen Neustart."
+            msg += (tr(f"\n\n{len(skipped)} Tweak(s) passen nicht zu deiner Hardware und "
+                    f"werden übersprungen ({', '.join(t.name for t in skipped)}).", f"\n\n{len(skipped)} tweak(s) don't fit your hardware and are skipped ({', '.join(t.name for t in skipped)})."))
+        if needs_rb: msg += tr("\n\n⚠ Einige benötigen einen Neustart.", "\n\n⚠ Some need a restart.")
         if not messagebox.askyesno("Preset anwenden", msg): return
 
         def _run():
@@ -292,10 +292,10 @@ class OptimizerTab(Page):
         TweakRunner.apply_batch()/revert_all() already did this — but the UI
         never calls those; it applies/reverts tweak by tweak. So the automatic
         backup has to be triggered here, where the batches actually happen."""
-        self.log.append("Sichere Registry (Backup vor der Änderung) …", "dim")
+        self.log.append(tr("Sichere Registry (Backup vor der Änderung) …", "Backing up the registry (before the change) …"), "dim")
         res = self.runner.backup_registry(label)
         if res is None:
-            self.log.append("  ⚠ Registry-Backup nicht möglich — fahre trotzdem fort.", "warning")
+            self.log.append(tr("  ⚠ Registry-Backup nicht möglich — fahre trotzdem fort.", "  ⚠ Registry backup not possible — going on anyway."), "warning")
         else:
             self.log.append("  " + res.summary(), "success" if res.ok else "warning")
 
@@ -306,7 +306,7 @@ class OptimizerTab(Page):
         if not name: return
         applied_ids = list(self.runner._applied.keys())
         if not applied_ids:
-            messagebox.showinfo("Preset", "Keine aktiven Tweaks — wende zuerst welche an.")
+            messagebox.showinfo("Preset", tr("Keine aktiven Tweaks — wende zuerst welche an.", "No active tweaks — apply some first."))
             return
         self._user_presets.append(TweakPreset(
             id=f"user_{name.lower().replace(' ','_')}",
@@ -316,7 +316,7 @@ class OptimizerTab(Page):
         self._refresh_presets()
 
     def _delete_user_preset(self, preset):
-        if messagebox.askyesno("Löschen", f"Preset '{preset.name}' löschen?"):
+        if messagebox.askyesno(tr("Löschen", "Delete"), tr(f"Preset '{preset.name}' löschen?", f"Delete preset '{preset.name}'?")):
             self._user_presets = [p for p in self._user_presets if p.id != preset.id]
             self._refresh_presets()
 
@@ -348,7 +348,8 @@ class OptimizerTab(Page):
         arrow = tk.Label(f, text="▾" if group in self._open_groups else "▸", font=("Segoe UI", 10),
                          fg=color, bg=APP_BG, width=2, cursor="hand2")
         arrow.pack(side="left")
-        title = tk.Label(f, text=group.upper(), font=("Segoe UI Semibold", 9), fg=color, bg=APP_BG,
+        shown = tr(group, {"Komfort": "Comfort", "Speicher & RAM": "Storage & RAM"}.get(group, group))
+        title = tk.Label(f, text=shown.upper(), font=("Segoe UI Semibold", 9), fg=color, bg=APP_BG,
                          cursor="hand2")
         title.pack(side="left")
         count = tk.Label(f, text="", font=F_XS, fg=DIM, bg=APP_BG, cursor="hand2")
@@ -513,7 +514,7 @@ class OptimizerTab(Page):
         # and DNS providers are a choice: only one of them can be active.
         from core.tweaks import alternatives_of
         if alternatives_of(tweak.id):
-            badge(badge_f, "⇄ entweder-oder", CYAN, bg).pack(anchor="e", pady=1)
+            badge(badge_f, tr("⇄ entweder-oder", "⇄ either-or"), CYAN, bg).pack(anchor="e", pady=1)
         elif not (tweak.revert_cmd or "").strip():
             badge(badge_f, "⟳ einmalig", TEXT2, bg).pack(anchor="e", pady=1)
         act = badge(badge_f, "✓ " + tr("aktiv", "active"), GREEN, bg)
@@ -694,7 +695,7 @@ class OptimizerTab(Page):
         self.lbl_fix_result.pack(side="left", padx=12)
 
     def _run_verify(self):
-        self.lbl_verify_summary.config(text="Prüfe System-Zustand...", fg=DIM)
+        self.lbl_verify_summary.config(text=tr("Prüfe System-Zustand...", "Checking the system state..."), fg=DIM)
         for row in self.verify_tree.get_children():
             self.verify_tree.delete(row)
 
@@ -747,9 +748,9 @@ class OptimizerTab(Page):
                         tags=(tag,))
                 col = GREEN if mis_c == 0 else AMBER
                 self.lbl_verify_summary.config(
-                    text=(f"✓ {ok_c} OK   ⚠ {mis_c} zurückgesetzt   "
+                    text=(tr(f"✓ {ok_c} OK   ⚠ {mis_c} zurückgesetzt   "
                           f"ℹ {ext_c} extern aktiv   ? {err_c} Fehler   "
-                          f"({len(results)} geprüft)"),
+                          f"({len(results)} geprüft)", f"✓ {ok_c} OK   ⚠ {mis_c} reset   ℹ {ext_c} active externally   ? {err_c} errors   ({len(results)} checked)")),
                     fg=col)
             self.after(0, _update)
         threading.Thread(target=_do, daemon=True).start()
@@ -769,11 +770,11 @@ class OptimizerTab(Page):
             mis.append(get_by_id(item))
         mis = [t for t in mis if t]
         if not mis:
-            self.lbl_fix_result.config(text="Keine Abweichungen.", fg=DIM)
+            self.lbl_fix_result.config(text=tr("Keine Abweichungen.", "No deviations."), fg=DIM)
             return
         if self._batch_busy():
             return
-        if not messagebox.askyesno("Beheben", f"{len(mis)} Tweak(s) erneut anwenden?"):
+        if not messagebox.askyesno("Beheben", tr(f"{len(mis)} Tweak(s) erneut anwenden?", f"Apply {len(mis)} tweak(s) again?")):
             return
         def _do():
             self._backup_before("PreFix")
@@ -852,11 +853,11 @@ class OptimizerTab(Page):
 
     def _preview_import(self):
         path = filedialog.askopenfilename(
-            title="Export öffnen",
+            title=tr("Export öffnen", "Open export"),
             filetypes=[("GameOptimizerPro Export", "*.nextune"), ("JSON", "*.json"), ("Alle", "*.*")])
         if not path: return
         ok, data, msg = self.exim.import_file(path)
-        if not ok: messagebox.showerror("Import Fehler", msg); return
+        if not ok: messagebox.showerror(tr("Import Fehler", "Import error"), msg); return
         self._import_data = data
         self.lbl_imp_preview.config(text=msg, fg=ACC)
         self.btn_do_import.configure(state="normal")
@@ -877,10 +878,10 @@ class OptimizerTab(Page):
             for tid in usable:
                 self._vars[tid].set(True)
             n_new = sum(1 for tid in usable if not self.runner.is_applied(tid))
-            m = (f"{len(usable)} Tweaks ausgewählt ({n_new} davon neu) — "
-                 f"mit 'Ausgewählte anwenden' übernehmen")
+            m = (tr(f"{len(usable)} Tweaks ausgewählt ({n_new} davon neu) — "
+                 f"mit 'Ausgewählte anwenden' übernehmen", f"{len(usable)} tweaks selected ({n_new} of them new) — apply them with 'Apply selected'"))
             if n_skip:
-                m += f"; {n_skip} unbekannt/passen nicht zu dieser Hardware"
+                m += tr(f"; {n_skip} unbekannt/passen nicht zu dieser Hardware", f"; {n_skip} unknown / don't fit this hardware")
             msgs.append(m)
         if self.v_imp_profiles.get() and data.get("gpu_profiles"):
             n_ok, _ = self.exim.apply_imported_profiles(data["gpu_profiles"])
@@ -895,7 +896,7 @@ class OptimizerTab(Page):
             msgs.append(f"{len(data['user_presets'])} Presets")
             self._refresh_presets()
         self.lbl_imp_result.config(text="✓ " + ", ".join(msgs), fg=GREEN)
-        messagebox.showinfo("Import", "Import erfolgreich:\n" + "\n".join(f"  • {m}" for m in msgs))
+        messagebox.showinfo("Import", tr("Import erfolgreich:\n", "Import successful:\n") + "\n".join(f"  • {m}" for m in msgs))
         self._import_data = None
         self.btn_do_import.configure(state="disabled")
         self.lbl_imp_preview.config(text="")
@@ -929,16 +930,16 @@ class OptimizerTab(Page):
         left = [get_by_id(t) for t in self._vars if t not in keep]
         if left:
             from core.i18n import current_lang
-            self.log.append("Alle ausgewählt — außer den Alternativen (nur ein Energieplan / ein "
-                            "DNS-Anbieter möglich): " + ", ".join(
+            self.log.append(tr("Alle ausgewählt — außer den Alternativen (nur ein Energieplan / ein "
+                            "DNS-Anbieter möglich): ", "All selected — except the alternatives (only one power plan / one DNS provider possible): ") + ", ".join(
                                 tweak_name(t, current_lang()) for t in left if t), "dim")
 
     def _batch_busy(self) -> bool:
         if self._batch_running:
             messagebox.showinfo(
                 "Bitte warten",
-                "Es läuft noch ein Vorgang — z. B. die Datenträgerbereinigung dauert einige "
-                "Minuten. Bitte warten, bis im Protokoll „Fertig.“ steht.")
+                tr("Es läuft noch ein Vorgang — z. B. die Datenträgerbereinigung dauert einige "
+                "Minuten. Bitte warten, bis im Protokoll „Fertig.“ steht.", "A task is still running — e.g. the disk cleanup takes a few minutes. Please wait until the log says \u201cDone.\u201d"))
             return True
         return False
 
@@ -966,14 +967,14 @@ class OptimizerTab(Page):
     def _apply_one(self, t, prefix: str = "  "):
         """Apply one tweak with visible progress; untick replaced alternatives."""
         if getattr(t, "timeout_s", 60) > 60:
-            self.log.append(f"{prefix}{t.name} … läuft (kann einige Minuten dauern)", "dim")
+            self.log.append(tr(f"{prefix}{t.name} … läuft (kann einige Minuten dauern)", f"{prefix}{t.name} … running (can take a few minutes)"), "dim")
         ok, out = self.runner.apply(t)
         self.log.append(f"{prefix}{t.name}: {'✓' if ok else '✗ ' + out[:100]}",
                         "success" if ok else "error")
         sup = list(self.runner.last_superseded)
         if ok and sup:
             names = ", ".join((get_by_id(x).name if get_by_id(x) else x) for x in sup)
-            self.log.append(f"{prefix}  ↳ ersetzt: {names}", "dim")
+            self.log.append(tr(f"{prefix}  ↳ ersetzt: {names}", f"{prefix}  ↳ replaces: {names}"), "dim")
 
             def _untick(ids=sup):
                 self._bulk = True
@@ -999,19 +1000,19 @@ class OptimizerTab(Page):
                                 self.runner._applied)
         selected = [get_by_id(i) for i in ids]
         if not selected:
-            messagebox.showinfo("Nichts", "Keine neuen Tweaks ausgewählt.")
+            messagebox.showinfo("Nichts", tr("Keine neuen Tweaks ausgewählt.", "No new tweaks selected."))
             return
         needs_rb = any(t.requires_reboot for t in selected)
         msg = f"{len(selected)} Tweak(s) anwenden?"
         replaced = [get_by_id(a) for t in selected for a in alternatives_of(t.id)
                     if self.runner.is_applied(a)]
         if replaced:
-            msg += "\n\nErsetzt (Entweder-oder): " + ", ".join(t.name for t in replaced if t)
-        if needs_rb: msg += "\n\n⚠ Einige benötigen einen Neustart."
-        if not messagebox.askyesno("Anwenden", msg): return
+            msg += tr("\n\nErsetzt (Entweder-oder): ", "\n\nReplaced (either-or): ") + ", ".join(t.name for t in replaced if t)
+        if needs_rb: msg += tr("\n\n⚠ Einige benötigen einen Neustart.", "\n\n⚠ Some need a restart.")
+        if not messagebox.askyesno(tr("Anwenden", "Apply"), msg): return
 
         def _run():
-            self.log.append(f"Wende {len(selected)} Tweak(s) an...", "header")
+            self.log.append(tr(f"Wende {len(selected)} Tweak(s) an...", f"Applying {len(selected)} tweak(s)..."), "header")
             self._backup_before("PreApply")
             for i, t in enumerate(selected):
                 self._apply_one(t, prefix=f"  [{i+1}/{len(selected)}] ")
@@ -1025,17 +1026,17 @@ class OptimizerTab(Page):
             return
         applied = [t for t in ALL_TWEAKS if self.runner.is_applied(t.id) and t.revert_cmd]
         if not applied:
-            messagebox.showinfo("Nichts", "Keine aktiven Tweaks mit Revert-Befehl.")
+            messagebox.showinfo("Nichts", tr("Keine aktiven Tweaks mit Revert-Befehl.", "No active tweaks with a revert command."))
             return
-        if not messagebox.askyesno("Zurücksetzen", f"{len(applied)} Tweak(s) zurücksetzen?"):
+        if not messagebox.askyesno(tr("Zurücksetzen", "Revert"), tr(f"{len(applied)} Tweak(s) zurücksetzen?", f"Revert {len(applied)} tweak(s)?")):
             return
         def _run():
-            self.log.append(f"Setze {len(applied)} zurück...", "warning")
+            self.log.append(tr(f"Setze {len(applied)} zurück...", f"Reverting {len(applied)}..."), "warning")
             self._backup_before("PreRevert")
             for t in applied:
                 ok, out = self.runner.revert(t)
                 self.log.append(f"  ↩ {t.name}: {'OK' if ok else out[:80]}",
                                 "success" if ok else "error")
-            self.log.append("Revert abgeschlossen.", "success")
+            self.log.append(tr("Revert abgeschlossen.", "Revert finished."), "success")
             self.after(500, self._live_verify)
         self._run_batch(_run)

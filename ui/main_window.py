@@ -533,7 +533,7 @@ class GameOptimizerWindow(ctk.CTk):
                     opt._bulk = False
             t = get_by_id(new)
             names.append(t.name if t else new)
-        self.set_status("Übernommen (aktuell aktive Wahl): " + ", ".join(names))
+        self.set_status(tr("Übernommen (aktuell aktive Wahl): ", "Taken over (the choice active now): ") + ", ".join(names))
 
     def _ask_drift(self, drifted: list):
         """One decision per tweak (ticked = apply again, unticked = stop asking)."""
@@ -557,11 +557,11 @@ class GameOptimizerWindow(ctk.CTk):
                 var = getattr(opt, "_vars", {}).get(tid)
                 if var is not None:
                     var.set(False)
-            self.set_status(f"{len(drop)} Tweak(s) als nicht angewendet markiert.")
+            self.set_status(tr(f"{len(drop)} Tweak(s) als nicht angewendet markiert.", f"{len(drop)} tweak(s) marked as not applied."))
         tweaks = [t for t in (get_by_id(i) for i in reapply) if t]
         if not tweaks:
             return
-        self.set_status(f"Wende {len(tweaks)} Tweak(s) erneut an …")
+        self.set_status(tr(f"Wende {len(tweaks)} Tweak(s) erneut an …", f"Applying {len(tweaks)} tweak(s) again …"))
 
         def work():
             self.runner.backup_registry("PreDriftReapply")
@@ -578,13 +578,13 @@ class GameOptimizerWindow(ctk.CTk):
             n_ok = len(tweaks) - len(failed)
 
             def done():
-                self.set_status(f"{n_ok}/{len(tweaks)} Tweak(s) erneut angewendet.")
-                msg = f"{n_ok} von {len(tweaks)} Tweak(s) erneut angewendet."
+                self.set_status(tr(f"{n_ok}/{len(tweaks)} Tweak(s) erneut angewendet.", f"{n_ok}/{len(tweaks)} tweak(s) applied again."))
+                msg = tr(f"{n_ok} von {len(tweaks)} Tweak(s) erneut angewendet.", f"{n_ok} of {len(tweaks)} tweak(s) applied again.")
                 if any(t.requires_reboot for t in tweaks):
-                    msg += "\nEinige wirken erst nach einem Neustart."
+                    msg += tr("\nEinige wirken erst nach einem Neustart.", "\nSome take effect only after a restart.")
                 if failed:
-                    msg += ("\n\nFehlgeschlagen (als nicht angewendet markiert — keine "
-                            "erneute Nachfrage):\n" + "\n".join(failed))
+                    msg += (tr("\n\nFehlgeschlagen (als nicht angewendet markiert — keine "
+                            "erneute Nachfrage):\n", "\n\nFailed (marked as not applied — not asked again):\n") + "\n".join(failed))
                     opt = self._tab_frames.get("optimizer")
                     for tid in failed_ids:
                         var = getattr(opt, "_vars", {}).get(tid)
@@ -612,7 +612,7 @@ class GameOptimizerWindow(ctk.CTk):
         try:
             sp.Popen(["explorer.exe", str(log_dir)])
         except Exception as e:
-            messagebox.showerror("Fehler", f"Log-Ordner konnte nicht geöffnet werden:\n{e}")
+            messagebox.showerror(tr("Fehler", "Error"), tr(f"Log-Ordner konnte nicht geöffnet werden:\n{e}", f"The log folder could not be opened:\n{e}"))
 
     # ── Updater ───────────────────────────────────────────────────────────────
 

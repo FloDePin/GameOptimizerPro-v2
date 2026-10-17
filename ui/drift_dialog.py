@@ -13,13 +13,14 @@ import customtkinter as ctk
 from ui import theme
 from ui.components import CheckBox, button
 from ui.theme import ACC, AMBER, APP_BG, CARD_BG, F_B, F_S, F_SB, TEXT, TEXT2
+from ui.theme import tr
 
 
 class DriftDialog(ctk.CTkToplevel):
     def __init__(self, parent, items, on_done):
         """items: [(tweak_id, display name)]; on_done(reapply_ids, drop_ids)."""
         super().__init__(parent)
-        self.title("GameOptimizerPro — Tweaks nicht mehr aktiv")
+        self.title(tr("GameOptimizerPro — Tweaks nicht mehr aktiv", "GameOptimizerPro — tweaks no longer active"))
         icon = theme.app_icon_path()
         if icon:
             try:
@@ -33,16 +34,16 @@ class DriftDialog(ctk.CTkToplevel):
 
         body = tk.Frame(self, bg=APP_BG)
         body.pack(fill="both", expand=True, padx=20, pady=18)
-        tk.Label(body, text=f"{len(items)} Tweak(s) nicht mehr vollständig aktiv",
+        tk.Label(body, text=tr(f"{len(items)} Tweak(s) nicht mehr vollständig aktiv", f"{len(items)} tweak(s) no longer fully active"),
                  font=("Segoe UI Semibold", 13), fg=TEXT, bg=APP_BG).pack(anchor="w")
-        msg = tk.Label(body, text="Du hast sie angewendet, aber sie sind nicht (mehr) vollständig "
+        msg = tk.Label(body, text=tr("Du hast sie angewendet, aber sie sind nicht (mehr) vollständig "
                                   "aktiv — z. B. von einem Windows-Update zurückgesetzt, von dir "
                                   "selbst geändert, oder die Tweak-Version ist neuer und setzt "
-                                  "inzwischen mehr.",
+                                  "inzwischen mehr.", "You applied them, but they are not (fully) active any more — e.g. reset by a Windows update, changed by you, or the tweak is newer and sets more by now."),
                        font=F_S, fg=TEXT2, bg=APP_BG, justify="left", wraplength=500)
         msg.pack(anchor="w", pady=(4, 10))
-        tk.Label(body, text="Mit Haken: jetzt erneut anwenden (vorher Registry-Backup).\n"
-                            "Ohne Haken: als „nicht angewendet“ markieren — keine erneute Nachfrage.",
+        tk.Label(body, text=tr("Mit Haken: jetzt erneut anwenden (vorher Registry-Backup).\n"
+                            "Ohne Haken: als „nicht angewendet“ markieren — keine erneute Nachfrage.", "Ticked: apply again now (registry backup first).\nUnticked: mark as 'not applied' — not asked again."),
                  font=F_SB, fg=AMBER, bg=APP_BG, justify="left").pack(anchor="w", pady=(0, 10))
 
         card = ctk.CTkFrame(body, fg_color=CARD_BG, corner_radius=10)
@@ -56,8 +57,8 @@ class DriftDialog(ctk.CTkToplevel):
 
         btns = tk.Frame(body, bg=APP_BG)
         btns.pack(fill="x", pady=(16, 0))
-        button(btns, "Später fragen", self.destroy).pack(side="right", padx=(8, 0))
-        button(btns, "Übernehmen", self.submit, kind="primary").pack(side="right")
+        button(btns, tr("Später fragen", "Ask later"), self.destroy).pack(side="right", padx=(8, 0))
+        button(btns, tr("Übernehmen", "Apply"), self.submit, kind="primary").pack(side="right")
         self.protocol("WM_DELETE_WINDOW", self.destroy)
         try:
             self.transient(parent)

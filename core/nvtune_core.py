@@ -13,6 +13,7 @@ from dataclasses import dataclass, asdict, field
 from typing import Callable, Optional
 from pathlib import Path
 from datetime import datetime
+from core.i18n import tr as _tr
 
 
 # ── Combined GPU stats ────────────────────────────────────────────────────────
@@ -548,15 +549,15 @@ class AfterburnerController:
         """-> (path of the tuned card's VEN_….cfg or None, explanation)."""
         from core.ab_profile import pick_gpu_file
         if not self.available:
-            return None, "MSI Afterburner nicht gefunden"
+            return None, _tr("MSI Afterburner nicht gefunden", "MSI Afterburner not found")
         if not self.profile_dir:
             self._detect()
             if not self.profile_dir:
-                return None, "Afterburner-Profilordner fehlt — Afterburner einmal starten."
+                return None, _tr("Afterburner-Profilordner fehlt — Afterburner einmal starten.", "Afterburner profile folder missing — start Afterburner once.")
         try:
             names = os.listdir(self.profile_dir)
         except OSError as e:
-            return None, f"Profilordner nicht lesbar: {e}"
+            return None, _tr(f"Profilordner nicht lesbar: {e}", f"Profile folder not readable: {e}")
         dev = sub = bus = None
         if self._pci:
             dev, sub, bus = self._pci
@@ -698,8 +699,8 @@ class AfterburnerController:
             except Exception:
                 pass
             if not self._wait_gone(5.0):
-                return False, ("Afterburner ließ sich nicht beenden (läuft er mit Admin-"
-                               "Rechten und GameOptimizerPro ohne?)")
+                return False, (_tr("Afterburner ließ sich nicht beenden (läuft er mit Admin-"
+                               "Rechten und GameOptimizerPro ohne?)", "Afterburner could not be closed (does it run with admin rights and GameOptimizerPro without?)"))
         time.sleep(0.5)                 # let it release its files
         self._wait_section_gone()
         return True, ""
@@ -722,9 +723,9 @@ class AfterburnerController:
             time.sleep(0.3)
         if self.is_running():
             self._call(self.on_ab_started)
-            return True, ("Afterburner läuft, aber sein Monitoring (MAHM) meldet sich "
-                          "nicht — Profil vermutlich trotzdem angewendet.")
-        return False, "Afterburner wurde gestartet, läuft aber nicht."
+            return True, (_tr("Afterburner läuft, aber sein Monitoring (MAHM) meldet sich "
+                          "nicht — Profil vermutlich trotzdem angewendet.", "Afterburner is running, but its monitoring (MAHM) does not respond — the profile was probably applied anyway."))
+        return False, _tr("Afterburner wurde gestartet, läuft aber nicht.", "Afterburner was started but is not running.")
 
     def _launch(self, args: list[str]):
         si = None
@@ -738,20 +739,20 @@ class AfterburnerController:
     def start(self, slot: Optional[int] = None) -> tuple[bool, str]:
         """Start Afterburner (optionally applying profile slot `slot`)."""
         if not self.available:
-            return False, "MSI Afterburner nicht gefunden"
+            return False, _tr("MSI Afterburner nicht gefunden", "MSI Afterburner not found")
         try:
             self._launch([f"-Profile{slot}"] if slot else [])
         except OSError as e:
             if getattr(e, "winerror", None) == 740:
-                return False, ("Afterburner braucht Administratorrechte — "
-                               "GameOptimizerPro als Administrator starten.")
-            return False, f"Afterburner-Start fehlgeschlagen: {e}"
+                return False, (_tr("Afterburner braucht Administratorrechte — "
+                               "GameOptimizerPro als Administrator starten.", "Afterburner needs administrator rights — start GameOptimizerPro as administrator."))
+            return False, _tr(f"Afterburner-Start fehlgeschlagen: {e}", f"Afterburner start failed: {e}")
         return self._wait_ready()
 
     def load_profile_slot(self, slot: int) -> tuple[bool, str]:
         """Apply slot `slot` as Afterburner currently has it in memory."""
         if not self.available or not (1 <= slot <= 5):
-            return False, "Afterburner nicht verfügbar / Slot ungültig"
+            return False, _tr("Afterburner nicht verfügbar / Slot ungültig", "Afterburner not available / slot invalid")
         if not self.is_running():
             return self.start(slot)
         try:
@@ -762,9 +763,9 @@ class AfterburnerController:
                 pass
         except OSError as e:
             if getattr(e, "winerror", None) == 740:
-                return False, ("Afterburner braucht Administratorrechte — "
-                               "GameOptimizerPro als Administrator starten.")
-            return False, f"Afterburner-Aufruf fehlgeschlagen: {e}"
+                return False, (_tr("Afterburner braucht Administratorrechte — "
+                               "GameOptimizerPro als Administrator starten.", "Afterburner needs administrator rights — start GameOptimizerPro as administrator."))
+            return False, _tr(f"Afterburner-Aufruf fehlgeschlagen: {e}", f"Afterburner call failed: {e}")
         time.sleep(1.0)
         return True, ""
 
@@ -851,9 +852,9 @@ class AfterburnerController:
         from core.ab_profile import (apply_slot, apply_startup, copy_slot_to_startup,
                                      section_equivalent, slot_equivalent, ProfileError, STARTUP)
         if not self.available:
-            return False, "MSI Afterburner nicht gefunden"
+            return False, _tr("MSI Afterburner nicht gefunden", "MSI Afterburner not found")
         if not 1 <= int(slot) <= 5:
-            return False, f"Profil-Slot {slot} ungültig (1–5)"
+            return False, _tr(f"Profil-Slot {slot} ungültig (1–5)", f"Profile slot {slot} invalid (1–5)")
         spec = self._settings_for(profile)
         boot = (None if startup is None or isinstance(startup, str)
                 else self._settings_for(startup))
@@ -866,7 +867,7 @@ class AfterburnerController:
                 elif boot is not None:
                     new_text = apply_startup(new_text, boot)
             except ProfileError as e:
-                notes_ = notes_ + [f"Boot-Eintrag ([Startup]) nicht gesetzt: {e}"]
+                notes_ = notes_ + [_tr(f"Boot-Eintrag ([Startup]) nicht gesetzt: {e}", f"Boot entry ([Startup]) not set: {e}")]
             return new_text, notes_
 
         with self._io_lock:
@@ -877,12 +878,12 @@ class AfterburnerController:
                 old, enc = self._read(path)
                 new, notes = build(old)
             except ProfileError as e:
-                return False, f"Afterburner-Profil: {e}"
+                return False, _tr(f"Afterburner-Profil: {e}", f"Afterburner profile: {e}")
             except OSError as e:
-                return False, f"Afterburner-Profil nicht lesbar: {e}"
+                return False, _tr(f"Afterburner-Profil nicht lesbar: {e}", f"Afterburner profile not readable: {e}")
             self.last_notes = notes
             if profile.fan_mode == "manual" and profile.fan_speed_pct > 0:
-                self.last_notes.append("Lüfter nicht gesetzt — bitte in Afterburner einstellen")
+                self.last_notes.append(_tr("Lüfter nicht gesetzt — bitte in Afterburner einstellen", "Fans not set — please set them in Afterburner"))
 
             if new == old or (slot_equivalent(old, new, slot)
                               and section_equivalent(old, new, STARTUP)):
@@ -898,17 +899,17 @@ class AfterburnerController:
                     self.last_notes = notes
                 except (ProfileError, OSError) as e:
                     self.start()
-                    return False, f"Afterburner-Profil: {e}"
+                    return False, _tr(f"Afterburner-Profil: {e}", f"Afterburner profile: {e}")
             try:
                 self._backup(path)
                 self._write(path, new, enc)
             except PermissionError:
                 self.start()
-                return False, ("Keine Schreibrechte im Afterburner-Ordner — "
-                               "GameOptimizerPro als Administrator starten.")
+                return False, (_tr("Keine Schreibrechte im Afterburner-Ordner — "
+                               "GameOptimizerPro als Administrator starten.", "No write access to the Afterburner folder — start GameOptimizerPro as administrator."))
             except OSError as e:
                 self.start()
-                return False, f"Schreiben fehlgeschlagen: {e}"
+                return False, _tr(f"Schreiben fehlgeschlagen: {e}", f"Writing failed: {e}")
             return self.start(slot)
 
     def slot_holding(self, profile: TuneProfile, slots=(2, 3, 4, 5)) -> Optional[int]:
@@ -944,11 +945,11 @@ class AfterburnerController:
         try:
             text, _enc = self._read(path)
         except OSError as e:
-            return None, f"Afterburner-Profil nicht lesbar: {e}"
+            return None, _tr(f"Afterburner-Profil nicht lesbar: {e}", f"Afterburner profile not readable: {e}")
         curve, src = pick_curve(ProfileFile(text), f"Profile{int(slot)}")
         if curve is None:
-            return None, ("Das Afterburner-Profil enthält noch keine V/F-Kurve — in Afterburner "
-                          "einmal unten auf 'Speichern' und dann auf einen Slot klicken.")
+            return None, (_tr("Das Afterburner-Profil enthält noch keine V/F-Kurve — in Afterburner "
+                          "einmal unten auf 'Speichern' und dann auf einen Slot klicken.", "The Afterburner profile has no V/F curve yet — in Afterburner click 'Save' at the bottom once, then a slot."))
         return curve, src
 
     def slot_summaries(self, de: bool = True) -> dict:
@@ -1000,7 +1001,7 @@ class AfterburnerController:
                     self._write_bytes(path, f.read())
             except OSError as e:
                 self.start()
-                return False, f"Wiederherstellen fehlgeschlagen: {e}"
+                return False, _tr(f"Wiederherstellen fehlgeschlagen: {e}", f"Restoring failed: {e}")
             return self.start()
 
 
