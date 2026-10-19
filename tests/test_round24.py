@@ -64,8 +64,9 @@ check(ln[1000.0] == 2770 and ln[925.0] == 2579 and stock_mhz(1000) < ln[1000.0],
       "every measured point at its clock, above stock")
 vals = [f for _v, f in PC.profile_line(C, bal)]
 check(all(a <= b for a, b in zip(vals, vals[1:])), "monotonic, like Afterburner's curve")
-check(PC.measured_points(bal)[0] == (925.0, 2579.0) and len(PC.measured_points(bal)) == 7,
-      "the measured points as dots")
+check(PC.measured_points(bal)[0] == (925.0, 2579.0) and len(PC.measured_points(bal)) == 6
+      and max(PC.measured_points(bal))[0] == 1050.0,
+      "the measured points as dots — not the one above the cap (it floated alone above the flat line)")
 mx = TuneProfile(name="Max", curve_points=[[920, 2579], [1070, 2924]], curve_cap_mv=0)
 check(PC.flat_from(mx) == 1070 and dict(PC.profile_line(C, mx))[1100.0] == 2924,
       "no cap: flat from the highest measured point")

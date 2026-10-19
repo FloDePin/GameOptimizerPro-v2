@@ -354,5 +354,7 @@ rat = open(os.path.join(ROOT, "tests", "run_all_tests.py"), encoding="utf-8").re
 check('"OMP_NUM_THREADS"' in rat and "IDLE_PRIORITY_CLASS" in rat,
       "the battery: one numpy thread, lowest priority (it often runs next to a game)")
 
+import shutil  # noqa: E402
+shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{len(FAILS)} failure(s)")
 sys.exit(1 if FAILS else 0)

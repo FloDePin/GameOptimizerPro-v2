@@ -83,9 +83,9 @@ class SettingsTab(Page):
         self.btn_update.pack(side="left", padx=(8, 0))
         lb = updater.local_build()
         self.lbl_update = WrapLabel(
-            st.body, text=(tr(f"Installiert: v2.0, Build {lb.build}", f"Installed: v2.0, build {lb.build}")
-                           + (f" ({lb.date})" if lb.date else "")) if lb.build else
-            tr("Installiert: v2.0 (ohne Build-Nummer)", "Installed: v2.0 (no build number)"),
+            st.body, text=(tr(f"Installiert: v2.1 (Build {lb.build}", f"Installed: v2.1 (build {lb.build}")
+                           + (f", {lb.date})" if lb.date else ")")) if lb.build else
+            tr("Installiert: v2.1 (ohne Build-Nummer)", "Installed: v2.1 (no build number)"),
             font=F_S, fg=DIM, bg=CARD_BG)
         self.lbl_update.pack(fill="x", pady=(6, 0))
         self.lbl_startup_result = WrapLabel(st.body, text="", font=F_MONO, fg=DIM, bg=CARD_BG)
@@ -180,7 +180,7 @@ class SettingsTab(Page):
         # ── About ─────────────────────────────────────────────────────────────
         about = Card(b, tr("Über", "About"), accent=SLATE)
         about.pack(fill="x", padx=10, pady=(0, 10))
-        tk.Label(about.body, text="GameOptimizerPro v2.0 — by FloDePin", font=F_BB, fg=TEXT,
+        tk.Label(about.body, text="GameOptimizerPro v2.1 — by FloDePin", font=F_BB, fg=TEXT,
                  bg=CARD_BG, anchor="w").pack(fill="x")
         WrapLabel(about.body, text=tr(
             "All-in-one Windows- & GPU-Optimizer · GPU-Tuner (NVML + MAHM + Afterburner) · "

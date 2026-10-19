@@ -50,6 +50,10 @@ ALLOWED_FILES = {
 }
 ALLOWED = [("core/gpu_watchdog.py", "Seit du"),                 # describe(found, de): its de branch
            ("core/gpu_watchdog.py", "Since you"),               # … and its English branch
+           ("core/gpu_watchdog.py", "Das passiert"),            # describe(): the "why" of both branches
+           ("core/gpu_watchdog.py", " Ein 153 allein"),
+           ("core/gpu_watchdog.py", "That happens"),
+           ("core/gpu_watchdog.py", " A 153 alone"),
            ("core/startup_loader.py", "Autostart: schtasks"),   # an English log line
            ("core/network_test.py", r"(\d+)%"),                 # ping output pattern (German Windows)
            ("core/tune_history.py", "(?:Speicher|Memory)"),     # log pattern

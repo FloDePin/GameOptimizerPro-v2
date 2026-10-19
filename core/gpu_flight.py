@@ -110,7 +110,12 @@ class EventTail:
 
 
 def sample_of(stats) -> dict:
-    return {"t": round(time.time(), 1), "mhz": round(float(stats.core_mhz or 0)),
+    """One recording sample. The clock comes from the same Afterburner poll as the voltage when
+    there is one — NVML's instant clock next to Afterburner's 1-s voltage gave pairs like
+    "2805 MHz at 970 mV" under bursty load, above any point of the curve."""
+    mv = float(stats.voltage_mv or 0)
+    ab = float(getattr(stats, "ab_core_mhz", 0) or 0)
+    return {"t": round(time.time(), 1), "mhz": round(ab if (mv and ab) else float(stats.core_mhz or 0)),
             "mem": round(float(stats.mem_mhz or 0)), "mv": round(float(stats.voltage_mv or 0)),
             "w": round(float(stats.gpu_power_w or stats.power_w or 0), 1), "temp": int(stats.temp or 0),
             "util": round(float(stats.gpu_usage or 0))}

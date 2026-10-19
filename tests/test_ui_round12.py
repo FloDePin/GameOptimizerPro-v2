@@ -797,7 +797,8 @@ def s_bios():
     c.update()
     cc._draw()
     lines = cc.find_withtag("line")
-    check(cc.find_withtag("stock") and len(lines) == 3 and len(cc.find_withtag("dot")) == 3
+    # dots: 925 and 1050 — not 1075 above the cap (the card never runs it)
+    check(cc.find_withtag("stock") and len(lines) == 3 and len(cc.find_withtag("dot")) == 2
           and cc.itemcget(cc.find_withtag("line0")[0], "fill") == TC.COMPARE_COLORS[0]
           and cc.find_withtag("band") and not cc.find_withtag("empty"),
           f"curve chart: stock, 3 profile lines in their colours, the measured points of the curve "

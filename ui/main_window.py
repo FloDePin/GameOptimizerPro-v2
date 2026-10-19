@@ -29,7 +29,7 @@ from ui.theme import (ACC, AMBER, APP_BG, BORDER, CARD_BG, DIM, ERR, F_MONO, F_S
 from ui.components import HoverTip, WrapLabel
 
 APP_NAME    = "GameOptimizerPro"
-APP_VERSION = "v2.0"
+APP_VERSION = "v2.1"
 
 BASE = Path(__file__).resolve().parent.parent
 
@@ -344,7 +344,7 @@ class GameOptimizerWindow(ctk.CTk):
 
     def _make_stress(self, parent):
         from ui.tab_stress import StressTab
-        return StressTab(parent, self.monitor)
+        return StressTab(parent, self.monitor, ab=self.ab, pm=self.pm, tuner=self.tuner)
 
     def _make_compare(self, parent):
         from ui.tab_compare import CompareTab

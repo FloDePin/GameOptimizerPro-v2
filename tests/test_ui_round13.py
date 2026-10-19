@@ -9,6 +9,8 @@ import tempfile as _tf                     # never the app's own settings (run o
 from pathlib import Path as _P
 from core import app_settings as _AS
 _AS.SETTINGS_FILE = _P(_tf.mkdtemp(prefix="gop_set_")) / "settings.json"
+import atexit as _ax, shutil as _sh  # noqa: E401,E402
+_ax.register(_sh.rmtree, str(_AS.SETTINGS_FILE.parent), True)
 
 FAILS = []
 def check(c, label):
@@ -92,7 +94,7 @@ check(tab.v_mode.get() == "curve" and tab.params_card.winfo_manager() == ""
       "'Rundum': goal + Rundum parameters instead of the classic card")
 order = [w for w in tab.mode_card.master.pack_slaves() if w.winfo_manager() == "pack"]
 check(order[:3] == [tab.mode_card, tab.goal_card, tab.curve_card], "order: mode, goal, parameters")
-check("HYDRA" in tab.lbl_mode_desc.cget("text") and "60–95 min" in tab.lbl_mode_desc.cget("text")
+check("HYDRA" in tab.lbl_mode_desc.cget("text") and "70–105 min" in tab.lbl_mode_desc.cget("text")
       and "25 mV" in tab.lbl_mode_desc.cget("text"), "mode description")
 from core.gpu_defaults import get_defaults as _gd
 check(tab.v_core_max.get() == _gd("NVIDIA GeForce RTX 4080").curve_core_max_mhz == 350,
@@ -130,12 +132,12 @@ def _tips(w):
 
 
 tips = _tips(tab.curve_card)
-check(len(tips) == 10 and all(len(x.text) > 60 for x in tips),
-      f"a '?' with an explanation for every Rundum setting + the memory tick box ({len(tips)})")
+check(len(tips) == 12 and all(len(x.text) > 60 for x in tips),
+      f"a '?' with an explanation for every Rundum setting + the memory, encoder and hardness test tick boxes ({len(tips)})")
 ptips = _tips(tab.params_card)
-check(len(ptips) == 9, f"... and for the classic parameters ({len(ptips)})")
+check(len(ptips) == 11, f"... and for the classic parameters ({len(ptips)})")
 steps = tab.lbl_curve_steps.cget("text")
-check(steps.startswith("1. Standard messen") and "alle 25 mV" in steps and "6. Endtest: 5 min FurMark" in steps,
+check(steps.startswith("1. Abkühlen auf höchstens 45 °C") and "dann Standard messen" in steps and "alle 25 mV" in steps and "6. Endtest: 5 min FurMark" in steps and "7. Nachher: 60 s FurMark" in steps,
       "procedure box: the steps with the current values")
 tab.v_point_mv.set(50); tab.v_mem_stage.set(False); tab.v_fm_final.set(7)
 steps = tab.lbl_curve_steps.cget("text")

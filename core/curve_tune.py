@@ -432,16 +432,44 @@ def lower_curve(anchors: list, step: int, crash_mv: float = 0, near_mv: int = 10
     return [(mv, f - step) if mv in hit else (mv, f) for mv, f in anchors]
 
 
+MEM_AFTER = 3        # final tests: memory steps back after this many curve step-backs that did not help
+
+
+def lower_near(anchors: list, step: int, fault_mv: float, window_mv: int = 25):
+    """Round 33, the final tests' step back: −step MHz on the measured points within window_mv
+    of the voltage the card ran when it failed — plus, when no point is right there (within
+    REACH_TOL_MV), the two around it (they set the curve in between) or the nearest end point;
+    every point when that voltage is unknown. A lowered point never ends up slower than one
+    below it. -> (new anchors, set of the lowered voltages)."""
+    mvs = sorted(mv for mv, _f in anchors)
+    if not fault_mv or not mvs:
+        hit = set(mvs)
+    else:
+        hit = {mv for mv in mvs if abs(mv - fault_mv) <= window_mv}
+        if not any(abs(mv - fault_mv) <= REACH_TOL_MV for mv in mvs):
+            below = [mv for mv in mvs if mv < fault_mv]
+            above = [mv for mv in mvs if mv > fault_mv]
+            hit |= ({below[-1]} if below else set()) | ({above[0]} if above else set())
+    new = {mv: (f - step if mv in hit else f) for mv, f in anchors}
+    top = float("inf")                      # never faster below a lowered point than at it
+    for mv in sorted(new, reverse=True):
+        new[mv] = top = min(new[mv], top)
+    return [(mv, new[mv]) for mv, _f in anchors], hit
+
+
 def final_backoff(attempt: int, anchors: list, mem: int, cap_mv: int, pwr_pct: int,
                   unstable: bool, thermal: bool, step: int = 15, de: bool = True,
-                  cap_mvs: Optional[list] = None, crash_mv: float = 0, mem_step: int = 100):
+                  cap_mvs: Optional[list] = None, crash_mv: float = 0, mem_step: int = 100,
+                  mem_fault: bool = False, window_mv: int = 25, curve_backs: int = 0):
     """One step back after failed final test number `attempt` (1-based).
     -> (anchors, mem, cap_mv, pwr_pct, what). Too hot (and nothing crashed):
     first the power limit back to 100 %, then flat from the next lower cap
-    voltage (cap_mvs; default: the measured points). Unstable: alternately the
-    curve −step MHz — only around crash_mv, the voltage the card ran when it
-    failed, if known — and the memory offset −mem_step (errors that slip past
-    GDDR6X's error correction look like core instability)."""
+    voltage (cap_mvs; default: the measured points). Unstable: the curve −step MHz
+    around crash_mv, the voltage the card ran when it failed (lower_near; unknown: every
+    point) — the memory offset −mem_step only when the failure came from the memory load
+    (mem_fault), or when MEM_AFTER curve step-backs in a row (curve_backs) did not help.
+    Round 33: memory used to take every second turn; the memory stage tests the whole card
+    up to its limit with a margin, and the faults came from the core curve."""
     if thermal and not unstable:
         if pwr_pct > 100:
             return (anchors, mem, cap_mv, 100,
@@ -453,11 +481,14 @@ def final_backoff(attempt: int, anchors: list, mem: int, cap_mv: int, pwr_pct: i
             return (anchors, mem, lower[0], pwr_pct,
                     f"Kurve flach ab {lower[0]} mV (Temperatur)" if de
                     else f"curve flat from {lower[0]} mV (temperature)")
-    if attempt % 2 == 0 and mem > 0:
+    if mem > 0 and (mem_fault or curve_backs >= MEM_AFTER):
         m2 = max(0, mem - mem_step)
-        return anchors, m2, cap_mv, pwr_pct, (f"Speicher +{mem}→+{m2} MHz" if de
-                                               else f"memory +{mem}→+{m2} MHz")
-    new = lower_curve(anchors, step, crash_mv)
+        why = (("Fehler im Speicher-Test" if de else "failure in the memory test") if mem_fault else
+               (f"{curve_backs} Kurven-Rücknahmen haben nicht geholfen" if de
+                else f"{curve_backs} curve step-backs did not help"))
+        return anchors, m2, cap_mv, pwr_pct, (f"Speicher +{mem}→+{m2} MHz ({why})" if de
+                                               else f"memory +{mem}→+{m2} MHz ({why})")
+    new, _hit = lower_near(anchors, step, crash_mv, window_mv)
     changed = [mv for (mv, f), (_m, f2) in zip(anchors, new) if f2 != f]
     if len(changed) == len(anchors):
         what = (f"Kurve −{step} MHz auf allen Punkten" if de else f"curve −{step} MHz on every point")

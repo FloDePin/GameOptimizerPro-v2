@@ -158,9 +158,13 @@ check(not CT.stop_testing("max", cands, stock), "max never stops early")
 print("A  final-test step-backs")
 an = [(1050, 2920), (1000, 2900), (950, 2770)]
 steps = [CT.final_backoff(a, an, 1000, 0, 100, True, False) for a in range(1, 5)]
-check([s[4] for s in steps] == ["Kurve −15 MHz auf allen Punkten", "Speicher +1000→+900 MHz",
-                                "Kurve −15 MHz auf allen Punkten", "Speicher +1000→+900 MHz"],
-      "unstable: curve −15 and memory −100 alternate")
+check([s[4] for s in steps] == ["Kurve −15 MHz auf allen Punkten"] * 4 and all(s[1] == 1000 for s in steps),
+      "unstable: the curve every time, memory stays (round 33: no more taking turns)")
+check(CT.final_backoff(1, an, 1000, 0, 100, True, False, mem_fault=True)[1:2] == (900,)
+      and CT.final_backoff(1, an, 0, 0, 100, True, False, mem_fault=True)[4].startswith("Kurve")
+      and CT.final_backoff(4, an, 1000, 0, 100, True, False, curve_backs=3)[1] == 900
+      and CT.final_backoff(3, an, 1000, 0, 100, True, False, curve_backs=2)[1] == 1000,
+      "memory only when its own test failed or 3 curve step-backs did not help (and there is an offset)")
 t1 = CT.final_backoff(1, an, 0, 0, 100, True, False, crash_mv=1047)
 check(t1[0] == [(1050, 2905), (1000, 2900), (950, 2770)] and "bei 1050 mV" in t1[4],
       f"crash voltage known: only the points around it are lowered: {t1[4]}")
@@ -557,7 +561,8 @@ class SimGPU:
         else:
             v, f, w, capped = self.point(1.0)
         return types.SimpleNamespace(
-            name="NVIDIA GeForce RTX 4080", temp=int(self.temp(w, self.load_s)),
+            # idle = cooled down (the after benchmark at the very end cools to the stock start first)
+            name="NVIDIA GeForce RTX 4080", temp=int(self.temp(w, self.load_s if self.load else 0)),
             voltage_mv=v if self.voltage else 0.0, core_mhz=f, gpu_power_w=round(w, 1),
             power_w=round(w, 1), gpu_usage=100.0 if self.load else 0.0, mem_mhz=11200.0 + self.mem,
             power_capped=capped, throttle="None", throttle_protective=False)
@@ -719,7 +724,7 @@ def tune(gpu_kw=None, furmark=True, on_run=None, lang="de", **cfg):
     ab = SimAB(gpu, folder)
     conf = dict(mode=TuneMode.CURVE, goal="balanced", core_max_mhz=300, max_temp_c=85,
                 mem_stage=False, furmark_path=FAKE_FURMARK if furmark else "", ab_slot=2,
-                crash_pause_s=0, mem_oc_max_mhz=1000,
+                crash_pause_s=0, reset_pause_s=0, mem_oc_max_mhz=1000,
                 curve_anchor_step_mv=50,       # the E scenarios were built on 50 mV; E19/E20: 25
                 # ... and on round 13's margins (30 everywhere, +30 after a reset); round 16's
                 # 45 / 60 / +30 are checked in test_round16
@@ -1040,6 +1045,106 @@ check(t.state == TunerState.DONE and "GPU hängt" in L and "Endtest wird wiederh
 
 # E12 old modes are untouched by the new mode
 check(TunerConfig().mode == TuneMode.OC_UV and TunerConfig().goal == "balanced", "defaults unchanged")
+
+# E24 (round 33): a failed hardness test lowers the points around the fault's voltage and runs
+# EVERY final test again; the after benchmark is always the last thing, on exactly what is saved
+from core import hardness_test as H
+
+
+class FakeHard:
+    """Fails the first `fails` runs (wrong results under several loads); records each run's curve
+    and how many benchmarks had run by then."""
+    fails, calls, point = 0, [], {"mv": 1000}
+
+    def __init__(self, read_stats, logs_dir, **kw):
+        self.profile = kw.get("profile") or {}
+
+    def run(self):
+        FakeHard.calls.append((self.profile.get("curve_points"), len(FM.run_benchmark.__self__.benches)))
+        if len(FakeHard.calls) <= FakeHard.fails:
+            return H.HardResult(kind="compute", reason="Rechenfehler (Spiel + Aufnahme + Rechnen)",
+                                phase="game_rec_compute", point=dict(FakeHard.point), max_mv=1050)
+        return H.HardResult(passed=True, max_mhz=2900, max_mv=1050)
+
+
+E1_CURVE = [[850, 2531], [900, 2629], [950, 2734], [1000, 2832], [1050, 2937]]
+AutoTuner.hardness_factory = FakeHard
+try:
+    FakeHard.fails, FakeHard.calls = 0, []
+    t, gpu, ab, logs, folder = tune(hard_test=True)
+    L = "\n".join(logs)
+    n60 = [i for i, b in enumerate(gpu.benches) if b[0] == 60]
+    n300 = [i for i, b in enumerate(gpu.benches) if b[0] == 300]
+    check(t.state == TunerState.DONE and t.best_profile.curve_points == E1_CURVE and len(FakeHard.calls) == 1
+          and "Härtetest (10 min 3D + Video-Encoder + Rechnen/Speicher zugleich): bestanden" in L,
+          f"E24a: hardness test passed at once: the curve as found, one run "
+          f"({t.best_profile and t.best_profile.curve_points})")
+    check(n60 and n300 and n60[-1] == len(gpu.benches) - 1 and n60[-1] > n300[-1]
+          and FakeHard.calls[-1][1] <= n60[-1],
+          f"E24a: no step back, still a fresh after benchmark at the very end (after the final test and "
+          f"the hardness test), not the candidate's number: benches {[b[0] for b in gpu.benches]}")
+
+    FakeHard.fails, FakeHard.calls = 2, []
+    t, gpu, ab, logs, folder = tune(hard_test=True)
+    L = "\n".join(logs)
+    bp = t.best_profile
+    curves = [c for c, _n in FakeHard.calls]
+    near = (950, 1000, 1050)            # the sim's points are 50 mV apart: 1000 mV ± 50
+    low30 = [[mv, f - 30 if mv in near else f] for mv, f in E1_CURVE]
+    check(t.state == TunerState.DONE and bp is not None and bp.curve_points == low30,
+          f"E24b: two failures at 1000 mV -> the points around it −30 MHz, the rest keeps its clock: "
+          f"{bp and bp.curve_points}")
+    check(len(curves) == 3 and curves[0] == E1_CURVE
+          and curves[1] == [[mv, f - 15 if mv in near else f] for mv, f in E1_CURVE] and curves[2] == low30,
+          f"E24b: each hardness run on the curve one step (−15) lower there: {len(curves)} runs")
+    check(len([b for b in gpu.benches if b[0] == 300]) == 3 and len([x for x in gpu.runs if x[0] == "mixed"
+                                                                       and x[1] == 120]) == 3,
+          "E24b: after each failure EVERY final test again — three 5-min FurMark runs, three compute checks")
+    check(L.count("Endtest wird wiederholt (alle Tests)") == 2 and "Versuch 3/12" in L
+          and "Kurve −15 MHz bei 950, 1000, 1050 mV" in L and "Rechenfehler (Spiel + Aufnahme + Rechnen)" in L
+          and bp.mem_offset_mhz == 0,
+          "E24b: the log names the failure, the points and the try (3/12); memory untouched")
+    check(gpu.benches[-1][0] == 60 and FakeHard.calls[-1][1] <= len(gpu.benches) - 1
+          # below the lowest point the curve keeps the smallest offset there is
+          and abs(gpu.curve[0][1] - (stock_mhz(600) + min(f - stock_mhz(mv) for mv, f in low30))) < 1,
+          "E24b: the after benchmark ran last, on the lowered curve the card ends up with")
+    check("nach 2 Rücknahme(n)" in bp.notes and any("Härtetest" in x for x in t.last_report["lines"]),
+          f"E24b: the profile and the report name the step-backs: {bp.notes[-40:]}")
+
+    FakeHard.fails, FakeHard.calls, FakeHard.point = 1, [], {}
+    t, gpu, ab, logs, folder = tune(hard_test=True)
+    check(t.best_profile and t.best_profile.curve_points == [[mv, f - 15] for mv, f in E1_CURVE]
+          and "Kurve −15 MHz auf allen Punkten" in "\n".join(logs),
+          f"E24d: the fault's voltage unknown -> the whole curve −15: {t.best_profile and t.best_profile.curve_points}")
+    FakeHard.point = {"mv": 1000}
+
+    FakeHard.fails, FakeHard.calls = 99, []
+    t, gpu, ab, logs, folder = tune(hard_test=True)
+    L = "\n".join(logs)
+    check(t.state == TunerState.ERROR and t.best_profile is None and "Versuch 12/12" in L
+          and len(FakeHard.calls) == NT.AutoTuner.FINAL_RETRIES + 1 and "KEIN Profil gespeichert" in L,
+          f"E24c: never passes: {NT.AutoTuner.FINAL_RETRIES + 1} tries of the whole final test, then no "
+          f"profile: {len(FakeHard.calls)} runs, {t.state}")
+finally:
+    del AutoTuner.hardness_factory
+
+# E25 (round 33): every run is recorded as own GPU load for the watchdog — not only through the
+# tune log's name (an archived log took the run's driver events with it: they counted as a game's)
+from pathlib import Path
+from core import gpu_watchdog as WD
+WD.SESSIONS_FILE = Path(TMP) / "sessions.json"
+try:
+    t_a = time.time()
+    t, gpu, ab, logs, folder = tune()
+    t_b = time.time()
+    rows = json.loads(WD.SESSIONS_FILE.read_text(encoding="utf-8"))
+    check(len(rows) == 1 and t_a - 1 <= rows[0][0] <= rows[0][1] <= t_b + 1 and not WD.own_load_active(),
+          f"E25: the run is one own-load window, nothing left 'running': {rows}")
+    ev = [(rows[0][0] + 5, 153)]
+    check(WD.trouble_since(t_a - 10, os.path.join(TMP, "no_logs_here"), read=lambda s: ev) == [],
+          "E25: a driver event inside the run is ours even without its tune log")
+finally:
+    WD.SESSIONS_FILE = None
 
 print("F  live values between steps (GPU page)")
 # The GPU page's tiles only got values from inside a measured step: between the

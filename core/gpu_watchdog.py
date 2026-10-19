@@ -384,15 +384,27 @@ def describe(found: dict, de: bool = True) -> str:
         fix = ("„Entschärfen“ legt eine sicherere Kopie an (Kurve −30 MHz, Speicher −200 MHz) und "
                "wendet sie an." if de else
                "'Make safer' creates a safer copy (curve −30 MHz, memory −200 MHz) and applies it.")
+    # Round 33, measured: a program ended in the middle of GPU work while another one encodes video
+    # (a recording, a stream) makes the driver log 153 by itself — 6 of 6 times. Alone it is no proof.
+    only_153 = set(ids) == {153}
     if de:
+        why = ("Das passiert, wenn sich ein Spiel aufhängt oder abstürzt (z. B. „device hung“) — "
+               "oft ein Zeichen, dass die Übertaktung im Spiel zu knapp ist.")
+        if only_153:
+            why += (" Ein 153 allein entsteht aber auch, wenn ein Programm mitten in GPU-Arbeit endet, "
+                    "während ein anderes Video aufnimmt oder streamt. Ob das Profil wirklich zu knapp ist, "
+                    "zeigt der Härtetest im Stresstest.")
         return (f"Seit du „{found['profile']}“ am {when(found['applied'])} übernommen hast, hat Windows "
                 f"{n} GPU-Ereignis(se) außerhalb unserer Tests protokolliert — zuletzt am "
-                f"{when(found['last'])}: {', '.join(kinds)}.{state}\n\n"
-                f"Das passiert, wenn sich ein Spiel aufhängt oder abstürzt (z. B. „device hung“) — "
-                f"oft ein Zeichen, dass die Übertaktung im Spiel zu knapp ist.\n\n"
+                f"{when(found['last'])}: {', '.join(kinds)}.{state}\n\n{why}\n\n"
                 f"{fix} „Standard“ setzt die Grafikkarte auf Werkseinstellungen.")
+    why = ("That happens when a game hangs or crashes (e.g. 'device hung') — often a sign that the "
+           "overclock is too tight for that game.")
+    if only_153:
+        why += (" A 153 alone also comes when a program ends in the middle of GPU work while another one "
+                "records or streams video. The hardness test on the stress test page shows whether the "
+                "profile really is too tight.")
     return (f"Since you applied '{found['profile']}' on {when(found['applied'])}, Windows logged {n} "
             f"GPU event(s) outside our tests — the last on {when(found['last'])}: {', '.join(kinds)}.{state}\n\n"
-            f"That happens when a game hangs or crashes (e.g. 'device hung') — often a sign that the "
-            f"overclock is too tight for that game.\n\n"
+            f"{why}\n\n"
             f"{fix} 'Stock' puts the graphics card back to factory settings.")

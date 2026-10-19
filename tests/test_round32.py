@@ -152,5 +152,7 @@ check("release_single_instance" not in fin and "r in (0, 0x80)" in src,
       "the restart: the new instance takes the abandoned mutex right when this process ends — "
       "no release before Popen (and ReleaseMutex only works on the owning thread)")
 
+import shutil  # noqa: E402
+shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{len(FAILS)} failure(s)")
 sys.exit(1 if FAILS else 0)

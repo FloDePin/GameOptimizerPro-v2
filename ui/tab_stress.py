@@ -3,6 +3,7 @@
 (peak temperature, clocks, power, driver resets)."""
 
 import os
+import queue
 import subprocess
 import sys
 import threading
@@ -27,7 +28,7 @@ class StressTab(Page):
     # A result only counts as a GPU stability test if the GPU was really loaded.
     MIN_GPU_LOAD_PCT = 70.0
 
-    def __init__(self, parent, monitor: GpuMonitor, **kw):
+    def __init__(self, parent, monitor: GpuMonitor, ab=None, pm=None, tuner=None, **kw):
         super().__init__(parent, tr("Stresstest", "Stress test"),
                          tr("Stabilität prüfen — intern, mit FurMark oder 3DMark. Bei externen Tests "
                             "zeichnet GameOptimizerPro Temperatur, Takt, Leistung und Treiber-Resets auf.",
@@ -35,6 +36,9 @@ class StressTab(Page):
                             "tests GameOptimizerPro records temperature, clocks, power and driver resets."),
                          color=AMBER, **kw)
         self.monitor = monitor
+        self.ab, self.pm, self.tuner = ab, pm, tuner     # hardness test: make the profile safer
+        self._hard = None                # running hardness test: its stop event
+        self._hard_q: queue.Queue = queue.Queue()
         self._running_internal = False
         self._worker_proc = None
         self._monitor_thread = None
@@ -69,6 +73,7 @@ class StressTab(Page):
     def _build(self):
         from core import app_settings
         b = self.body
+        self._build_hard(b)
         grid = ResponsiveGrid(b, min_width=300, max_cols=3, gap=14)
         grid.pack(fill="x", padx=10, pady=(0, 14))
 
@@ -100,7 +105,7 @@ class StressTab(Page):
         self._int_bar.pack(fill="x", pady=(4, 4))
         self.int_prog.trace_add("write", lambda *_: self._int_bar.set(
             max(0.0, min(1.0, self.int_prog.get() / 100))))
-        self.lbl_int_status = WrapLabel(ic.body, text="Idle", font=F_MONO, fg=DIM, bg=CARD_BG)
+        self.lbl_int_status = WrapLabel(ic.body, text=tr("Bereit", "Idle"), font=F_MONO, fg=DIM, bg=CARD_BG)
         self.lbl_int_status.pack(fill="x")
 
         # ── FurMark ───────────────────────────────────────────────────────────
@@ -134,7 +139,7 @@ class StressTab(Page):
         self.btn_fur_start.pack(side="left", padx=(0, 6))
         self.btn_fur_dl = button(row, "Download", self._open_furmark_dl, kind="ghost", height=32,
                                  image=icon_image("download", TEXT2, 14), compound="left")
-        self.lbl_fur_status = WrapLabel(fc.body, text="Idle", font=F_MONO, fg=DIM, bg=CARD_BG)
+        self.lbl_fur_status = WrapLabel(fc.body, text=tr("Bereit", "Idle"), font=F_MONO, fg=DIM, bg=CARD_BG)
         self.lbl_fur_status.pack(fill="x")
         self._show_furmark()
 
@@ -160,7 +165,7 @@ class StressTab(Page):
         self.btn_3dm_start.pack(side="left", padx=(0, 6))
         self.btn_3dm_store = button(row, "Steam-Store", self._open_3dmark_store, kind="ghost",
                                     height=32, image=icon_image("link", TEXT2, 14), compound="left")
-        self.lbl_3dm_status = WrapLabel(tc.body, text="Idle", font=F_MONO, fg=DIM, bg=CARD_BG)
+        self.lbl_3dm_status = WrapLabel(tc.body, text=tr("Bereit", "Idle"), font=F_MONO, fg=DIM, bg=CARD_BG)
         self.lbl_3dm_status.pack(fill="x")
         self._show_3dmark()
 
@@ -203,6 +208,245 @@ class StressTab(Page):
         # Start passive monitoring
         self._start_passive_monitor()
 
+    # ── Hardness test (round 33) ──────────────────────────────────────────────
+    # Several loads at once, like a game that is recorded or streamed — see
+    # core/hardness_test.py. It tests the profile applied now and changes nothing;
+    # after a failure it offers to lower the curve points involved.
+
+    HARD_MINUTES = (10, 20, 45)
+
+    def _build_hard(self, b):
+        hc = Card(b, tr("Härtetest — wie Spielen mit Aufnahme / Stream",
+                        "Hardness test — like gaming while recording / streaming"), accent=VIOLET)
+        hc.pack(fill="x", padx=10, pady=(0, 14))
+        WrapLabel(hc.body, text=tr(
+            "Mehrere Lasten gleichzeitig, wie ein Spiel, das aufgenommen oder gestreamt wird: 3D (FurMark, "
+            "leicht und schwer, OpenGL und Vulkan), der Video-Encoder (NVENC, 60 Bilder/s), Rechen- und "
+            "Speicherlast — in Phasen mit kurzen Pausen dazwischen, damit die Karte auch aus dem Leerlauf "
+            "hochschalten muss. Jedes Ergebnis wird geprüft. Getestet wird das gerade aktive Profil; nach "
+            "einem Fehler kann GameOptimizerPro genau die betroffenen Kurvenpunkte entschärfen.",
+            "Several loads at once, like a game that is recorded or streamed: 3D (FurMark, light and heavy, "
+            "OpenGL and Vulkan), the video encoder (NVENC, 60 frames/s), compute and memory load — in phases "
+            "with short pauses between them, so the card also has to clock up from idle. Every result is "
+            "checked. It tests the profile active now; after a failure GameOptimizerPro can make exactly "
+            "the curve points involved safer."), font=F_XS, fg=DIM, bg=CARD_BG).pack(fill="x", pady=(0, 8))
+        self.lbl_hard_profile = WrapLabel(hc.body, text="", font=F_S, fg=TEXT2, bg=CARD_BG)
+        self.lbl_hard_profile.pack(fill="x", pady=(0, 6))
+        self._mins = {tr(f"{m} min", f"{m} min"): m for m in self.HARD_MINUTES}
+        self.v_hard_min = tk.StringVar(value=next(iter(k for k, v in self._mins.items() if v == 20)))
+        self._option(hc.body, tr("Dauer", "Duration"), self.v_hard_min, list(self._mins))
+        row = tk.Frame(hc.body, bg=CARD_BG)
+        row.pack(fill="x", pady=(8, 6))
+        self.btn_hard_start = button(row, tr("Härtetest starten", "Start hardness test"), self._start_hard,
+                                     kind="primary", color=VIOLET, height=32,
+                                     image=icon_image("play", on_color(VIOLET), 14), compound="left")
+        self.btn_hard_start.pack(side="left", padx=(0, 6))
+        self.btn_hard_stop = button(row, "Stop", self._stop_hard, kind="danger", height=32, state="disabled")
+        self.btn_hard_stop.pack(side="left")
+        self._hard_bar = ctk.CTkProgressBar(hc.body, height=6, corner_radius=3, progress_color=VIOLET)
+        self._hard_bar.set(0)
+        self._hard_bar.pack(fill="x", pady=(4, 4))
+        self.lbl_hard_status = WrapLabel(hc.body, text=tr("Bereit", "Ready"), font=F_MONO, fg=DIM, bg=CARD_BG)
+        self.lbl_hard_status.pack(fill="x")
+        self._show_hard_profile()
+
+    def _applied_profile(self):
+        cr = getattr(self.tuner, "cr", None)
+        try:
+            p = cr.load_last_applied() if cr else None
+        except Exception:
+            p = None
+        return p if p and not str(p.get("name", "")).startswith("__") else None
+
+    def _show_hard_profile(self):
+        p = self._applied_profile()
+        self.lbl_hard_profile.config(text=tr(f"Geprüft wird: „{p['name']}“ (zuletzt übernommen)",
+                                             f"Tested: '{p['name']}' (last applied)") if p else tr(
+            "Kein übernommenes Profil — getestet werden die aktuellen Werte der Karte.",
+            "No applied profile — the card's current settings are tested."))
+
+    def _busy_text(self):
+        if self.tuner is not None and getattr(self.tuner, "is_running", False):
+            return tr("Der GPU-Tuner läuft gerade.", "The GPU tuner is running.")
+        if self._running_internal:
+            return tr("Der interne Test läuft gerade.", "The internal test is running.")
+        if self._ext is not None:
+            return tr("Eine FurMark-/3DMark-Aufzeichnung läuft gerade.", "A FurMark / 3DMark recording is running.")
+        if self._hard is not None:
+            return tr("Der Härtetest läuft gerade.", "The hardness test is running.")
+        return ""
+
+    def _start_hard(self):
+        busy = self._busy_text()
+        if busy:
+            messagebox.showinfo("GameOptimizerPro", busy, parent=self.winfo_toplevel())
+            return
+        try:
+            import cupy  # noqa: F401 — the loads need CUDA
+        except Exception:
+            messagebox.showerror("GameOptimizerPro", tr(
+                "Für den Härtetest fehlt CUDA für Python: pip install \"cupy-cuda12x[ctk]\"",
+                "The hardness test needs CUDA for Python: pip install \"cupy-cuda12x[ctk]\""),
+                parent=self.winfo_toplevel())
+            return
+        from core.hardness_test import HardnessTest
+        minutes = self._mins.get(self.v_hard_min.get(), 20)
+        profile = self._applied_profile()
+        fm_note = (tr("FurMark-Fenster gehen auf (ohne den Fokus zu nehmen) — nicht schließen, sonst bricht der "
+                      "Test ab. ", "FurMark windows open (without taking the focus) — don't close them or the "
+                      "test stops. ") if self._furmark_path else
+                   tr("FurMark nicht gefunden — die 3D-Last übernimmt eine Rechenlast. ",
+                      "FurMark not found — a compute load stands in for the 3D load. "))
+        if not messagebox.askyesno(tr("Härtetest starten", "Start hardness test"), tr(
+                f"{minutes} min Härtetest auf „{profile['name'] if profile else 'den aktuellen Werten'}“.\n\n"
+                f"{fm_note}Während des Tests nicht spielen. Ein Browser oder Video daneben ist in Ordnung.\n\n"
+                f"Start?",
+                f"{minutes} min hardness test on '{profile['name'] if profile else 'the current settings'}'.\n\n"
+                f"{fm_note}Don't play during the test. A browser or a video next to it is fine.\n\nStart?"),
+                parent=self.winfo_toplevel()):
+            return
+        self._show_hard_profile()
+        stop = threading.Event()
+        self._hard = stop
+        q = self._hard_q
+        try:
+            gpu = self.monitor.read().name or ""
+        except Exception:
+            gpu = ""
+        test = HardnessTest(self.monitor.read, os.path.join(BASE, "logs"), minutes=minutes,
+                            furmark_path=self._furmark_path, max_temp=min(int(self.v_max_temp.get()), 88),
+                            profile=profile, stop_event=stop, gpu_name=gpu,
+                            on_progress=lambda p, t: q.put(("prog", p, t)),
+                            on_log=lambda s, tag: q.put(("log", s, tag)))
+        self.btn_hard_start.configure(state="disabled")
+        self.btn_hard_stop.configure(state="normal")
+        self.btn_int_start.configure(state="disabled")
+        self.btn_fur_start.configure(state="disabled")
+        self.lbl_hard_status.config(text=tr("Startet …", "Starting …"), fg=VIOLET)
+
+        def run():
+            from core.power_state import keep_awake
+            keep_awake(True)
+            try:
+                res = test.run()
+            except Exception as e:                # never leave the buttons dead
+                res = e
+            finally:
+                keep_awake(False)
+            q.put(("done", res))
+        threading.Thread(target=run, daemon=True).start()
+        self.after(300, self._hard_poll)
+
+    def _stop_hard(self):
+        if self._hard is not None:
+            self._hard.set()
+            self.btn_hard_stop.configure(state="disabled")
+            self.lbl_hard_status.config(text=tr("Wird beendet …", "Stopping …"), fg=AMBER)
+
+    def _hard_poll(self):
+        done = None
+        try:
+            while True:
+                item = self._hard_q.get_nowait()
+                if item[0] == "prog":
+                    self._hard_bar.set(item[1] / 100)
+                    self.lbl_hard_status.config(text=item[2], fg=VIOLET)
+                elif item[0] == "log":
+                    tag = {"dim": "info"}.get(item[2], item[2])
+                    if item[2] != "dim":               # the 10-s value lines stay in the log file
+                        self.log.append(item[1], tag)
+                else:
+                    done = item[1]
+        except queue.Empty:
+            pass
+        if done is None:
+            try:
+                self.after(300, self._hard_poll)
+            except (tk.TclError, RuntimeError):
+                pass
+            return
+        self._hard = None
+        self._hard_bar.set(0)
+        self.btn_hard_start.configure(state="normal")
+        self.btn_hard_stop.configure(state="disabled")
+        self.btn_int_start.configure(state="normal")
+        if self._furmark_path:
+            self.btn_fur_start.configure(state="normal")
+        self._hard_done(done)
+
+    def _hard_done(self, res):
+        if isinstance(res, Exception):
+            self.lbl_hard_status.config(text=tr(f"Fehler: {res}", f"Error: {res}"), fg=ERR)
+            return
+        if res.passed:
+            text, col = tr(f"✓ Bestanden — {res.seconds / 60:.0f} min, max. {res.max_mhz:.0f} MHz / "
+                           f"{res.max_mv:.0f} mV, {res.peak_temp} °C",
+                           f"✓ Passed — {res.seconds / 60:.0f} min, max {res.max_mhz:.0f} MHz / "
+                           f"{res.max_mv:.0f} mV, {res.peak_temp} °C"), GREEN
+        elif res.aborted or res.kind == "temp":
+            text, col = f"■ {res.reason}", AMBER
+        else:
+            text, col = tr(f"✗ Nicht bestanden ({res.phase}): {res.reason}",
+                           f"✗ Failed ({res.phase}): {res.reason}"), ERR
+        self.lbl_hard_status.config(text=text, fg=col)
+        if res.unstable:
+            self._offer_safer(res)
+
+    def _offer_safer(self, res):
+        """The same choice as the GPU watchdog: only the points involved, the whole profile,
+        or nothing."""
+        from ui.components import ChoiceDialog
+        p = self._applied_profile()
+        if not p or self.pm is None or self.ab is None:
+            return
+        pts = ", ".join(str(a) for a in res.anchors)
+        opts = []
+        if res.anchors:
+            opts.append(("point", tr(f"Gezielt entschärfen: {pts} mV −30 MHz (empfohlen)",
+                                     f"Make safer at these points: {pts} mV −30 MHz (recommended)")))
+        opts += [("safer", tr("Ganzes Profil entschärfen (Kurve −30 MHz, Speicher −200 MHz)",
+                              "Make the whole profile safer (curve −30 MHz, memory −200 MHz)")),
+                 ("keep", tr("Nichts ändern", "Change nothing"))]
+        pt = res.point or {}
+        where = (tr(f"\n\nKurz davor lief die Karte bei etwa {pt['mv']:.0f} mV / {pt['mhz']:.0f} MHz.",
+                    f"\n\nJust before, the card ran at about {pt['mv']:.0f} mV / {pt['mhz']:.0f} MHz.")
+                 if pt.get("mv") else "")
+        choice = ChoiceDialog(self.winfo_toplevel(), tr("Härtetest", "Hardness test"), tr(
+            f"„{p['name']}“ hat den Härtetest nicht bestanden: {res.reason} (Phase „{res.phase}“).{where}\n\n"
+            f"Eine entschärfte Kopie wird angelegt und angewendet (Afterburner-Platz 2) — danach den "
+            f"Härtetest am besten noch einmal laufen lassen.",
+            f"'{p['name']}' failed the hardness test: {res.reason} (phase '{res.phase}').{where}\n\n"
+            f"A safer copy is created and applied (Afterburner slot 2) — then best run the hardness test "
+            f"again."), opts, current=opts[0][0], ok_text="OK", accent=VIOLET).show()
+        if choice in (None, "keep"):
+            return
+        from core.nvtune_core import TuneProfile
+        if self.pm.load(p["name"]) is None:
+            self.pm.save(TuneProfile.from_dict(p))         # e.g. manual offsets: no saved profile
+        new = self.pm.derate_points(p["name"], res.anchors) if choice == "point" else None
+        new = new or self.pm.derate(p["name"])
+        if new is None:
+            return
+        box: dict = {}
+        th = threading.Thread(target=lambda: box.update(r=self.ab.write_and_apply(2, new)), daemon=True)
+        th.start()
+
+        def wait():
+            if th.is_alive():
+                self.after(400, wait)
+                return
+            ok, err = box.get("r", (False, "?"))
+            if ok:
+                cr = getattr(self.tuner, "cr", None)
+                if cr is not None:
+                    cr.save_last_applied(new.to_dict())
+                self._show_hard_profile()
+                self.log.append(tr(f"„{new.name}“ ist jetzt aktiv (Afterburner-Platz 2).",
+                                   f"'{new.name}' is active now (Afterburner slot 2)."), "success")
+            else:
+                messagebox.showerror("GameOptimizerPro", str(err), parent=self.winfo_toplevel())
+        self.after(400, wait)
+
     def _field(self, parent, label, var, lo, hi, step):
         row = tk.Frame(parent, bg=CARD_BG)
         row.pack(fill="x", pady=3)
@@ -231,8 +475,9 @@ class StressTab(Page):
         self.btn_int_stop.configure(state="normal")
         self._int_t0 = time.time()           # own GPU load: the GPU watchdog leaves it out
         gpu_watchdog.own_load_started(self._int_t0)
-        self.log.append("Internal stress test started.", "header")
-        self.log.append(f"Duration: {self.v_int_dur.get()}s | Max temp: {self.v_max_temp.get()}°C")
+        self.log.append(tr("Interner Stresstest gestartet.", "Internal stress test started."), "header")
+        self.log.append(tr(f"Dauer: {self.v_int_dur.get()} s | Max. Temperatur: {self.v_max_temp.get()} °C",
+                           f"Duration: {self.v_int_dur.get()} s | Max temp: {self.v_max_temp.get()} °C"))
 
         worker = os.path.join(BASE, "_stress_worker.py")
         dur = self.v_int_dur.get()
@@ -301,7 +546,7 @@ class StressTab(Page):
 
     def _int_tick(self, elapsed, dur, pct):
         self.int_prog.set(pct)
-        self.lbl_int_status.config(text=f"Running: {elapsed}/{dur}s", fg=ACC)
+        self.lbl_int_status.config(text=tr(f"Läuft: {elapsed}/{dur} s", f"Running: {elapsed}/{dur} s"), fg=ACC)
 
     def _int_done(self, reason, peak_temp, avg_usage, max_t):
         gpu_watchdog.record_own_load(getattr(self, "_int_t0", time.time()), time.time())
@@ -310,24 +555,31 @@ class StressTab(Page):
         self.btn_int_stop.configure(state="disabled")
         self.int_prog.set(0)
         if reason == "temp":
-            result, color, tag = f"✗ FAILED (Temp-Limit {max_t}°C erreicht)", ERR, "error"
+            result, color, tag = tr(f"✗ NICHT BESTANDEN (Temperaturgrenze {max_t} °C erreicht)",
+                                    f"✗ FAILED (temperature limit {max_t} °C reached)"), ERR, "error"
         elif reason == "errors":
-            result, color, tag = "✗ FAILED (Rechenfehler unter Last — GPU instabil)", ERR, "error"
+            result, color, tag = tr("✗ NICHT BESTANDEN (Rechenfehler unter Last — GPU instabil)",
+                                    "✗ FAILED (computation error under load — GPU unstable)"), ERR, "error"
         elif reason == "worker":
-            result, color, tag = "✗ FAILED (Stress-Worker abgestürzt)", ERR, "error"
+            result, color, tag = tr("✗ NICHT BESTANDEN (Last-Prozess abgestürzt)",
+                                    "✗ FAILED (stress worker crashed)"), ERR, "error"
         elif reason == "tdr":
-            result, color, tag = "✗ FAILED (GPU-Treiber-Timeout / TDR)", ERR, "error"
+            result, color, tag = tr("✗ NICHT BESTANDEN (GPU-Treiber-Timeout / TDR)",
+                                    "✗ FAILED (GPU driver timeout / TDR)"), ERR, "error"
         elif avg_usage < self.MIN_GPU_LOAD_PCT:
             # "Passed" would be meaningless: without 'cupy' the worker only
             # burns the CPU, the GPU idles and nothing about its stability is shown.
-            result, color, tag = (f"⚠ KEIN GPU-STRESS (Ø {avg_usage:.0f} % GPU-Last) — "
-                                  "nur die CPU wurde belastet", AMBER, "warning")
+            result, color, tag = (tr(f"⚠ KEIN GPU-STRESS (Ø {avg_usage:.0f} % GPU-Last) — nur die CPU wurde "
+                                     f"belastet", f"⚠ NO GPU STRESS (avg {avg_usage:.0f} % GPU load) — only the CPU "
+                                     f"was loaded"), AMBER, "warning")
         else:
-            result, color, tag = "✓ PASSED", GREEN, "success"
+            result, color, tag = tr("✓ BESTANDEN", "✓ PASSED"), GREEN, "success"
         self.lbl_int_status.config(
-            text=f"{result} | Peak: {peak_temp}°C | Ø GPU-Last: {avg_usage:.0f}%", fg=color)
-        self.log.append(f"Internal stress: {result} | Peak temp: {peak_temp}°C | "
-                        f"Ø GPU-Last: {avg_usage:.0f}%", tag)
+            text=tr(f"{result} | Spitze: {peak_temp} °C | Ø GPU-Last: {avg_usage:.0f} %",
+                    f"{result} | Peak: {peak_temp} °C | avg GPU load: {avg_usage:.0f} %"), fg=color)
+        self.log.append(tr(f"Interner Test: {result} | Spitze: {peak_temp} °C | Ø GPU-Last: {avg_usage:.0f} %",
+                           f"Internal test: {result} | Peak temp: {peak_temp} °C | avg GPU load: "
+                           f"{avg_usage:.0f} %"), tag)
         if reason == "" and avg_usage < self.MIN_GPU_LOAD_PCT:
             self.log.append(tr("Für echte GPU-Last: 'pip install \"cupy-cuda12x[ctk]\"' (NVIDIA) "
                             "oder FurMark / 3DMark starten.", "For real GPU load: 'pip install \"cupy-cuda12x[ctk]\"' (NVIDIA) or start FurMark / 3DMark."), "warning")
@@ -341,7 +593,8 @@ class StressTab(Page):
         self.btn_int_stop.configure(state="disabled")
         self.int_prog.set(0)
         self.lbl_int_status.config(text=tr("Stopped (kein Ergebnis).", "Stopped (no result)."), fg=AMBER)
-        self.log.append("Internal stress test stopped by user — no result.", "warning")
+        self.log.append(tr("Interner Test abgebrochen — kein Ergebnis.",
+                           "Internal stress test stopped by user — no result."), "warning")
 
     @staticmethod
     def _kill_proc(proc):
@@ -409,7 +662,7 @@ class StressTab(Page):
             return
         what = furmark.describe(self._furmark_path)
         self.lbl_fur_status.config(text=tr(f"{what}: {res}, {secs}s — läuft", f"{what}: {res}, {secs}s — running"), fg=GREEN)
-        self.log.append(f"FurMark launched: {what}, {res}, {secs}s"
+        self.log.append(tr(f"FurMark gestartet: {what}, {res}, {secs} s", f"FurMark launched: {what}, {res}, {secs} s")
                         + (f", {self.v_fur_demo.get()}" if furmark.is_v2(self._furmark_path) else ""),
                         "success")
         self._start_session("FurMark", proc=proc, planned_s=secs, status=self.lbl_fur_status)
@@ -553,8 +806,10 @@ class StressTab(Page):
                       f"{s['name']}: {dur} s recorded — peak {s['peak']} °C, max. {s['pwr']:.0f} W, {load}")
             stats = furmark.parse_stats("".join(s.get("out") or [])) if s.get("out") else {}
             if stats.get("fps_avg"):
-                text += (f" — FurMark: Ø {stats['fps_avg']} FPS (min {stats.get('fps_min', '?')}), "
-                         f"max. GPU-Last {stats.get('max_usage', '?')} %")
+                text += tr(f" — FurMark: Ø {stats['fps_avg']} FPS (min {stats.get('fps_min', '?')}), "
+                           f"max. GPU-Last {stats.get('max_usage', '?')} %",
+                           f" — FurMark: avg {stats['fps_avg']} FPS (min {stats.get('fps_min', '?')}), "
+                           f"max GPU load {stats.get('max_usage', '?')} %")
             use_all = s.get("use_all") or []
             avg_all = sum(use_all) / len(use_all) if use_all else 0.0
             low = (stats.get("max_usage", 100) < 90) or (use_all and avg_all < 85)

@@ -262,6 +262,41 @@ g = GPU(weak=True)
 t, logs = quick(g, core_max_mhz=0, mem_stage=True, mem_oc_max_mhz=1000, mem_curve_start_mhz=500)
 check(t.best_profile.mem_offset_mhz == 0, "copies starved from the start: memory stays at stock")
 
+# round 33: a failed hardness test takes the core offset back one step and runs EVERY final test
+# again; memory stays (it is not the memory load that failed)
+from core import hardness_test as H
+
+
+class FakeHard:
+    fails, calls = 2, []
+
+    def __init__(self, read_stats, logs_dir, **kw):
+        self.profile = kw.get("profile") or {}
+
+    def run(self):
+        FakeHard.calls.append(self.profile.get("core_offset_mhz"))
+        if len(FakeHard.calls) <= FakeHard.fails:
+            return H.HardResult(kind="frame", reason="falsches Bild im Encoder (Spiel + Aufnahme)",
+                                phase="game_rec", point={"mv": 1050})
+        return H.HardResult(passed=True, max_mhz=2900, max_mv=1050)
+
+
+NT.AutoTuner.hardness_factory = FakeHard
+try:
+    g = GPU()
+    t, logs = quick(g, hard_test=True, mem_stage=True, mem_oc_max_mhz=1000, mem_curve_start_mhz=500)
+    L = "\n".join(logs)
+    modes = [m for m, *_ in g.runs]
+    check(t.state == TunerState.DONE and t.best_profile.core_offset_mhz == 7 and FakeHard.calls == [37, 22, 7]
+          and t.best_profile.mem_offset_mhz == 800,
+          f"Quick: two hardness failures -> core +37 → +22 → +7, memory stays +800: "
+          f"{FakeHard.calls} -> +{t.best_profile and t.best_profile.core_offset_mhz}")
+    check(modes.count("transient") == 3 and "Core +37→+22 MHz" in L
+          and L.count("Endtest wird wiederholt (alle Tests)") == 2 and "nach 2 Rücknahme(n)" in t.best_profile.notes,
+          "Quick: after each failure every final test again (three game tests); the log and the profile name it")
+finally:
+    del NT.AutoTuner.hardness_factory
+
 # ── 5) make a profile safer ──────────────────────────────────────────────────
 print("make safer")
 from core.nvtune_core import ProfileManager, TuneProfile

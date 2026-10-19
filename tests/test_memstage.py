@@ -13,6 +13,8 @@ import tempfile as _tf                     # never the app's own settings (run o
 from pathlib import Path as _P
 from core import app_settings as _AS
 _AS.SETTINGS_FILE = _P(_tf.mkdtemp(prefix="gop_set_")) / "settings.json"
+import atexit as _ax, shutil as _sh  # noqa: E401,E402
+_ax.register(_sh.rmtree, str(_AS.SETTINGS_FILE.parent), True)
 
 FAILS = []
 def check(c, label):
@@ -241,7 +243,8 @@ check(cfg is not None and cfg.mem_stage and cfg.mem_oc_max_mhz == gpu.v_mem_max.
       and cfg.furmark_path == gpu._furmark_v2() and cfg.mem_offset_mhz == 0,
       "tuner config: whole-card memory stage (cautious start, 100-MHz steps, FurMark), no fixed offset")
 check(ASKED and f"Speicher: +{gpu._mem_start()} bis +{gpu.v_mem_max.get()} MHz in 100er-Schritten, "
-      f"ganze Karte unter Last" in ASKED[-1] and "40-55" in ASKED[-1],
+      f"ganze Karte unter Last" in ASKED[-1]
+      and gpu._quick_minutes(True, gpu._furmark_v2(), gpu.HARD_MIN + 1 if gpu._hard_on() else 0) in ASKED[-1],
       "start dialog names the memory stage and the longer duration")
 gpu.v_mem_stage.set(False)
 gpu._start_tune()

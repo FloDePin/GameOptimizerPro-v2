@@ -4,6 +4,401 @@ All notable changes to GameOptimizerPro are documented here.
 
 ---
 
+## [2.1] — 2026-10-19
+
+Everything since 2.0 in one release. The in-app updater still counts internal builds; releases are
+named by version only.
+
+- **All-round GPU tuner** — every voltage point measured on its own, an own V/F curve, goals *Max
+  performance*, *Balanced* and *Efficiency*; *Quick (OC + UV)* with one offset and a power limit; a
+  memory stage with the whole card under load; the boot entry and the start-up profile are managed.
+- **Tested, not guessed** — FurMark benchmarks, a compute check, a game test with load changes and the
+  **hardness test** (3D, video encoder, compute and memory at once, like gaming while recording or
+  streaming); every stability step runs with the video encoder next to it. Any final-test failure
+  lowers the curve where the card failed and runs every final test again — only what passes all of
+  them in one go is saved.
+- **Fair comparison** — every tune starts equally warm; the stock run and the after benchmark use the
+  same test, the after benchmark always at the very end; the profile comparison shows performance and
+  efficiency against stock and the V/F curves.
+- **GPU watchdog** — a flight recorder, in-game hang detection within seconds, a targeted make-safer
+  for the curve points involved; the app's own tests are never taken for a game's crash.
+- **Windows** — 109 tweaks reviewed for Windows 11 26H2, game profiles (CPU / disk priority per game),
+  adapter tweaks, an interrupt view, the BIOS guide for 16 platforms.
+- **App** — new interface with a sidebar, English throughout (German included), no console window,
+  updates from GitHub, tray, stress tests (FurMark 1/2, 3DMark, hardness test).
+- 1378 checks in 36 suites, all green.
+
+### Development log (rounds 8–33)
+
+- **Round 8 — Afterburner profile writer:**
+  - Profiles reach Afterburner: the card's own profile file (`Profiles\VEN_…cfg`) is
+    written and Afterburner is restarted with `-ProfileN` (it reads the file only at
+    start). "Reset to stock" writes stock values into the app's slot instead of
+    loading slot 1. The setup check reads the real `MSIAfterburner.cfg`.
+  - The MAHM reader is thread-safe and recovers after Afterburner restarts.
+  - The tuner stops on a failed apply, no longer counts normal power limiting as a
+    failure, detects instability by verified results (gpu-burn / OCCT method), lowers
+    the power limit only while it costs at most 3 % performance, and measures memory
+    bandwidth (GDDR6X retries bad transfers — EDC).
+  - `tools/ab_selftest.py`: `info` (read-only), `dryrun`, `live`, `restore`.
+  - The OC search uses a game-like mixed load (full load alternating with boost load).
+- **Round 9 — v1 parity audit and Windows 11 26H2** (corrected parity list, 26H2
+  changes, features deliberately not ported).
+- **Round 10 — first real use:** no console window; a failed final test steps back
+  and tests again instead of saving an untested profile; either-or tweak groups
+  (power plans, DNS); power-plan fixes; mouse wheel over the tweak list; several
+  status checks fixed; one drift decision per tweak; the temp cleaner only deletes
+  files older than 24 hours; the tests live in the repository (CI).
+- **Round 11 — memory overclock in the Auto-Tune.**
+- **Round 12 — new interface:** CustomTkinter UI with sidebar; GPU tuner with live
+  tiles and graph; optimizer search; FurMark 1 / 2 and 3DMark detection and recording
+  during external tests; audio tweaks fixed for Windows 11 26H2; remnant scan; the
+  tray-default GPU profile can load at start; new dependency `customtkinter`.
+- **Round 13 — the All-round tuner ("Rundum"):** a boost-load probe per voltage
+  point, an own V/F curve from the measured points, a curve check, memory tested with
+  the whole card under load (FurMark + verified copies), the goal chosen by a FurMark
+  benchmark (Max / Balanced / Efficiency), a final test (5 min FurMark + 2 min
+  compute-checked load) and a report. Follow-ups: live values throughout the tune,
+  points every 25 mV, the same memory stage in every mode, the test battery runs on a
+  hidden desktop.
+- **Round 14 — leaner, every BIOS platform, updates from GitHub:** per-game profiles,
+  CPU pinning and FPS capture removed; page switches 2–3× faster; the BIOS guide
+  covers 16 platforms with honest detection; updates from GitHub (`build.json`, zip
+  or `git pull`); "keep running in the tray"; Afterburner setup checks; clearer tuner
+  settings; one update check at a time; the tune history shows every value and the
+  reason, runs can be deleted.
+- **Round 15 — two modes:** All-round (default) and Quick (OC + UV); a memory check
+  that cannot starve (FurMark never takes the foreground); any result into any
+  Afterburner slot (history / profiles, right click); status dots explain
+  themselves; a driver-reset check without gaps; profiles can be renamed.
+- **Round 16 — tests closer to what games do:**
+  - Game test after the final test (both modes): cool-down, load changes at the top
+    clock, steady boost point. Hang detection: a load without results for 8 s fails.
+  - Margins: 45 MHz, 60 MHz at the top points (within 75 mV of the highest), 30 MHz
+    more where a driver reset or hang happened; Quick mode 60 MHz; memory 200 MHz below
+    the highest passed step, a bandwidth drop marks the edge.
+  - GPU watchdog at app start: GPU hang / reset events since the applied profile →
+    make safer / stock / keep. "Make safer" (curve −30 MHz, memory −200 MHz).
+  - The applied profile is recorded wherever the app applies one; applying a profile
+    that has a safer copy asks first; one app instance at a time.
+  - Fixes from live tests: the mixed load now reports during its boost phase (false
+    hang alarms); the power-limit stage cross-checks against a fresh 100 % reference;
+    a memory bandwidth drop must show twice; the tuner log follows the app's language.
+- **Round 17 — what the PC boots with, and polish:**
+  - Afterburner's boot entry (`[Startup]`, applied at every Windows start) follows
+    the profile you apply; while a tune tests steps it holds the profile you had
+    before (never a step under test), at the end the saved profile. The GPU tab says
+    after applying whether Afterburner also loads the profile at Windows start.
+  - GPU errors logged together with a compute error now count as a driver-level
+    failure (the point gets the extra 30 MHz margin).
+  - After a successful tune the app offers to name the profile (e.g. "All-round
+    Balanced 09.10."); the history, the start-up profile and the watchdog follow a
+    rename.
+  - Number fields are clamped before a tune starts (a typed value outside the range
+    was only corrected when the field lost the focus).
+  - The app-start test no longer writes into the app's logs folder; texts in the
+    app, the code and the docs are neutral.
+
+- **Round 18 — profiles compared against stock**:
+  - The profile comparison shows what tells profiles apart: **performance** (points vs
+    stock) and **efficiency** (points per watt vs stock) from the same benchmark, the
+    best marked; unmeasured profiles say so instead of showing a made-up number. The
+    stability score (100 for every saved profile) became "passed". Also clock (an own
+    curve's top point under its cap, or the offset), memory, power limit, power draw in
+    the test, mode and date; full names; German labels.
+  - Both modes store the benchmark with the profile (`TuneProfile.bench`,
+    `core/profile_score.py`): the All-round mode its stock and after runs, the Quick mode
+    now 60 s of FurMark 2 at stock and with the result (needs FurMark 2; about 3 min
+    more). Older All-round profiles are read from their notes; runs of different length
+    are compared per second.
+  - 1031 checks in 27 suites, all green.
+
+- **Round 19 — smoother window, tidier lists, remembered tuner settings**:
+  - Maximize / restore: only the visible page is mapped and laid out (hidden pages are
+    unmapped and keep their layout). Measured with every page built: the optimizer page
+    blocked 1.0–1.3 s per resize, now 0.2–0.4 s; GPU tuner 0.9–1.1 s → 0.2–0.3 s;
+    dashboard 0.7–1.0 s → 0.15–0.2 s.
+  - Optimizer: every category folds open / closed (header with the number of tweaks
+    and how many are active, "Open all" / "Close all"; closed by default, the open ones
+    are remembered; a search shows matches in closed categories too).
+  - GPU tuner: the values set in the fields are remembered — a mode switch or an app
+    start no longer puts the card's defaults back (e.g. "max memory gain"); the clock
+    gain is kept per mode; "Restore the card's defaults" forgets them.
+  - Tray: a click on the icon opens the window. Profile comparison: no GPU row.
+  - Tests: every suite of the battery gets its own settings file (`GOP_SETTINGS_FILE`),
+    six UI suites patched too — no test can write the app's own settings.
+  - 1041 checks in 27 suites, all green.
+
+- **Round 20 — tweak review against Windows 11 26H2**:
+  - Live status check of all tweaks on a current 26H2 system: every applied tweak still
+    in effect (no update reset one). Windows' AI policies checked against Microsoft's
+    WindowsAI policy reference: Recall, Click to Do, Paint AI, text and image generation
+    and Copilot are covered; the Settings agent, agent connectors and the Copilot-app
+    removal policies apply to Enterprise / Education only (not added); the new Low
+    Latency Profile has no setting or policy (not added).
+  - New: **Optimizations for windowed games** (Gaming, safe, in "Medium" and the gaming
+    preset) — DirectX 10/11 games in a window or borderless window use the flip model
+    (less latency, VRR and Auto HDR in a window). Apply and revert change only this flag
+    in `DirectXUserGlobalSettings` and keep the others.
+  - Fixed: "Disable Store recommended search results" was shown as not active although it
+    was — its deny rule also blocks reading the file's permissions; "access denied" now
+    counts as applied.
+  - Fixed: "Clear shader cache" is a one-time action — no status any more (a cache that
+    fills up again while playing was shown as "not active", and the drift dialog offered
+    to clear it again: every game then rebuilds its shaders), and not part of "Hard".
+  - 1052 checks in 28 suites, all green.
+
+- **Round 21 — remembered tuner settings, one fix**:
+  - Fixed: starting a tune (or applying / resetting by hand) recorded every field of the
+    GPU tuner as a value the user had set, so the card's defaults shown at that moment
+    stayed fixed afterwards. Number fields now write only a value they actually correct
+    (out of range or half-typed); only real changes are remembered.
+  - 1056 checks in 28 suites, all green.
+
+- **Round 22 — stock as point 0 in the profile comparison**:
+  - Profile comparison: stock is a column and a bar of its own (0 %), with its FurMark
+    points, power draw and points per watt — the mean of the stock runs the chosen profiles
+    were measured against (every tune measures stock right before, in the same test).
+  - New rows: FurMark points (per 60 s, so runs of another length read the same) and points
+    per watt, each next to the profile's own stock run.
+  - Better or worse than stock at a glance: ▲ better, ▼ worse, ≈ the same (within the
+    run-to-run noise of ±0.5 %); ★ still marks the best profile.
+  - Curve report: a GPU error in the event log during the search is named as such (it was
+    called a driver reset), and the recommendation states the margin actually used at that
+    point instead of a fixed "60 MHz".
+  - 1060 checks in 28 suites, all green.
+
+- **Round 23 — All-round goals refined from a full test series**:
+  - **Balanced, new rule:** performance **and** efficiency above stock, as evenly as
+    possible — the setting whose smaller gain is the largest. A test series on the test card
+    showed the old rule (half the gain, most points per watt) picking flat from 1050 mV:
+    +2.4 % performance, −0.5 % efficiency — hardly different from Max (+3.9 % / +1.7 %),
+    while one cap lower already gave +0.9 % / +6.2 %. The old rule remains the fallback
+    when no setting beats stock in both; log and report name the rule that applied.
+  - **Fine search (Balanced, Efficiency):** after the caps every 25 mV, one more cap
+    halfway to the neighbour where the goal's optimum lies (balanced: towards the higher
+    cap while performance is the smaller gain, else lower; efficiency: lower), snapped to a
+    real curve point — about 75 s more. A crash there is handled like any candidate's.
+  - **The card's minimum voltage under load is remembered** per GPU (next to the tune
+    logs): the next tune plans its measuring points only down to it — no test at a point
+    the card never reaches — and puts the lowest point right at it when the grid ends a
+    distinct point above.
+  - Texts: the goal descriptions and the step-by-step tune explanation say so.
+  - 1090 checks in 29 suites, all green.
+
+- **Round 24 — curve chart, fair benchmarks, Quick mode refined**:
+  - **Profile comparison: V/F curves** like Afterburner's curve editor — voltage to the
+    right, clock up; stock dashed, every chosen profile in its colour (All-round profiles
+    flat from their cap with the measured points as dots, Quick profiles as the shifted
+    curve), the range the card runs in under load shaded; pointing at the chart shows every
+    curve's clock at that voltage. The stock curve is read from Afterburner's profile file.
+  - **Every comparison benchmark starts at the stock run's temperature:** the card idles
+    until it is back there (at most 90 s) before each All-round candidate, the fine search
+    and the Quick mode's "after" run. A test series showed the Quick "after" run starting at
+    ~67 °C right after the game test (stock: ~55 °C) and All-round candidates 2–5 °C warmer
+    than stock — a warm card clocks a bin lower and draws a few watts more, so profiles
+    looked slightly worse than they are.
+  - **Quick mode: the curve is flat from the game test's highest voltage.** The offset
+    shifted the whole curve, also the points above the highest voltage any test reached
+    (test card: 1075 → 1100 mV at +134 MHz, never tested; a light load can boost there).
+    Now: below that voltage exactly what was tested, above it lower. The description says
+    honestly that the lowered power limit only saves power under full load (FurMark and
+    most games stay below it).
+  - "≈ stock" now within ±0.7 % — the spread of four stock runs of the same card.
+  - 1111 checks in 30 suites, all green.
+
+- **Round 25 — start-up profile in its own slot, stall watchdog**:
+  - Fixed: at an app start the last applied profile was always written into Afterburner
+    slot 2 — whatever was there was replaced, and Afterburner restarted for nothing. It is
+    now applied from the slot that already holds it (2–5; slot 1 stays the user's own);
+    only when no slot does, slot 2 as before.
+  - Stall watchdog for the tuner: no log line or progress for 2 minutes means a call is
+    stuck (every step reports at least every few seconds, an Afterburner restart takes
+    5–30 s). The log then says so and every thread's position goes into
+    `logs/stall_<time>.txt`; when the tune goes on, the log says after how long. (Seen once:
+    a tune stood still ~19 minutes between two steps while the PC was idle and Windows ran
+    its automatic maintenance — afterwards nothing told where it had waited. The results
+    were not affected: the next step measured its reference again.)
+  - 1116 checks in 30 suites, all green.
+
+- **Round 26 — clearer profile comparison**:
+  - Curve chart: every profile has its own line style (solid, dashed, dotted, dash-dot) and
+    the chart a legend — curves lying on each other no longer hide the one below (two Quick
+    profiles with the same offset are identical up to the highest tested voltage).
+  - New bar row "FurMark points": the profiles against each other in points. The
+    percentages compare each profile with its OWN stock run (measured right before, same
+    conditions); stock runs of the same card differ by ~1 %, so a profile can read a higher
+    percentage with fewer points.
+  - 1118 checks in 30 suites.
+
+- **Round 27 — All-round tuner checked live end to end**:
+  - The saved minimum voltage under load is used: on a card's second tune the voltage
+    points stop there — on the test card 7 instead of 10 points, the three it never
+    reaches under load are no longer tested.
+  - The fine search for Efficiency goes down: halfway between the last cap that kept
+    ≥ 99 % of stock and the first one below; the goal rule then picks the cap with the
+    least power. Result on the test card: −0.7 % points at −16 % power (+18.6 % points
+    per watt).
+  - Log line for the saved minimum voltage corrected: the points stop there (the lowest
+    one can lie a few mV below it, within the reach tolerance) — it said "right at it".
+  - For clarity: All-round has no extra comparison run after the final test — the
+    "after" value in the report is the chosen variant's benchmark, measured with exactly
+    the settings that get saved. Only Quick measures once more after the final test,
+    because it caps its curve at the game test's voltage.
+  - 1118 checks in 30 suites, all green.
+
+- **Round 28 — external audit checked against the code**. Twelve reported
+  points, each verified first; the confirmed ones fixed:
+  - Second start while an update waited ("install at the next start") and the app ran in
+    the tray: the update was installed under the running instance (the installer only
+    waited for the second process). The one-instance check now comes first.
+  - Language switch: the new instance was started without the "wait for me" flag next to
+    the still-running one, and the old tray icon stayed. It now uses the app's own exit
+    (tuner reset to stock, tray icon removed) and the new instance waits.
+  - Found while checking that: the app's exit started the new instance from a background
+    thread after a short pause — with the window gone, the main thread returned and
+    Python could end before that thread woke, so the restart after an update could be
+    lost. The main thread now waits for it (and restarts itself if it doesn't come).
+  - Stress tester: a load that never delivered a single result (hung on its first product,
+    or CUDA failed to start and the worker fell back to the CPU) let the step pass on an
+    untested GPU. After the tune's baseline proved the load works, 30 s without any result
+    now fail the step as a hang. (The audit's fix — the 8-s limit from the worker's start —
+    would have flagged normal start-ups as hangs.)
+  - Tray menu: labels follow the app's language; a profile applied from the tray uses the
+    slot that already holds it (it always overwrote slot 2) and is only recorded as
+    applied when the apply worked.
+  - Smaller: the "mixed" load checks every second that the app is still there (it could
+    run up to 10 s on after a crash); NVML is shut down once; the drift dialog changes the
+    applied-tweak list under the runner's lock; an empty V/F curve gives a clear message;
+    the GPU watchdog leaves out an event from the very second a profile was applied in;
+    autostart failures log their reason; the crash dialog's title is localized; the page
+    pre-build timer is cancelled on close.
+  - 1141 checks in 31 suites, all green.
+
+- **Round 29 — English throughout, new README**:
+  - English is the default language — and now complete. About 300 texts that showed in
+    German in the English app have their English version: dialogs and status lines, the
+    settings checks, the services and autostart managers (incl. their service table and
+    advice list), the cleaner, health report, remnant scan, audio tweak results, Afterburner
+    and update messages — and the whole BIOS guide (16 platforms, built per language).
+    A new test scans the UI and the core messages and fails on any German-only text.
+  - Fixed: the GPU tuner's left column, built in the background, kept the width its content
+    had then — cards were cut off on the right (mode switch "All-rou…", goal switch showing
+    one option, descriptions in one cut line). Seen on a real desktop only; verified there.
+  - README rewritten (English and German): what the app does, screenshots, install in five
+    steps, which tuner mode for what, results on a test card against stock, safety, FAQ. The
+    full feature description moved to docs/FEATURES.md (corrected: memory margin 200 MHz,
+    language switch restarts the app, profile comparison with stock column and curve chart,
+    architecture). The first-upload guide left the repository.
+  - 1150 checks in 32 suites, all green.
+
+- **Round 30 — game profiles, adapter tweaks, interrupt view, honest timer tweak**:
+  - New: **game profiles** (Optimizer → Games). Choose a game's .exe and Windows starts it with a High or
+    Above normal CPU priority and a high disk priority, optionally without fullscreen optimizations for
+    that game only. Written once into the registry (Image File Execution Options, compatibility flag per
+    path) and applied by Windows at every start — no background process. While the game runs, the status
+    shows the priority it really got. No Realtime; Windows and system programs are refused; removing a
+    profile or *Revert all* puts back what was there before (values set by the user or another tool stay).
+  - New tweaks: **Energy-Efficient Ethernet off** and **Interrupt Moderation off** (Network → Adapter) —
+    physical wired adapters only, only keywords the driver itself offers, the previous value is kept for
+    the revert; registry access through .NET (the PowerShell cmdlets read "*EEE" as a wildcard). Effective
+    after a restart, no connection drop. EEE in *Medium* and *Network*, Interrupt Moderation in *Hard*.
+  - New: **interrupt view** (Diagnose → Interrupts, read-only) — per PCI device MSI or line interrupt as
+    Windows really allocated it, messages, priority, core assignment, shared line interrupts, with notes.
+  - Fixed: "Set 0.5ms Timer Resolution" set no resolution — `GlobalTimerResolutionRequests` only lets a
+    program's request apply system-wide again. Renamed to *Let timer requests apply system-wide* with an
+    honest description; marked as needing a restart; revert now removes the value (Windows default).
+  - Fixed: German texts in the English app — tweak and preset names in the log and dialogs, the status
+    table (active / reset / active externally), dialog titles, "Done.", the registry backup summary, the
+    duplicate power plan note; leftovers found by the remnant scan are now shown in amber in English too.
+  - Registry backup also covers the game profile keys. 109 tweaks.
+  - 1214 checks in 33 suites, all green.
+
+- **Round 31 — the precise GPU watchdog**:
+  - New: a **flight recorder** while the app runs (window or tray): clock, voltage, power, temperature
+    and load once a second, the last minute also on disk (written every few seconds under load, once a
+    minute when idle) — so a crash that restarts the PC leaves the seconds before it.
+  - New: **live watch** — the System event log is read every few seconds from where it was last time
+    (classic event log API, no PowerShell). A game's GPU hang (nvlddmkm 13 / 14 / 153, Display 4101) that
+    is none of the app's own loads (tune, stress test, FurMark run, Afterburner restart for a profile)
+    gives a Windows notification; the dialog comes when the user is back in the app, never over a game.
+  - The dialog names the state just before the hang (voltage / clock / power / temperature) and offers to
+    lower **only the curve points involved** by 30 MHz (memory and the rest of the curve stay). If the same
+    points of the same profile fail again, the whole profile is made safer (−30 MHz, memory −200).
+  - An unexpected restart (Kernel-Power 41) counts as a GPU crash only when the recording shows the card
+    under load until it ended — idle restarts (power cut, reset button) are left out.
+  - The next curve tune adds the reset margin (+30 MHz, not stacked) at points near a voltage where games
+    hung on this card.
+  - The test battery runs at the lowest CPU priority by itself and gives numpy one thread (it often runs
+    next to a game).
+  - 1266 checks in 34 suites, all green.
+
+- **Round 32 — an external review checked against the code**:
+  - Fixed: the GPU watchdog's start check and a live fault could open a second dialog — the dialog
+    waits in its own event loop, where the 5-s start timer and the pending poll keep running. One
+    check / dialog at a time now; a live fault that arrives meanwhile waits and gets its own check
+    after the dialog closed.
+  - Fixed: a CUDA error while the stress worker set up its load (inputs, reference product) fell back
+    to a CPU load silently; the tester called that a hang only after 30 s. When an earlier run of the
+    tester delivered results, CUDA works on that card: the worker now reports a compute error at once.
+    On a first run (a PC where CUDA does not start) the CPU fallback stays.
+  - 1278 checks in 35 suites, all green.
+
+- **Round 33 — the hardness test: several loads at once, like gaming while recording / streaming**:
+  - New: **hardness test** (stress test page, 10 / 20 / 45 min) — 3D (FurMark: OpenGL / Vulkan, light and
+    heavy), the **video encoder (NVENC, H.264 60 fps)** with CUDA scaling of every frame, verified load
+    changes and verified memory copies, in combinations that change every 2.5 min with a short idle gap
+    between them (the card has to clock up from idle with everything starting at once). Every result and
+    every converted frame is checked; a load that stops answering is a hung GPU; the System log is read
+    every 2 s. It tests the profile applied now and changes nothing; after a failure it offers to lower
+    exactly the curve points involved.
+  - Why: the tuner tested one load at a time. A tuned profile can pass every single test and still fail
+    when the encoder runs next to compute — measured: **computation errors with compute + encoder at
+    once** in about one of four 25-s runs, none at stock. A game recorded or streamed with the encoder is
+    that combination.
+  - The NVENC load uses the driver's own `nvEncodeAPI64.dll` (ctypes, no extra package); without NVENC
+    the test runs without the encoder part.
+  - New tuner option **"Test with the video encoder running"** (both modes, on by default, no extra
+    time): every stability step — curve points, OC steps, final and game test — runs with the encoder
+    worker next to it, and a wrong frame or result there fails the step. The search finds the limit that
+    holds while recording / streaming instead of the one for a single load. Measured on a tuned curve:
+    the errors came from the core curve (curve alone: 3 errors in 4 min), not from the memory overclock
+    (memory alone: none) and never at stock.
+  - New tuner option **"Hardness test at the end (+10 min)"** (both modes, on by default): runs after the
+    game test.
+  - **Final tests: no shortcut, until everything holds in one go.** Any failure — FurMark, compute check,
+    game test or hardness test — lowers **the points around the voltage the card ran when it failed**
+    (±25 mV; from the flight recorder in the hardness test) by one step — the whole curve when that
+    voltage is unknown; Quick: the core offset — and then **every** final test runs again. Saved is only
+    what passed all of them in one go, on exactly the saved settings; up to 12 tries (was 5). Memory
+    steps back only when its own test failed or 3 core step-backs in a row did not help — it used to take
+    every second turn, although the memory stage tests the whole card up to its limit with a margin
+    (live: a compute check failure took memory +500 → +400 while the fault sat at the curve's cap).
+    Live, two hardness faults came at 1015 mV: lowering the whole curve instead cost 1.4 % performance
+    (+1.6 % → +0.2 % vs stock) for points that never failed. A pause after a crash is no longer taken
+    twice in a row.
+  - **Every tune starts equally warm** (both modes): at stock the card first idles down to 45 °C at most
+    (up to 3 min). Started right after another run, the card boosted a step lower at stock — other
+    measuring points (1070 instead of 1075 mV) and a lower stock score (7192 instead of ~7250 points).
+  - All-round point search: after a **driver reset** the next step waits 30 s (was 5 s), and if that
+    first step fails it is repeated once — live, the step right after a reset failed at a clock the same
+    point had passed earlier that day, which lowered the point.
+  - All-round: the **after benchmark always runs at the very end**, on exactly the profile that is saved
+    (after every final test and step back), cooled down like the stock run. Before, a run without a step
+    back reused the winning candidate's number from the middle of the tune.
+  - Found while building it: ending a GPU process in the middle of its work while another process encodes
+    video makes the driver log **nvlddmkm 153** by itself (6 of 6 times; 0 of 6 when the loads end
+    normally). The test's loads now end on request; a 153 alone is no proof of a bad profile — the GPU
+    watchdog says so and points to the hardness test.
+  - Fixed: the GPU watchdog knew a tune as own GPU load only by its log file — with the tune logs moved
+    to an archive, a run's driver events (153 when a load ends) counted as a game's and the watchdog
+    offered to make the profile safer at every start. Every tune run, also an aborted one, is now
+    recorded in the watchdog's list of own loads.
+  - Fixed: the stress test page showed some German texts in English (and some English in German).
+  - 1378 checks in 36 suites, all green.
+
+---
+
 ## [2.0] — Final — 2026-09-05
 
 The finalized GameOptimizerPro **2.0** — an all-in-one Windows & gaming
@@ -314,319 +709,6 @@ verifiers (VERIFY_MAP stays 1:1) and full English descriptions.
     destroyed (no more "invalid command name" noise on exit); the Startup Manager
     tolerates being closed while it is still loading.
 
-- **Round 8 — Afterburner profile writer:**
-  - Profiles reach Afterburner: the card's own profile file (`Profiles\VEN_…cfg`) is
-    written and Afterburner is restarted with `-ProfileN` (it reads the file only at
-    start). "Reset to stock" writes stock values into the app's slot instead of
-    loading slot 1. The setup check reads the real `MSIAfterburner.cfg`.
-  - The MAHM reader is thread-safe and recovers after Afterburner restarts.
-  - The tuner stops on a failed apply, no longer counts normal power limiting as a
-    failure, detects instability by verified results (gpu-burn / OCCT method), lowers
-    the power limit only while it costs at most 3 % performance, and measures memory
-    bandwidth (GDDR6X retries bad transfers — EDC).
-  - `tools/ab_selftest.py`: `info` (read-only), `dryrun`, `live`, `restore`.
-  - The OC search uses a game-like mixed load (full load alternating with boost load).
-- **Round 9 — v1 parity audit and Windows 11 26H2** (corrected parity list, 26H2
-  changes, features deliberately not ported).
-- **Round 10 — first real use:** no console window; a failed final test steps back
-  and tests again instead of saving an untested profile; either-or tweak groups
-  (power plans, DNS); power-plan fixes; mouse wheel over the tweak list; several
-  status checks fixed; one drift decision per tweak; the temp cleaner only deletes
-  files older than 24 hours; the tests live in the repository (CI).
-- **Round 11 — memory overclock in the Auto-Tune.**
-- **Round 12 — new interface:** CustomTkinter UI with sidebar; GPU tuner with live
-  tiles and graph; optimizer search; FurMark 1 / 2 and 3DMark detection and recording
-  during external tests; audio tweaks fixed for Windows 11 26H2; remnant scan; the
-  tray-default GPU profile can load at start; new dependency `customtkinter`.
-- **Round 13 — the All-round tuner ("Rundum"):** a boost-load probe per voltage
-  point, an own V/F curve from the measured points, a curve check, memory tested with
-  the whole card under load (FurMark + verified copies), the goal chosen by a FurMark
-  benchmark (Max / Balanced / Efficiency), a final test (5 min FurMark + 2 min
-  compute-checked load) and a report. Follow-ups: live values throughout the tune,
-  points every 25 mV, the same memory stage in every mode, the test battery runs on a
-  hidden desktop.
-- **Round 14 — leaner, every BIOS platform, updates from GitHub:** per-game profiles,
-  CPU pinning and FPS capture removed; page switches 2–3× faster; the BIOS guide
-  covers 16 platforms with honest detection; updates from GitHub (`build.json`, zip
-  or `git pull`); "keep running in the tray"; Afterburner setup checks; clearer tuner
-  settings; one update check at a time; the tune history shows every value and the
-  reason, runs can be deleted.
-- **Round 15 — two modes:** All-round (default) and Quick (OC + UV); a memory check
-  that cannot starve (FurMark never takes the foreground); any result into any
-  Afterburner slot (history / profiles, right click); status dots explain
-  themselves; a driver-reset check without gaps; profiles can be renamed.
-- **Round 16 — tests closer to what games do:**
-  - Game test after the final test (both modes): cool-down, load changes at the top
-    clock, steady boost point. Hang detection: a load without results for 8 s fails.
-  - Margins: 45 MHz, 60 MHz at the top points (within 75 mV of the highest), 30 MHz
-    more where a driver reset or hang happened; Quick mode 60 MHz; memory 200 MHz below
-    the highest passed step, a bandwidth drop marks the edge.
-  - GPU watchdog at app start: GPU hang / reset events since the applied profile →
-    make safer / stock / keep. "Make safer" (curve −30 MHz, memory −200 MHz).
-  - The applied profile is recorded wherever the app applies one; applying a profile
-    that has a safer copy asks first; one app instance at a time.
-  - Fixes from live tests: the mixed load now reports during its boost phase (false
-    hang alarms); the power-limit stage cross-checks against a fresh 100 % reference;
-    a memory bandwidth drop must show twice; the tuner log follows the app's language.
-- **Round 17 — what the PC boots with, and polish:**
-  - Afterburner's boot entry (`[Startup]`, applied at every Windows start) follows
-    the profile you apply; while a tune tests steps it holds the profile you had
-    before (never a step under test), at the end the saved profile. The GPU tab says
-    after applying whether Afterburner also loads the profile at Windows start.
-  - GPU errors logged together with a compute error now count as a driver-level
-    failure (the point gets the extra 30 MHz margin).
-  - After a successful tune the app offers to name the profile (e.g. "All-round
-    Balanced 09.10."); the history, the start-up profile and the watchdog follow a
-    rename.
-  - Number fields are clamped before a tune starts (a typed value outside the range
-    was only corrected when the field lost the focus).
-  - The app-start test no longer writes into the app's logs folder; texts in the
-    app, the code and the docs are neutral.
-
-- **Round 18 — profiles compared against stock** (build 25):
-  - The profile comparison shows what tells profiles apart: **performance** (points vs
-    stock) and **efficiency** (points per watt vs stock) from the same benchmark, the
-    best marked; unmeasured profiles say so instead of showing a made-up number. The
-    stability score (100 for every saved profile) became "passed". Also clock (an own
-    curve's top point under its cap, or the offset), memory, power limit, power draw in
-    the test, mode and date; full names; German labels.
-  - Both modes store the benchmark with the profile (`TuneProfile.bench`,
-    `core/profile_score.py`): the All-round mode its stock and after runs, the Quick mode
-    now 60 s of FurMark 2 at stock and with the result (needs FurMark 2; about 3 min
-    more). Older All-round profiles are read from their notes; runs of different length
-    are compared per second.
-  - 1031 checks in 27 suites, all green.
-
-- **Round 19 — smoother window, tidier lists, remembered tuner settings** (build 26):
-  - Maximize / restore: only the visible page is mapped and laid out (hidden pages are
-    unmapped and keep their layout). Measured with every page built: the optimizer page
-    blocked 1.0–1.3 s per resize, now 0.2–0.4 s; GPU tuner 0.9–1.1 s → 0.2–0.3 s;
-    dashboard 0.7–1.0 s → 0.15–0.2 s.
-  - Optimizer: every category folds open / closed (header with the number of tweaks
-    and how many are active, "Open all" / "Close all"; closed by default, the open ones
-    are remembered; a search shows matches in closed categories too).
-  - GPU tuner: the values set in the fields are remembered — a mode switch or an app
-    start no longer puts the card's defaults back (e.g. "max memory gain"); the clock
-    gain is kept per mode; "Restore the card's defaults" forgets them.
-  - Tray: a click on the icon opens the window. Profile comparison: no GPU row.
-  - Tests: every suite of the battery gets its own settings file (`GOP_SETTINGS_FILE`),
-    six UI suites patched too — no test can write the app's own settings.
-  - 1041 checks in 27 suites, all green.
-
-- **Round 20 — tweak review against Windows 11 26H2** (build 27):
-  - Live status check of all tweaks on a current 26H2 system: every applied tweak still
-    in effect (no update reset one). Windows' AI policies checked against Microsoft's
-    WindowsAI policy reference: Recall, Click to Do, Paint AI, text and image generation
-    and Copilot are covered; the Settings agent, agent connectors and the Copilot-app
-    removal policies apply to Enterprise / Education only (not added); the new Low
-    Latency Profile has no setting or policy (not added).
-  - New: **Optimizations for windowed games** (Gaming, safe, in "Medium" and the gaming
-    preset) — DirectX 10/11 games in a window or borderless window use the flip model
-    (less latency, VRR and Auto HDR in a window). Apply and revert change only this flag
-    in `DirectXUserGlobalSettings` and keep the others.
-  - Fixed: "Disable Store recommended search results" was shown as not active although it
-    was — its deny rule also blocks reading the file's permissions; "access denied" now
-    counts as applied.
-  - Fixed: "Clear shader cache" is a one-time action — no status any more (a cache that
-    fills up again while playing was shown as "not active", and the drift dialog offered
-    to clear it again: every game then rebuilds its shaders), and not part of "Hard".
-  - 1052 checks in 28 suites, all green.
-
-- **Round 21 — remembered tuner settings, one fix** (build 28):
-  - Fixed: starting a tune (or applying / resetting by hand) recorded every field of the
-    GPU tuner as a value the user had set, so the card's defaults shown at that moment
-    stayed fixed afterwards. Number fields now write only a value they actually correct
-    (out of range or half-typed); only real changes are remembered.
-  - 1056 checks in 28 suites, all green.
-
-- **Round 22 — stock as point 0 in the profile comparison** (build 29):
-  - Profile comparison: stock is a column and a bar of its own (0 %), with its FurMark
-    points, power draw and points per watt — the mean of the stock runs the chosen profiles
-    were measured against (every tune measures stock right before, in the same test).
-  - New rows: FurMark points (per 60 s, so runs of another length read the same) and points
-    per watt, each next to the profile's own stock run.
-  - Better or worse than stock at a glance: ▲ better, ▼ worse, ≈ the same (within the
-    run-to-run noise of ±0.5 %); ★ still marks the best profile.
-  - Curve report: a GPU error in the event log during the search is named as such (it was
-    called a driver reset), and the recommendation states the margin actually used at that
-    point instead of a fixed "60 MHz".
-  - 1060 checks in 28 suites, all green.
-
-- **Round 23 — All-round goals refined from a full test series** (build 30):
-  - **Balanced, new rule:** performance **and** efficiency above stock, as evenly as
-    possible — the setting whose smaller gain is the largest. A test series on the test card
-    showed the old rule (half the gain, most points per watt) picking flat from 1050 mV:
-    +2.4 % performance, −0.5 % efficiency — hardly different from Max (+3.9 % / +1.7 %),
-    while one cap lower already gave +0.9 % / +6.2 %. The old rule remains the fallback
-    when no setting beats stock in both; log and report name the rule that applied.
-  - **Fine search (Balanced, Efficiency):** after the caps every 25 mV, one more cap
-    halfway to the neighbour where the goal's optimum lies (balanced: towards the higher
-    cap while performance is the smaller gain, else lower; efficiency: lower), snapped to a
-    real curve point — about 75 s more. A crash there is handled like any candidate's.
-  - **The card's minimum voltage under load is remembered** per GPU (next to the tune
-    logs): the next tune plans its measuring points only down to it — no test at a point
-    the card never reaches — and puts the lowest point right at it when the grid ends a
-    distinct point above.
-  - Texts: the goal descriptions and the step-by-step tune explanation say so.
-  - 1090 checks in 29 suites, all green.
-
-- **Round 24 — curve chart, fair benchmarks, Quick mode refined** (build 31):
-  - **Profile comparison: V/F curves** like Afterburner's curve editor — voltage to the
-    right, clock up; stock dashed, every chosen profile in its colour (All-round profiles
-    flat from their cap with the measured points as dots, Quick profiles as the shifted
-    curve), the range the card runs in under load shaded; pointing at the chart shows every
-    curve's clock at that voltage. The stock curve is read from Afterburner's profile file.
-  - **Every comparison benchmark starts at the stock run's temperature:** the card idles
-    until it is back there (at most 90 s) before each All-round candidate, the fine search
-    and the Quick mode's "after" run. A test series showed the Quick "after" run starting at
-    ~67 °C right after the game test (stock: ~55 °C) and All-round candidates 2–5 °C warmer
-    than stock — a warm card clocks a bin lower and draws a few watts more, so profiles
-    looked slightly worse than they are.
-  - **Quick mode: the curve is flat from the game test's highest voltage.** The offset
-    shifted the whole curve, also the points above the highest voltage any test reached
-    (test card: 1075 → 1100 mV at +134 MHz, never tested; a light load can boost there).
-    Now: below that voltage exactly what was tested, above it lower. The description says
-    honestly that the lowered power limit only saves power under full load (FurMark and
-    most games stay below it).
-  - "≈ stock" now within ±0.7 % — the spread of four stock runs of the same card.
-  - 1111 checks in 30 suites, all green.
-
-- **Round 25 — start-up profile in its own slot, stall watchdog** (build 32):
-  - Fixed: at an app start the last applied profile was always written into Afterburner
-    slot 2 — whatever was there was replaced, and Afterburner restarted for nothing. It is
-    now applied from the slot that already holds it (2–5; slot 1 stays the user's own);
-    only when no slot does, slot 2 as before.
-  - Stall watchdog for the tuner: no log line or progress for 2 minutes means a call is
-    stuck (every step reports at least every few seconds, an Afterburner restart takes
-    5–30 s). The log then says so and every thread's position goes into
-    `logs/stall_<time>.txt`; when the tune goes on, the log says after how long. (Seen once:
-    a tune stood still ~19 minutes between two steps while the PC was idle and Windows ran
-    its automatic maintenance — afterwards nothing told where it had waited. The results
-    were not affected: the next step measured its reference again.)
-  - 1116 checks in 30 suites, all green.
-
-- **Round 26 — clearer profile comparison** (build 33):
-  - Curve chart: every profile has its own line style (solid, dashed, dotted, dash-dot) and
-    the chart a legend — curves lying on each other no longer hide the one below (two Quick
-    profiles with the same offset are identical up to the highest tested voltage).
-  - New bar row "FurMark points": the profiles against each other in points. The
-    percentages compare each profile with its OWN stock run (measured right before, same
-    conditions); stock runs of the same card differ by ~1 %, so a profile can read a higher
-    percentage with fewer points.
-  - 1118 checks in 30 suites.
-
-- **Round 27 — All-round tuner checked live end to end** (build 34):
-  - The saved minimum voltage under load is used: on a card's second tune the voltage
-    points stop there — on the test card 7 instead of 10 points, the three it never
-    reaches under load are no longer tested.
-  - The fine search for Efficiency goes down: halfway between the last cap that kept
-    ≥ 99 % of stock and the first one below; the goal rule then picks the cap with the
-    least power. Result on the test card: −0.7 % points at −16 % power (+18.6 % points
-    per watt).
-  - Log line for the saved minimum voltage corrected: the points stop there (the lowest
-    one can lie a few mV below it, within the reach tolerance) — it said "right at it".
-  - For clarity: All-round has no extra comparison run after the final test — the
-    "after" value in the report is the chosen variant's benchmark, measured with exactly
-    the settings that get saved. Only Quick measures once more after the final test,
-    because it caps its curve at the game test's voltage.
-  - 1118 checks in 30 suites, all green.
-
-- **Round 28 — external audit checked against the code** (build 35). Twelve reported
-  points, each verified first; the confirmed ones fixed:
-  - Second start while an update waited ("install at the next start") and the app ran in
-    the tray: the update was installed under the running instance (the installer only
-    waited for the second process). The one-instance check now comes first.
-  - Language switch: the new instance was started without the "wait for me" flag next to
-    the still-running one, and the old tray icon stayed. It now uses the app's own exit
-    (tuner reset to stock, tray icon removed) and the new instance waits.
-  - Found while checking that: the app's exit started the new instance from a background
-    thread after a short pause — with the window gone, the main thread returned and
-    Python could end before that thread woke, so the restart after an update could be
-    lost. The main thread now waits for it (and restarts itself if it doesn't come).
-  - Stress tester: a load that never delivered a single result (hung on its first product,
-    or CUDA failed to start and the worker fell back to the CPU) let the step pass on an
-    untested GPU. After the tune's baseline proved the load works, 30 s without any result
-    now fail the step as a hang. (The audit's fix — the 8-s limit from the worker's start —
-    would have flagged normal start-ups as hangs.)
-  - Tray menu: labels follow the app's language; a profile applied from the tray uses the
-    slot that already holds it (it always overwrote slot 2) and is only recorded as
-    applied when the apply worked.
-  - Smaller: the "mixed" load checks every second that the app is still there (it could
-    run up to 10 s on after a crash); NVML is shut down once; the drift dialog changes the
-    applied-tweak list under the runner's lock; an empty V/F curve gives a clear message;
-    the GPU watchdog leaves out an event from the very second a profile was applied in;
-    autostart failures log their reason; the crash dialog's title is localized; the page
-    pre-build timer is cancelled on close.
-  - 1141 checks in 31 suites, all green.
-
-- **Round 29 — English throughout, new README** (build 36):
-  - English is the default language — and now complete. About 300 texts that showed in
-    German in the English app have their English version: dialogs and status lines, the
-    settings checks, the services and autostart managers (incl. their service table and
-    advice list), the cleaner, health report, remnant scan, audio tweak results, Afterburner
-    and update messages — and the whole BIOS guide (16 platforms, built per language).
-    A new test scans the UI and the core messages and fails on any German-only text.
-  - Fixed: the GPU tuner's left column, built in the background, kept the width its content
-    had then — cards were cut off on the right (mode switch "All-rou…", goal switch showing
-    one option, descriptions in one cut line). Seen on a real desktop only; verified there.
-  - README rewritten (English and German): what the app does, screenshots, install in five
-    steps, which tuner mode for what, results on a test card against stock, safety, FAQ. The
-    full feature description moved to docs/FEATURES.md (corrected: memory margin 200 MHz,
-    language switch restarts the app, profile comparison with stock column and curve chart,
-    architecture). The first-upload guide left the repository.
-  - 1150 checks in 32 suites, all green.
-
-- **Round 30 — game profiles, adapter tweaks, interrupt view, honest timer tweak** (build 37):
-  - New: **game profiles** (Optimizer → Games). Choose a game's .exe and Windows starts it with a High or
-    Above normal CPU priority and a high disk priority, optionally without fullscreen optimizations for
-    that game only. Written once into the registry (Image File Execution Options, compatibility flag per
-    path) and applied by Windows at every start — no background process. While the game runs, the status
-    shows the priority it really got. No Realtime; Windows and system programs are refused; removing a
-    profile or *Revert all* puts back what was there before (values set by the user or another tool stay).
-  - New tweaks: **Energy-Efficient Ethernet off** and **Interrupt Moderation off** (Network → Adapter) —
-    physical wired adapters only, only keywords the driver itself offers, the previous value is kept for
-    the revert; registry access through .NET (the PowerShell cmdlets read "*EEE" as a wildcard). Effective
-    after a restart, no connection drop. EEE in *Medium* and *Network*, Interrupt Moderation in *Hard*.
-  - New: **interrupt view** (Diagnose → Interrupts, read-only) — per PCI device MSI or line interrupt as
-    Windows really allocated it, messages, priority, core assignment, shared line interrupts, with notes.
-  - Fixed: "Set 0.5ms Timer Resolution" set no resolution — `GlobalTimerResolutionRequests` only lets a
-    program's request apply system-wide again. Renamed to *Let timer requests apply system-wide* with an
-    honest description; marked as needing a restart; revert now removes the value (Windows default).
-  - Fixed: German texts in the English app — tweak and preset names in the log and dialogs, the status
-    table (active / reset / active externally), dialog titles, "Done.", the registry backup summary, the
-    duplicate power plan note; leftovers found by the remnant scan are now shown in amber in English too.
-  - Registry backup also covers the game profile keys. 109 tweaks.
-  - 1214 checks in 33 suites, all green.
-
-- **Round 31 — the precise GPU watchdog** (build 38):
-  - New: a **flight recorder** while the app runs (window or tray): clock, voltage, power, temperature
-    and load once a second, the last minute also on disk (written every few seconds under load, once a
-    minute when idle) — so a crash that restarts the PC leaves the seconds before it.
-  - New: **live watch** — the System event log is read every few seconds from where it was last time
-    (classic event log API, no PowerShell). A game's GPU hang (nvlddmkm 13 / 14 / 153, Display 4101) that
-    is none of the app's own loads (tune, stress test, FurMark run, Afterburner restart for a profile)
-    gives a Windows notification; the dialog comes when the user is back in the app, never over a game.
-  - The dialog names the state just before the hang (voltage / clock / power / temperature) and offers to
-    lower **only the curve points involved** by 30 MHz (memory and the rest of the curve stay). If the same
-    points of the same profile fail again, the whole profile is made safer (−30 MHz, memory −200).
-  - An unexpected restart (Kernel-Power 41) counts as a GPU crash only when the recording shows the card
-    under load until it ended — idle restarts (power cut, reset button) are left out.
-  - The next curve tune adds the reset margin (+30 MHz, not stacked) at points near a voltage where games
-    hung on this card.
-  - The test battery runs at the lowest CPU priority by itself and gives numpy one thread (it often runs
-    next to a game).
-  - 1266 checks in 34 suites, all green.
-
-- **Round 32 — an external review checked against the code** (build 39):
-  - Fixed: the GPU watchdog's start check and a live fault could open a second dialog — the dialog
-    waits in its own event loop, where the 5-s start timer and the pending poll keep running. One
-    check / dialog at a time now; a live fault that arrives meanwhile waits and gets its own check
-    after the dialog closed.
-  - Fixed: a CUDA error while the stress worker set up its load (inputs, reference product) fell back
-    to a CPU load silently; the tester called that a hang only after 30 s. When an earlier run of the
-    tester delivered results, CUDA works on that card: the worker now reports a compute error at once.
-    On a first run (a PC where CUDA does not start) the CPU fallback stays.
-  - 1278 checks in 35 suites, all green.
 
 ### 🔎 Reviewed, verified NOT a bug
 

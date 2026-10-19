@@ -1,5 +1,5 @@
 {
-  "build": 39,
-  "date": "2026-10-18",
-  "notes": "GPU-Wächter öffnet nie zwei Dialoge; ein CUDA-Fehler beim Start eines Testschritts zählt sofort als Instabilität, statt erst nach 30 s als Hänger."
+  "build": 40,
+  "date": "2026-10-19",
+  "notes": "Härtetest: 3D, Video-Encoder, Rechnen und Speicher zugleich (wie Spielen mit Stream) — im Stresstest und als letzte Tuner-Stufe. Jeder Endtest-Fehler senkt gezielt die Kurve an der Fehlerstelle, danach laufen alle Endtests neu. Vergleich mit Standard immer ganz am Ende, jeder Tune startet gleich warm."
 }

@@ -34,11 +34,14 @@ def flat_from(profile) -> int:
 
 def measured_points(profile) -> list:
     """[(mV, MHz)] the tune measured and used (after its safety margins); none for a Quick
-    profile (one offset, its single curve point only marks where it is flat from)."""
+    profile (one offset, its single curve point only marks where it is flat from). Points above
+    a Rundum profile's cap are left out: the card never runs them (the curve is flat from the
+    cap) — drawn, such a point floated alone above the flat line."""
     if (getattr(profile, "notes", "") or "").startswith("[OC+UV]"):
         return []
+    cap = getattr(profile, "curve_cap_mv", 0) or 0
     return sorted((float(mv), float(f)) for mv, f in (profile.curve_points or [])
-                  if isinstance(mv, (int, float)) and isinstance(f, (int, float)))
+                  if isinstance(mv, (int, float)) and isinstance(f, (int, float)) and (not cap or mv <= cap))
 
 
 def profile_line(curve, profile, lo: float = LO_MV, hi: float = HI_MV) -> list:

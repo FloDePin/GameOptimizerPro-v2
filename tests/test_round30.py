@@ -249,7 +249,14 @@ try:
     import psutil
     me = GP.GameProfile(exe=psutil.Process().name().lower(), path=sys.executable)
     s = GP.status(me)
-    check(s.running >= 1 and s.run_cpu == psutil.Process().nice() and s.run_io is not None,
+    # any running process of that name (other python.exe may run next to the battery, e.g. load workers)
+    def _nice(p):
+        try:
+            return p.nice()
+        except (psutil.Error, OSError):
+            return None                  # ended meanwhile / not readable
+    nices = {_nice(p) for p in psutil.process_iter(["name"]) if (p.info.get("name") or "").lower() == me.exe}
+    check(s.running >= 1 and s.run_cpu in nices and s.run_io is not None,
           f"live check: a running process' real priority is read ({s.run_cpu}, I/O {s.run_io})")
     check(GP.cpu_matches(me, psutil.HIGH_PRIORITY_CLASS) and not GP.cpu_matches(me, psutil.NORMAL_PRIORITY_CLASS)
           and GP.cpu_matches(me, None) is None, "priority class compared with the profile")
@@ -410,5 +417,7 @@ finally:
     except OSError:
         pass
 
+import shutil  # noqa: E402
+shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{len(FAILS)} failure(s)")
 sys.exit(1 if FAILS else 0)

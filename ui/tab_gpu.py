@@ -32,11 +32,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 # power limit. Quick stays: half the time, and it needs no curve.
 MODES = [
     ("curve", "Rundum", "All-round",
-     "Empfohlen, am gründlichsten (60–95 min) — misst die V/F-Kurve alle 25 mV Punkt für Punkt "
+     "Empfohlen, am gründlichsten (70–105 min) — misst die V/F-Kurve alle 25 mV Punkt für Punkt "
      "(wie HYDRA), baut daraus eine eigene Kurve, vergleicht per FurMark-Benchmark und wählt nach "
      "dem Ziel: Max. Leistung, Ausgewogen oder Effizienz (Undervolting). Endtest: 5 min FurMark + "
      "Rechenprüfung, danach ein Bericht.",
-     "Recommended, the most thorough (60–95 min) — measures the V/F curve point by point every "
+     "Recommended, the most thorough (70–105 min) — measures the V/F curve point by point every "
      "25 mV (like HYDRA), builds an own curve from it, compares with FurMark benchmarks and picks "
      "by the goal: max performance, balanced or efficiency (undervolting). Final test: 5 min "
      "FurMark + compute check, then a report."),
@@ -210,6 +210,8 @@ class GpuTunerTab(Page):
         self.v_final_dur = tk.IntVar(value=120)
         self.v_mem_max   = tk.IntVar(value=1000)
         self.v_mem_stage = tk.BooleanVar(value=True)
+        self.v_hard_test = tk.BooleanVar(value=True)   # round 33: hardness test as the last stage
+        self.v_enc_comp = tk.BooleanVar(value=True)    # round 33: the video encoder next to every step
         self.v_ab_slot   = tk.IntVar(value=2)
         # Rundum-Tuner
         self.v_goal      = tk.StringVar(value="balanced")
@@ -280,6 +282,7 @@ class GpuTunerTab(Page):
             "As in the All-round mode: +500, then 100-MHz steps up to 'Max memory gain', every step "
             "with the whole card under load. Takes about 6–10 min longer."),
             font=F_XS, fg=DIM, bg=CARD_BG).pack(fill="x", pady=(4, 0))
+        self._hard_check(params.body)
         # The fields hold the Quick mode's defaults now — the start mode (Rundum)
         # has its own (clock gain per point, memory up to +1000).
         self._apply_mode_to_config(self.v_mode.get())
@@ -430,6 +433,7 @@ class GpuTunerTab(Page):
                  text=tr("Speicher mit übertakten", "Overclock memory too"), font=F_BB).pack(side="left")
         HelpTip(memf, tr(H_MEM_MAX[2] + " " + H_MEM_STAGE[0], H_MEM_MAX[3] + " " + H_MEM_STAGE[1]),
                 bg=CARD_BG).pack(side="left", padx=(6, 0))
+        self._hard_check(cp.body)
 
         # the whole procedure with the current values (updates while they change)
         steps = tk.Frame(cp.body, bg=CARD_BG2)
@@ -439,7 +443,7 @@ class GpuTunerTab(Page):
         self.lbl_curve_steps = WrapLabel(steps, text="", font=F_XS, fg=TEXT2, bg=CARD_BG2)
         self.lbl_curve_steps.pack(fill="x", padx=10, pady=(0, 8))
         for v in (self.v_point_mv, self.v_step_dur, self.v_safety, self.v_mem_max, self.v_fm_final,
-                  self.v_final_dur, self.v_core_max, self.v_mem_stage):
+                  self.v_final_dur, self.v_core_max, self.v_mem_stage, self.v_hard_test, self.v_enc_comp):
             v.trace_add("write", lambda *_a: self._update_curve_steps())
         self._update_curve_steps()
         self._update_furmark_status()
@@ -458,6 +462,13 @@ class GpuTunerTab(Page):
             mem_on = bool(self.v_mem_stage.get())
         except tk.TclError:
             mem_on = True
+        hard_de, hard_en = self._hard_line()
+        back = tr(f". Fällt ein Test durch: die Punkte um die Fehlerspannung −15 MHz (unbekannt: die ganze Kurve; "
+                  f"Speicher nur bei einem Fehler im Speicher-Test), dann ALLE Endtests noch einmal — bis alles am "
+                  f"Stück besteht (höchstens {AutoTuner.FINAL_RETRIES + 1} Versuche)",
+                  f". If a test fails: the points around the fault's voltage −15 MHz (unknown: the whole curve; "
+                  f"memory only after a failure in the memory test), then EVERY final test again — until all pass "
+                  f"in one go (at most {AutoTuner.FINAL_RETRIES + 1} tries)")
         try:
             mem_start = self._mem_start()
         except Exception:
@@ -469,7 +480,8 @@ class GpuTunerTab(Page):
                   f"of FurMark + verified memory copies per step; used: the highest step that passed"
                   if mem_on else "4. Memory: stays at stock (unticked)")
         self.lbl_curve_steps.config(text=tr(
-            f"1. Standard messen: Boost-Last + 60 s FurMark-Benchmark (der Vergleichswert)\n"
+            f"1. Abkühlen auf höchstens 45 °C (bis 3 min — jeder Tune startet gleich warm), dann Standard "
+            f"messen: Boost-Last + 60 s FurMark-Benchmark (der Vergleichswert)\n"
             f"2. Kurve: alle {pmv} mV ein Punkt, von der höchsten erreichten Spannung bis zur Mindestspannung "
             f"der Karte unter Last (ab dem zweiten Tune bekannt, sonst bis 850 mV). "
             f"Je Punkt +15 MHz, bis ein Fehler kommt, dann +7 / +5 MHz (höchstens +{cmax} MHz), "
@@ -479,9 +491,12 @@ class GpuTunerTab(Page):
             f"{mem_de}\n"
             f"5. Vergleich: 60 s FurMark je Kurven-Variante — Auswahl nach dem Ziel (Ausgewogen / "
             f"Effizienz: dazu eine Feinsuche in der Mitte zur Nachbar-Variante)\n"
-            f"6. Endtest: {fm} min FurMark + {ver} s Rechenprüfung + Spiel-Endtest: 1 min abkühlen, 5 min Lastwechsel, 4 min Boost-Punkt "
+            f"6. Endtest: {fm} min FurMark + {ver} s Rechenprüfung + Spiel-Endtest: 1 min abkühlen, 5 min Lastwechsel, 4 min Boost-Punkt"
+            f"{hard_de}{back}\n"
+            f"7. Nachher: 60 s FurMark mit dem fertigen Profil, abgekühlt wie beim Standard (der Vergleichswert) "
             f"→ Profil + Bericht",
-            f"1. Measure stock: boost load + 60 s FurMark benchmark (the reference)\n"
+            f"1. Cool down to 45 °C at most (up to 3 min — every tune starts equally warm), then measure "
+            f"stock: boost load + 60 s FurMark benchmark (the reference)\n"
             f"2. Curve: a point every {pmv} mV, from the highest voltage reached down to the card's minimum "
             f"voltage under load (known from the second tune on, else down to 850 mV). "
             f"Per point +15 MHz until a failure, then +7 / +5 MHz (at most +{cmax} MHz), "
@@ -491,8 +506,67 @@ class GpuTunerTab(Page):
             f"{mem_en}\n"
             f"5. Compare: 60 s FurMark per curve variant — picked by the goal (balanced / "
             f"efficiency: plus a fine search halfway to the neighbouring variant)\n"
-            f"6. Final test: {fm} min FurMark + {ver} s compute check + game test: 1 min cool-down, 5 min load changes, 4 min boost point "
+            f"6. Final test: {fm} min FurMark + {ver} s compute check + game test: 1 min cool-down, 5 min load changes, 4 min boost point"
+            f"{hard_en}{back}\n"
+            f"7. After: 60 s FurMark on the finished profile, cooled down like the stock run (the comparison) "
             f"→ profile + report"))
+
+    HARD_MIN = 10
+
+    def _hard_check(self, parent):
+        """Round 33: the video encoder next to every step + the hardness test as the last stage
+        of both modes (core/hardness_test.py)."""
+        row = tk.Frame(parent, bg=CARD_BG)
+        row.pack(fill="x", pady=(10, 0))
+        CheckBox(row, self.v_enc_comp, accent=CYAN, bg=CARD_BG,
+                 text=tr("Mit Video-Encoder daneben testen", "Test with the video encoder running"),
+                 font=F_BB).pack(side="left")
+        HelpTip(row, tr(
+            "Jeder Testschritt läuft mit dem Video-Encoder (NVENC) daneben — so wie beim Aufnehmen oder "
+            "Streamen. Gemessen: Eine Kurve, die jeden Einzeltest bestand, rechnete mit dem Encoder "
+            "daneben nach Minuten falsch, auf Standard nie. So findet der Tuner die Grenze, die auch dann "
+            "hält. Kostet keine Extra-Zeit; ohne NVENC laufen die Schritte wie bisher.",
+            "Every test step runs with the video encoder (NVENC) next to it — as when recording or "
+            "streaming. Measured: a curve that passed every single test computed wrong within minutes "
+            "with the encoder running, never at stock. So the tuner finds the limit that holds then too. "
+            "No extra time; without NVENC the steps run as before."), bg=CARD_BG).pack(side="left", padx=(6, 0))
+        row = tk.Frame(parent, bg=CARD_BG)
+        row.pack(fill="x", pady=(6, 0))
+        CheckBox(row, self.v_hard_test, accent=CYAN, bg=CARD_BG,
+                 text=tr(f"Härtetest am Ende (+{self.HARD_MIN} min)", f"Hardness test at the end "
+                         f"(+{self.HARD_MIN} min)"), font=F_BB).pack(side="left")
+        HelpTip(row, tr(
+            "Zum Schluss mehrere Lasten gleichzeitig, wie ein Spiel, das aufgenommen oder gestreamt wird: "
+            "3D (FurMark), der Video-Encoder (NVENC), Rechnen und Speicher — mit Pausen dazwischen. Die "
+            "Einzeltests davor haben diese Kombination nie. Fällt er durch, nimmt der Tuner an der "
+            "betroffenen Spannung einen Schritt zurück und testet erneut.",
+            "At the end several loads at once, like a game that is recorded or streamed: 3D (FurMark), the "
+            "video encoder (NVENC), compute and memory — with pauses in between. The single tests before "
+            "it never have this combination. If it fails, the tuner steps back at the voltage involved and "
+            "tests again."), bg=CARD_BG).pack(side="left", padx=(6, 0))
+
+    def _hard_on(self) -> bool:
+        try:
+            return bool(self.v_hard_test.get())
+        except tk.TclError:
+            return True
+
+    def _enc_on(self) -> bool:
+        try:
+            return bool(self.v_enc_comp.get())
+        except tk.TclError:
+            return True
+
+    def _hard_line(self) -> tuple:
+        """The encoder next to every step + the last stage, in words — "" when both are off.
+        (Twice: the callers put it into both language branches of their text.)"""
+        s = ""
+        if self._enc_on():
+            s = tr(" (jeder Schritt mit Video-Encoder daneben)", " (every step with the video encoder next to it)")
+        if self._hard_on():
+            s += tr(f" + Härtetest: {self.HARD_MIN} min 3D + Video-Encoder + Rechnen/Speicher zugleich",
+                    f" + hardness test: {self.HARD_MIN} min 3D + video encoder + compute/memory at once")
+        return s, s
 
     def _select_goal(self, goal_id: str):
         self.v_goal.set(goal_id)
@@ -654,7 +728,7 @@ class GpuTunerTab(Page):
     # defaults back (e.g. "Speicher-Plus max." 700 -> 1000), and so did every app start.
     # The clock gain is per mode: per curve point (Rundum) vs one offset (Schnell).
     USER_FIELDS = ("core_step", "pwr_min", "max_temp", "step_dur", "final_dur", "mem_max", "mem_stage",
-                   "ab_slot", "goal", "fm_final", "safety", "point_mv")
+                   "ab_slot", "goal", "fm_final", "safety", "point_mv", "hard_test", "enc_comp")
 
     @staticmethod
     def _load_user_settings() -> dict:
@@ -724,7 +798,8 @@ class GpuTunerTab(Page):
 
     # The fields the card's defaults don't set (see the IntVars in _build)
     FIXED_DEFAULTS = {"step_dur": 45, "final_dur": 120, "mem_stage": True, "ab_slot": 2,
-                      "goal": "balanced", "fm_final": 5, "safety": 45, "point_mv": 25}
+                      "goal": "balanced", "fm_final": 5, "safety": 45, "point_mv": 25, "hard_test": True,
+                      "enc_comp": True}
 
     def _reset_user_settings(self):
         """Forget the user's values: the card's defaults for the current mode."""
@@ -963,8 +1038,12 @@ class GpuTunerTab(Page):
         per_pt = 5 if pmv >= 50 else 4
         mem_start = self._mem_start()
         mem_steps = max(1, (self.v_mem_max.get() - mem_start) // 100 + 1)
+        hard_on = self._hard_on()
         est = (150 + n_pts * per_pt * (step_s + 10) + 45 + 600   # + 600: game test (round 16)
-               + (mem_steps * (step_s + 15) if mem_on else 0) + 330 + fm_s + ver_s + 60)
+               + (mem_steps * (step_s + 15) if mem_on else 0) + 330 + fm_s + ver_s + 60
+               + (self.HARD_MIN * 60 + 70 if hard_on else 0)      # hardness test (round 33) + pauses
+               + 150)                                             # after benchmark at the very end + cool-down
+        hard_de, hard_en = self._hard_line()
         lo, hi = int(est * 0.8 / 60), int(est * 1.3 / 60 + 0.999)
         gname = next(tr(de, en) for gid, de, en, _d, _e in GOALS if gid == goal)
         prior, from_profile = self._curve_prior()
@@ -997,7 +1076,7 @@ class GpuTunerTab(Page):
             f"Messpunkte: alle {pmv} mV ab der höchsten erreichten Spannung, Testdauer je Schritt "
             f"{step_s} s, Sicherheitsabzug {self.v_safety.get()} MHz{start}\n"
             f"Benchmark: {bench}\n{mem_line}\n"
-            f"Endtest: {fm_s // 60} min FurMark + {ver_s} s Rechenprüfung{volt_line}\n\n"
+            f"Endtest: {fm_s // 60} min FurMark + {ver_s} s Rechenprüfung{hard_de}{volt_line}\n\n"
             f"Dauer ca. {lo}–{hi} Minuten. Afterburner startet bei jedem Schritt kurz neu (minimiert). "
             f"Während des Tests nicht spielen und die FurMark-Fenster nicht anklicken (das Fenster vorne "
             f"bekommt auf der GPU Vorrang — die Speicherprüfung käme dann kaum zum Zug). Start?",
@@ -1007,7 +1086,7 @@ class GpuTunerTab(Page):
             f"Measured points: every {pmv} mV from the highest voltage reached, test time per step "
             f"{step_s} s, safety margin {self.v_safety.get()} MHz{start}\n"
             f"Benchmark: {bench}\n{mem_line}\n"
-            f"Final test: {fm_s // 60} min FurMark + {ver_s} s compute check{volt_line}\n\n"
+            f"Final test: {fm_s // 60} min FurMark + {ver_s} s compute check{hard_en}{volt_line}\n\n"
             f"Takes about {lo}–{hi} minutes. Afterburner restarts briefly for every step "
             f"(minimised). Don't play during the test and don't click the FurMark windows (the window in "
             f"front gets priority on the GPU — the memory check would hardly get a turn). Start?")
@@ -1019,8 +1098,9 @@ class GpuTunerTab(Page):
             final_bench_s=fm_s, curve_safety_mhz=self.v_safety.get(),
             curve_safety_top_mhz=self.v_safety.get() + 15, curve_prior_mhz=prior,
             mem_offset_mhz=0, mem_stage=mem_on, mem_oc_max_mhz=max(100, self.v_mem_max.get()),
-            ab_slot=slot, furmark_path=fm, bench_msaa=8, mem_curve_start_mhz=mem_start,
-            curve_anchor_step_mv=pmv,
+            ab_slot=slot, furmark_path=fm, bench_msaa=8, mem_curve_start_mhz=mem_start, start_cool_max_s=180,
+            curve_anchor_step_mv=pmv, hard_test=hard_on, hard_test_min=self.HARD_MIN,
+            encoder_companion=self._enc_on(),
         )
         self.tuner.config = cfg
         self.tuner.last_report_path = ""
@@ -1058,6 +1138,9 @@ class GpuTunerTab(Page):
         mode_str = tr("Schnell (OC + Undervolt)", "Quick (OC + undervolt)")
 
         mem_on = bool(self.v_mem_stage.get())
+        hard_on = self._hard_on()
+        hard_de, hard_en = self._hard_line()
+        add = self.HARD_MIN + 1 if hard_on else 0
         fm = self._furmark_v2()           # memory steps + the comparison with stock (60 s at start and end)
         mem_start = self._mem_start()
         load = (tr("FurMark + Datenprüfung", "FurMark + data check") if fm else
@@ -1073,14 +1156,14 @@ class GpuTunerTab(Page):
                f"Takt-Schritt {self.v_core_step.get()} MHz  |  Takt-Plus max. +{self.v_core_max.get()} MHz  |  "
                f"Power-Limit min. {self.v_pwr_min.get()} %  |  Temperatur-Grenze {self.v_max_temp.get()} °C\n"
                f"Testdauer je Schritt {self.v_step_dur.get()} s  |  Endtest {self.v_final_dur.get()} s "
-               f"+ Spiel-Endtest: 1 min abkühlen, 5 min Lastwechsel, 4 min Boost-Punkt\n"
+               f"+ Spiel-Endtest: 1 min abkühlen, 5 min Lastwechsel, 4 min Boost-Punkt{hard_de}\n"
                f"Sicherheitsabzug: {self.v_safety.get() + 15} MHz vom gefundenen Takt-Offset\n",
                f"Mode: {mode_str}\n"
                f"Afterburner profile slot: {slot}\n"
                f"Clock step {self.v_core_step.get()} MHz  |  Max clock gain +{self.v_core_max.get()} MHz  |  "
                f"Min power limit {self.v_pwr_min.get()} %  |  Temperature limit {self.v_max_temp.get()} °C\n"
                f"Test time per step {self.v_step_dur.get()} s  |  Final test {self.v_final_dur.get()} s "
-               f"+ game test: 1 min cool-down, 5 min load changes, 4 min boost point\n"
+               f"+ game test: 1 min cool-down, 5 min load changes, 4 min boost point{hard_en}\n"
                f"Safety margin: {self.v_safety.get() + 15} MHz off the clock offset found\n")
             + f"{mem_line}\n"
             + (tr("Vergleich mit Standard: je 60 s FurMark am Anfang und am Ende (Leistung und "
@@ -1091,10 +1174,8 @@ class GpuTunerTab(Page):
                   "and efficiency in the profile comparison).\n"
                   "FurMark windows open — don't close or click them (the window in front gets "
                   "priority on the GPU).\n") if fm else "")
-            + tr(f"\nDauer ca. {('43-58' if fm else '40-55') if mem_on else ('33-48' if fm else '30-45')} "
-                 f"Minuten. Start?",
-                 f"\nTakes about {('43-58' if fm else '40-55') if mem_on else ('33-48' if fm else '30-45')} "
-                 f"minutes. Start?")):
+            + tr(f"\nDauer ca. {self._quick_minutes(mem_on, fm, add)} Minuten. Start?",
+                 f"\nTakes about {self._quick_minutes(mem_on, fm, add)} minutes. Start?")):
             return
 
         cfg = TunerConfig(
@@ -1110,13 +1191,20 @@ class GpuTunerTab(Page):
             mem_stage=mem_on,
             mem_oc_max_mhz=max(100, self.v_mem_max.get()),
             mem_curve_start_mhz=mem_start,   # whole-card stage: cautious start, 100-MHz steps
-            furmark_path=fm, bench_msaa=8,   # FurMark: memory steps, comparison with stock
-            ab_slot=slot,
+            furmark_path=fm, bench_msaa=8, start_cool_max_s=180,   # FurMark: memory steps, comparison with stock
+            ab_slot=slot, hard_test=hard_on, hard_test_min=self.HARD_MIN,
+            encoder_companion=self._enc_on(),
         )
         self.tuner.config = cfg
         self.prog_var.set(0)
         self.live_graph.clear()
         self.tuner.start()
+
+    @staticmethod
+    def _quick_minutes(mem_on: bool, fm, add: int = 0) -> str:
+        """The Quick mode's duration ("43-58"), + `add` minutes (the hardness test)."""
+        lo, hi = (43, 58) if mem_on and fm else (40, 55) if mem_on else (33, 48) if fm else (30, 45)
+        return f"{lo + add}-{hi + add}"
 
     def _abort_tune(self):
         if messagebox.askyesno(tr("Abbrechen", "Abort"), tr("Tune abbrechen und die GPU auf Standard "

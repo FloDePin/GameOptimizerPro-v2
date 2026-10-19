@@ -55,6 +55,9 @@ class GpuStats:
     nvml_ok:        bool  = False
     mahm_ok:        bool  = False
     mahm_restarting: bool = False    # Afterburner is being restarted on purpose (tune step)
+    # Afterburner's clock from the same poll as voltage_mv (round 33): NVML's clock is an instant,
+    # Afterburner's voltage a 1-s poll — under bursty load the two don't belong to one moment
+    ab_core_mhz:    float = 0.0
 
 
 # NVML clock-event ("throttle") reasons — values from nvml.h. Running into the
@@ -1075,6 +1078,8 @@ class GpuMonitor:
                 stats.gpu_power_w    = mahm_data.gpu_power_w
             if mahm_data.gpu_temp > 0 and not nv:
                 stats.temp           = int(round(mahm_data.gpu_temp))
+            if mahm_data.core_clock > 0:
+                stats.ab_core_mhz = mahm_data.core_clock
             if mahm_data.core_clock > 0 and not (nv and stats.core_mhz > 0):
                 stats.core_mhz   = mahm_data.core_clock
             if mahm_data.shader_clock > 0:

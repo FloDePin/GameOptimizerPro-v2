@@ -75,6 +75,8 @@ class StressResult:
     throttle_note:  str   = ""     # which slowdown (NVML reason names) made throttle_hit
     last_voltage_mv: float = 0.0   # voltage just before the end / the failure (loaded)
     hang_detected:  bool  = False  # the load stopped delivering results (GPU hung)
+    fault_mv:       float = 0.0    # hardness test: the recorded voltage just before the fault, 0 = unknown
+    mem_fault:      bool  = False  # hardness test: the memory load failed (the step back takes memory)
 
     def perf(self, ref: "StressResult") -> float:
         """Performance relative to `ref` (1.0 = same). Work rate when both runs
@@ -125,6 +127,17 @@ class TunerConfig:
     game_cool_s:         int = 60
     game_transient_s:    int = 300
     game_boost_s:        int = 240
+    # Round 33 hardness test after the game test (both modes, _hard_test): several loads at once,
+    # like a game that is recorded or streamed — 3D + the video encoder + compute / memory
+    # (core/hardness_test.py). The single loads before it never had them together. Off here, on
+    # from the GPU tab: it starts real loads (FurMark, NVENC) — a simulated tune must never.
+    hard_test:           bool = False
+    hard_test_min:       float = 10
+    # Round 33: the video encoder next to every stability step (curve points, OC steps, final and
+    # game test) — the limit found is the one that holds while recording / streaming. No extra
+    # time (it runs in parallel); without NVENC the steps run as before. Off here, on from the
+    # GPU tab (a simulated tune never starts it).
+    encoder_companion:   bool = False
     # Quick mode: taken off the core offset found in Stage 1 (a uniform offset also
     # moves the top of the curve, where games boost — the Rundum top margin).
     core_safety_mhz:     int = 60
@@ -141,6 +154,9 @@ class TunerConfig:
     mem_curve_start_mhz: int = 500     # memory stage (whole card under load): first offset ...
     mem_curve_step_mhz:  int = 100     # ... then these steps up to mem_oc_max_mhz; also the margin
     crash_pause_s:       int = 20      # after a crash: give the driver time before the next run
+    reset_pause_s:       int = 30      # after a driver reset in the point search (round 33)
+    start_cool_c:        float = 45.0  # round 33: every tune starts at most this warm ...
+    start_cool_max_s:    int = 0       # ... idling at most this long first (GPU tab: 180; 0 = off)
     curve_prior_mhz:     int = 0       # start offset of the first point (e.g. last tune's core offset)
     curve_probe_s:       int = 20      # stock boost-load run: highest voltage the card reaches
     bench_s:             int = 60      # FurMark benchmark per candidate (and the stock run)
@@ -185,6 +201,15 @@ class StressTester:
         self._metrics: dict = {"RATE": [], "BW": [], "ERR": [], "LAST": 0.0}
         self._t0 = 0.0
         self._delivered = False        # a run of this tester got results (the load works here)
+        # Round 33: a second load next to the steps that allow it — "encode" = the video
+        # encoder, as when a game is recorded or streamed (TunerConfig.encoder_companion).
+        # Measured: a tuned curve that passed every single load computed wrong within
+        # minutes with the encoder running next to it; stock never did.
+        self.companion: Optional[str] = None
+        self.companion_off = ""        # why it can't run on this PC (no NVENC) — then without it
+        self._comp: Optional[subprocess.Popen] = None
+        self._comp_m: dict = {}
+        self._main_stop = self._comp_stop = ""
 
     def _worker_path(self):
         # Worker lives at project root, not in core/
@@ -193,15 +218,27 @@ class StressTester:
             "_stress_worker.py"
         )
 
-    def start(self, mode: str = "gemm"):
+    def _stop_path(self, tag: str) -> str:
+        import tempfile
+        p = os.path.join(tempfile.gettempdir(), f"gop_tstop_{os.getpid()}_{id(self)}_{tag}")
+        try:
+            os.remove(p)                       # a leftover of an earlier run
+        except OSError:
+            pass
+        return p
+
+    def start(self, mode: str = "gemm", stop_file: str = ""):
         wp = self._worker_path()
         self._metrics = {"RATE": [], "BW": [], "ERR": [], "LAST": 0.0}
         self._t0 = time.time()
+        self._main_stop = stop_file
         if os.path.exists(wp):
             try:
                 flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
                 # an earlier run delivered: CUDA works here, a start-up error is instability
                 env = dict(os.environ, GOP_STRESS_GPU_OK="1") if self._delivered else None
+                if stop_file:                 # it can be asked to end (next to the companion)
+                    env = dict(env or os.environ, GOP_STRESS_STOP_FILE=stop_file)
                 self._proc = subprocess.Popen(
                     [sys.executable, wp, str(os.getpid()), mode],  # GUI PID → dead-man switch
                     stdout=subprocess.PIPE,
@@ -258,14 +295,95 @@ class StressTester:
         result.crash_detected = True
         result.abort_reason   = CT.T("Treiber-Reset (TDR) erkannt", "TDR (GPU driver timeout) detected")
 
+    # ── round 33: the companion load ──────────────────────────────────────────
+    COMPANION_HANG_S = 10.0
+
+    def _start_companion(self):
+        self._comp_m = {"LAST": 0.0, "ERR": [], "NOENC": "", "T0": time.time()}
+        self._comp_stop = self._stop_path("c")
+        env = dict(os.environ, GOP_STRESS_STOP_FILE=self._comp_stop)
+        if self._delivered:
+            env["GOP_STRESS_GPU_OK"] = "1"
+        try:
+            self._comp = subprocess.Popen(
+                [sys.executable, self._worker_path(), str(os.getpid()), self.companion],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
+                text=True, encoding="utf-8", errors="replace", env=env,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+        except Exception:
+            self._comp = None
+            return
+        threading.Thread(target=self._read_companion, args=(self._comp, self._comp_m), daemon=True).start()
+
+    @staticmethod
+    def _read_companion(proc, m: dict):
+        try:
+            for line in proc.stdout:
+                m["LAST"] = time.time()
+                parts = line.split()
+                if parts and parts[0] == "ERR":
+                    m["ERR"].append(" ".join(parts[1:]))
+                elif parts and parts[0] == "NOENC":
+                    m["NOENC"] = " ".join(parts[1:]) or "no encoder"
+        except Exception:
+            pass
+
+    def companion_state(self) -> Optional[tuple]:
+        """None = fine / none running; ("off", why) = not possible on this PC;
+        ("error" | "hang" | "crash", detail) = a failure next to the step."""
+        p = self._comp
+        if p is None:
+            return None
+        m = self._comp_m
+        rc = p.poll()
+        if rc is not None:
+            if rc == 4 or m.get("NOENC"):
+                return ("off", m.get("NOENC") or "exit 4")
+            if m.get("ERR"):
+                e = m["ERR"][-1]
+                return ("hang" if e.startswith("stall") else "error", e)
+            return ("error" if rc == self.EXIT_COMPUTE_ERROR else "crash", f"exit {rc}")
+        now = time.time()
+        if m.get("LAST") and now - m["LAST"] >= self.COMPANION_HANG_S:
+            return ("hang", f"{now - m['LAST']:.0f} s")
+        if not m.get("LAST") and now - m.get("T0", now) >= self.START_HANG_S:
+            return ("hang", f"{now - m.get('T0', now):.0f} s")
+        return None
+
     def stop(self):
-        if self._proc:
+        """A load with a stop file is asked to end (its product finishes, the encoder closes
+        its session) — a kill in the middle of GPU work while another process encodes makes
+        the driver log nvlddmkm 153; the others as before."""
+        procs = [(self._proc, self._main_stop), (self._comp, self._comp_stop)]
+        for p, f in procs:
+            if p is not None and f:
+                try:
+                    Path(f).touch()
+                except OSError:
+                    pass
+        for p, f in procs:
+            if p is None:
+                continue
             try:
-                self._proc.terminate()
-                self._proc.wait(timeout=5)
+                if not f:
+                    p.terminate()
+                p.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                try:
+                    p.kill()
+                    p.wait(timeout=5)
+                except Exception:
+                    pass
             except Exception:
                 pass
-            self._proc = None
+        for f in (self._main_stop, self._comp_stop):
+            if f:
+                try:
+                    os.remove(f)
+                except OSError:
+                    pass
+        self._proc = self._comp = None
+        self._main_stop = self._comp_stop = ""
 
     def run(
         self,
@@ -273,14 +391,23 @@ class StressTester:
         max_temp: int,
         on_tick: Optional[Callable] = None,
         mode: str = "gemm",
+        companion: bool = False,
     ) -> StressResult:
+        """companion=True: the tester's companion load (self.companion) runs next to it — a
+        failure there fails the step like one of its own."""
         result = StressResult()
         temps, voltages, clocks, usages, mem_clocks = [], [], [], [], []
         steady_volts, powers = [], []
         recent_v: list = []                 # last few voltages (the loaded state before a crash)
         samples = capped = prot_run = 0
 
-        self.start(mode)
+        use_comp = bool(companion and self.companion and not self.companion_off)
+        if use_comp:                         # it can be asked to end, next to the companion
+            self.start(mode, stop_file=self._stop_path("m"))
+        else:
+            self.start(mode)
+        if use_comp:
+            self._start_companion()
         start = time.time()
         # The event log is read up to here (driver resets). 5 s before the step:
         # the step's own start-up belongs to it, as before.
@@ -377,6 +504,20 @@ class StressTester:
                                            f"or CUDA did not start)")
                 break
 
+            # The companion load (round 33): its wrong result, hang or crash is the step's
+            if use_comp:
+                st = self.companion_state()
+                if st and st[0] == "off":
+                    self.companion_off = st[1] or "off"       # no encoder here: on without it
+                    use_comp = False
+                elif st:
+                    result.crash_detected = True
+                    result.compute_error = st[0] == "error"
+                    result.hang_detected = st[0] == "hang"
+                    result.abort_reason = CT.T(f"Fehler in der Encoder-Last daneben ({st[1]})",
+                                               f"failure in the encoder load next to it ({st[1]})")
+                    break
+
             # Driver reset (event log) every 10 s, each look from where the last
             # one ended. It used to look only at "elapsed % 10 == 0": a look takes
             # a second or two itself, so later ones were skipped now and then,
@@ -392,7 +533,13 @@ class StressTester:
 
             time.sleep(1.0)
 
+        comp, comp_m = (self._comp, self._comp_m) if use_comp else (None, {})
         self.stop()
+        if comp is not None and not result.crash_detected and (comp_m.get("ERR") or comp.returncode == 3):
+            # its last frame / product was wrong as the loads ended (a load step down)
+            result.crash_detected = result.compute_error = True
+            result.abort_reason = CT.T("Fehler in der Encoder-Last daneben (beim Lastende)",
+                                       "failure in the encoder load next to it (as the loads ended)")
         if self._metrics.get("LAST"):
             self._delivered = True
         # The step's last seconds (after the last look) — a step only passes
@@ -751,9 +898,11 @@ class AutoTuner:
                     + (f" ({r.throttle_note})" if getattr(r, "throttle_note", "") else ""))
         return CT.T("Absturz", "Crash") if r.crash_detected else CT.T("Instabil", "Unstable")
 
-    # A failed final test is not the end: take one step back and run the final
-    # test again — only a configuration that PASSED it is ever saved.
-    FINAL_RETRIES = 4
+    # A failed final test is not the end: take one step back and run ALL final tests again
+    # (FurMark, compute check, game test, hardness test) — only a configuration that passed
+    # them in one go is ever saved. Round 33: up to 12 tries (was 5) — the user's rule: go on
+    # until everything holds, no shortcut.
+    FINAL_RETRIES = 11
 
     # Stage 2: a step that lost more than allowed, but at most this many times the
     # allowed loss, gets a cross-check — the 100 % reference measured again.
@@ -761,24 +910,20 @@ class AutoTuner:
 
     @staticmethod
     def _final_backoff(cfg: "TunerConfig", r: StressResult, attempt: int,
-                       core: int, mem: int, pwr: int):
+                       core: int, mem: int, pwr: int, core_backs: int = 0):
         """One step back after failed final test number `attempt` (1-based).
         -> (core, mem, pwr, what) or None when nothing is left to take back.
         Thermal failures lower the power limit first; instability (wrong results,
-        crash, driver reset) takes back what is most likely at its edge: the core
-        offset (found with 45-s steps, right at the edge), alternating with the
-        memory offset (errors that slip past GDDR6X's error correction also show
-        up as wrong results)."""
+        crash, driver reset) takes back the core offset (found with 45-s steps, right at
+        the edge); the memory offset only when the memory load failed, when CT.MEM_AFTER core
+        step-backs in a row (core_backs) did not help, or when there is no core offset left
+        (round 33 — it used to take every second turn)."""
         unstable = r.compute_error or r.crash_detected or r.tdr_detected
         thermal = not unstable and (r.throttle_hit or r.max_temp >= cfg.max_temp_c)
         if thermal and pwr - cfg.power_step_pct >= cfg.power_min_pct:
             p2 = pwr - cfg.power_step_pct
             return core, mem, p2, f"Power-Limit {pwr}→{p2} % ({CT.T('Temperatur', 'temperature')})"
-        mem_turn = attempt % 2 == 0 and mem > 0
-        if core > 0 and not mem_turn:
-            c2 = max(0, core - cfg.core_step_mhz)
-            return c2, mem, pwr, f"Core +{core}→+{c2} MHz"
-        if mem > 0:
+        if mem > 0 and (getattr(r, "mem_fault", False) or core_backs >= CT.MEM_AFTER or core <= 0):
             m2 = max(0, mem - cfg.mem_curve_step_mhz)
             return core, m2, pwr, f"{CT.T('Speicher', 'Memory')} +{mem}→+{m2} MHz"
         if core > 0:
@@ -828,6 +973,12 @@ class AutoTuner:
     def _run_safe(self):
         self._boot_profile = None             # the known-good profile is looked up per run
         self._open_run_log()
+        # The whole run is own GPU load for the watchdog — recorded in its session list, not
+        # only through the tune log's name (an archived log took the run's driver events with
+        # it: they counted as a game's afterwards).
+        from core import gpu_watchdog as WD
+        t_run = time.time()
+        WD.own_load_started(t_run)
         from core.power_state import keep_awake
         keep_awake(True)          # no sleep / screen-off in the middle of a step
         live_done = threading.Event()
@@ -852,6 +1003,7 @@ class AutoTuner:
         finally:
             live_done.set()
             keep_awake(False)
+            WD.record_own_load(t_run, time.time())
             self._close_run_log()
 
     # Minimum average GPU load during the baseline for a meaningful test.
@@ -861,6 +1013,8 @@ class AutoTuner:
         cfg     = self.config
         mode    = cfg.mode
         stress  = StressTester(self.monitor, self.cr, stop_event=self._stop)
+        stress.companion = "encode" if cfg.encoder_companion else None
+        self._comp_noted = False
         T = CT.T
 
         self._log("═══════════════════════════════════════")
@@ -876,6 +1030,9 @@ class AutoTuner:
         self._progress(5, T("Standard-Messung (Werkseinstellungen) …", "Measuring baseline (stock settings)..."))
         self._apply(0, 0, 100)
         time.sleep(2)
+        self._start_cool()
+        if self._stop.is_set():
+            return
 
         base = stress.run(
             cfg.baseline_s, cfg.max_temp_c,
@@ -998,7 +1155,7 @@ class AutoTuner:
                 )
                 self._tick(s)
 
-            result = stress.run(cfg.step_test_s, cfg.max_temp_c, on_tick=_tick1,
+            result = self._srun(stress, cfg.step_test_s, cfg.max_temp_c, on_tick=_tick1,
                                 mode="mixed")
             if self._stop.is_set():   # aborted mid-step: don't act on it
                 return
@@ -1218,7 +1375,7 @@ class AutoTuner:
         # step back and run the final test again (it used to save an UNTESTED
         # "conservative" profile and stop).
         self._set_state(TunerState.FINAL_TEST)
-        attempt, retries_used = 1, []
+        attempt, retries_used, core_backs = 1, [], 0
         game_top_mv = 0.0             # the game test's boost voltage: the Quick curve is flat from it
         while True:
             mem_note = f" | Mem+{best_mem_offset}MHz" if best_mem_offset else ""
@@ -1241,7 +1398,7 @@ class AutoTuner:
                 )
                 self._tick(s)
 
-            final = stress.run(cfg.final_test_s, cfg.max_temp_c, on_tick=_tick_final,
+            final = self._srun(stress, cfg.final_test_s, cfg.max_temp_c, on_tick=_tick_final,
                                mode="mixed")
             if self._stop.is_set():   # aborted mid-step: don't act on it
                 return
@@ -1254,10 +1411,20 @@ class AutoTuner:
                     final = game              # the failed phase decides the step back
                 else:
                     game_top_mv = float(game.steady_voltage_mv or 0)
+            if final.passed and cfg.hard_test:
+                hard = self._hard_test(96, {"name": T("Kandidat", "candidate"), "core_offset_mhz": best_core,
+                                            "mem_offset_mhz": best_mem_offset, "power_limit_pct": best_pwr})
+                if hard is None:
+                    return
+                if not hard.passed:
+                    final = hard
             if final.passed:
                 break
-            back = (self._final_backoff(cfg, final, attempt, best_core, best_mem_offset, best_pwr)
+            back = (self._final_backoff(cfg, final, attempt, best_core, best_mem_offset, best_pwr,
+                                        core_backs=core_backs)
                     if attempt <= self.FINAL_RETRIES else None)
+            if back is not None:
+                core_backs = core_backs + 1 if back[0] != best_core else 0
             tdr_note = " [TDR!]" if final.tdr_detected else ""
             if back is None:
                 self._log(T(f"  Endtest ✗{tdr_note}  {self._fail_reason(final)} — nichts mehr zurückzunehmen",
@@ -1268,9 +1435,9 @@ class AutoTuner:
             retries_used.append(what)
             self._set_state(TunerState.BACKOFF)
             self._log(T(f"  Endtest ✗{tdr_note}  {self._fail_reason(final)} — zurück: {what} → "
-                        f"Endtest wird wiederholt",
+                        f"Endtest wird wiederholt (alle Tests)",
                         f"  Final test ✗{tdr_note}  {self._fail_reason(final)} — back: {what} → "
-                        f"final test again"), "warning")
+                        f"final test again (every test)"), "warning")
             attempt += 1
             self._set_state(TunerState.FINAL_TEST)
 
@@ -1470,6 +1637,31 @@ class AutoTuner:
         mv = int(round(p.voltage_mv))
         return [[mv, int(round(p.base_mhz + core))]], mv
 
+    def _start_cool(self):
+        """Round 33: every tune starts at the same temperature — at stock, idle until the card is
+        at most start_cool_c, at most start_cool_max_s. A card still warm from a run before boosts a
+        step lower: live (19.10.) 1070 instead of 1075 mV at stock, so other measuring points, and
+        a stock benchmark of 7192 instead of ~7250 points."""
+        cfg = self.config
+        target, limit = float(cfg.start_cool_c or 0), int(cfg.start_cool_max_s or 0)
+        t = self._start_temp()
+        if target <= 0 or limit <= 0 or not t or t <= target:
+            return
+        T = CT.T
+        self._log(T(f"Abkühlen vor dem Start: {t:.0f} → {target:.0f} °C (jeder Tune startet gleich warm)",
+                    f"Cooling down before the start: {t:.0f} → {target:.0f} °C (every tune starts equally warm)"))
+        t0 = time.time()
+        while time.time() - t0 < limit:
+            if self._stop.wait(1.0):
+                return
+            t = self._start_temp()
+            self._progress(4, T(f"Abkühlen vor dem Start: {t:.0f} → {target:.0f} °C",
+                                f"Cooling down before the start: {t:.0f} → {target:.0f} °C"))
+            if t and t <= target:
+                return
+        self._log(T(f"  nach {limit} s noch {t:.0f} °C — der Tune startet trotzdem",
+                    f"  still {t:.0f} °C after {limit} s — the tune starts anyway"), "warning")
+
     def _cool_down(self, label: str, prog: int):
         """Before a comparison benchmark: idle until the card is back at the stock run's
         starting temperature (+ bench_cool_tol_c), at most bench_cool_max_s — the same
@@ -1614,9 +1806,22 @@ class AutoTuner:
         """After a crash the driver needs a moment: right after the live crash
         the next FurMark runs ended early with nonsense scores."""
         pause = int(getattr(self.config, "crash_pause_s", 0) or 0)
+        # one pause per crash: the game test pauses after its failure, the final test's step
+        # back would pause a second time right after (live 19.10.: twice 20 s)
+        if time.time() - getattr(self, "_paused_at", 0.0) < 5:
+            return
         if pause > 0 and not self._stop.is_set():
             self._log(CT.T(f"  Pause {pause} s — der Treiber erholt sich nach dem Absturz",
                            f"  {pause} s pause — the driver recovers from the crash"))
+            self._stop.wait(pause)
+            self._paused_at = time.time()
+
+    def _reset_pause(self):
+        """After a driver reset in the point search: reset_pause_s before the next step."""
+        pause = int(getattr(self.config, "reset_pause_s", 0) or 0)
+        if pause > 0 and not self._stop.is_set():
+            self._log(CT.T(f"      Pause {pause} s — der Treiber erholt sich nach dem Reset",
+                           f"      {pause} s pause — the driver recovers from the reset"))
             self._stop.wait(pause)
 
     def _test_point(self, stress: "StressTester", mv: int, mhz: int, base_mhz: float,
@@ -1626,6 +1831,7 @@ class AutoTuner:
         power limit, so the GPU sits exactly on that point — with every result
         checked. Passed only counts when the GPU really ran at the point."""
         cfg = self.config
+        after_reset, self._after_reset = getattr(self, "_after_reset", False), False
         self._apply_vf(0, mv, mhz, 0)
         time.sleep(2)
         off = mhz - base_mhz
@@ -1635,7 +1841,7 @@ class AutoTuner:
                                  f"{s.temp}°C | {s.voltage_mv:.0f} mV | {s.core_mhz:.0f} MHz")
             self._tick(s)
 
-        r = stress.run(cfg.step_test_s, cfg.max_temp_c, on_tick=tick, mode="boost")
+        r = self._srun(stress, cfg.step_test_s, cfg.max_temp_c, on_tick=tick, mode="boost")
         if self._stop.is_set():
             return CT.PointTest(False, reason="abgebrochen")
         passed = r.passed and not r.throttle_hit
@@ -1662,7 +1868,21 @@ class AutoTuner:
         else:
             tdr_note = " [TDR!]" if r.tdr_detected else ""
             self._log(f"    {mhz} MHz ({off:+.0f}) ✗{tdr_note}  {self._fail_reason(r)}", "warning")
-            time.sleep(5 if (r.tdr_detected or r.crash_detected) else 1)   # let the driver settle
+            if r.tdr_detected:
+                # The driver reset itself: it needs time. Live (19.10.) the next step, 5 s
+                # later, failed at a clock that had passed before.
+                self._reset_pause()
+                self._after_reset = True
+            else:
+                time.sleep(5 if r.crash_detected else 1)   # let the driver settle
+                if after_reset and not self._stop.is_set():
+                    # the first step after a reset failed: once more after the pause — a failure
+                    # that only came from the reset must not lower the point
+                    self._log(CT.T("      direkt nach dem Treiber-Reset — wird nach einer Pause einmal "
+                                   "wiederholt", "      right after the driver reset — once more after "
+                                   "a pause"))
+                    self._reset_pause()
+                    return self._test_point(stress, mv, mhz, base_mhz, label, prog)
         return CT.PointTest(passed, reached, r.tdr_detected or r.hang_detected,
                             "" if passed else self._fail_reason(r),
                             r.steady_voltage_mv, r.avg_core_mhz)
@@ -1909,7 +2129,7 @@ class AutoTuner:
                                        f"Game test ({n}): {e}/{d}s | {s.temp}°C | "
                                        f"{s.voltage_mv:.0f} mV | {s.core_mhz:.0f} MHz"))
                 self._tick(s)
-            last = stress.run(secs, cfg.max_temp_c, on_tick=tick, mode=mode)
+            last = self._srun(stress, secs, cfg.max_temp_c, on_tick=tick, mode=mode)
             if self._stop.is_set():
                 return None
             if not last.passed:
@@ -1923,6 +2143,64 @@ class AutoTuner:
                         f"  Game test {name} ✓  up to {last.max_core_mhz:.0f} MHz, "
                         f"{last.steady_voltage_mv:.0f} mV, max {last.max_temp:.0f} °C"))
         return last
+
+    def _srun(self, stress: "StressTester", *args, **kw) -> StressResult:
+        """A stability step with the companion load next to it (round 33); said once when the
+        encoder can't run on this PC."""
+        r = stress.run(*args, companion=True, **kw) if getattr(stress, "companion", None) else stress.run(*args, **kw)
+        if stress.companion and stress.companion_off and not getattr(self, "_comp_noted", False):
+            self._comp_noted = True
+            self._log(CT.T(f"  Encoder-Last nicht möglich ({stress.companion_off}) — die Schritte laufen ohne sie",
+                           f"  Encoder load not possible ({stress.companion_off}) — the steps run without it"),
+                      "warning")
+        return r
+
+    def _hard_test(self, prog: int, profile: dict) -> Optional[StressResult]:
+        """Round 33 — the hardness test on the settings to be saved (applied now): 3D, the
+        video encoder, compute and memory at once (core/hardness_test.py). -> a StressResult
+        the final test's step back understands (the failure's voltage in last_voltage_mv),
+        None = aborted."""
+        from core.hardness_test import HardnessTest
+        cfg = self.config
+        T = CT.T
+        self._log(T(f"Härtetest: {cfg.hard_test_min:.0f} min mehrere Lasten zugleich — 3D, Video-Encoder "
+                    f"(wie Aufnahme / Stream), Rechnen, Speicher",
+                    f"Hardness test: {cfg.hard_test_min:.0f} min of several loads at once — 3D, the video "
+                    f"encoder (like recording / streaming), compute, memory"))
+        levels = {"warning": "warning", "error": "error"}
+
+        def on_log(text, tag):
+            if tag != "dim":                    # the 10-s value lines stay in hard_*.log
+                self._log("  " + text, levels.get(tag, "info"))
+        try:
+            gpu = self.monitor.read().name or ""
+        except Exception:
+            gpu = ""
+        ht = (getattr(self, "hardness_factory", None) or HardnessTest)(
+                          self.monitor.read, self._log_dir, minutes=cfg.hard_test_min,
+                          furmark_path=cfg.furmark_path, max_temp=cfg.max_temp_c, profile=profile,
+                          stop_event=self._stop, gpu_name=gpu, record_field=False, on_log=on_log,
+                          on_progress=lambda pct, text: self._progress(prog, T("Härtetest", "Hardness test")
+                                                                       + f" {pct} %: {text}"))
+        r = ht.run()
+        if self._stop.is_set():
+            return None
+        res = StressResult(passed=r.passed, max_temp=r.peak_temp, max_core_mhz=r.max_mhz,
+                           steady_voltage_mv=r.max_mv, abort_reason=r.reason)
+        if r.aborted:                            # FurMark closed by hand: no verdict either way
+            self._log(T("  Härtetest nicht abgeschlossen — das Profil wird ohne ihn gespeichert",
+                        "  Hardness test not finished — the profile is saved without it"), "warning")
+            res.passed = True
+            res.aborted = True
+        elif r.unstable:
+            res.crash_detected = True
+            res.compute_error = r.kind in ("compute", "frame")
+            res.hang_detected = r.kind in ("hang", "stall")
+            res.tdr_detected = r.kind == "driver"
+            res.fault_mv = float((r.point or {}).get("mv") or 0)
+            res.last_voltage_mv = res.fault_mv        # 0 = unknown: the step back takes the whole curve
+            res.mem_fault = r.load == "mem"
+        return res
 
     def _curve_fail(self, msg: str):
         """End a run without a profile (Rundum, or a memory stage where even +0
@@ -1982,6 +2260,7 @@ class AutoTuner:
         8. save + report"""
         cfg = self.config
         T = CT.T
+        self._after_reset = False             # no reset of an earlier run counts here
         de = CT.is_de()
         goal = cfg.goal if cfg.goal in CT.GOALS else "balanced"
         gname = CT.GOAL_TEXT[goal][0 if de else 1]
@@ -2320,7 +2599,7 @@ class AutoTuner:
 
         # 7) final test — only what passed it is saved
         cur = list(anchors)
-        attempt, retries = 1, []
+        attempt, retries, curve_backs = 1, [], 0
         endurance: Optional[CT.Candidate] = None
         verify: Optional[StressResult] = None
         while True:
@@ -2346,7 +2625,7 @@ class AutoTuner:
                                    T(f"Rechen-Prüfung: {e}/{d}s | {s.temp}°C | {s.core_mhz:.0f} MHz",
                                      f"Compute check: {e}/{d}s | {s.temp}°C | {s.core_mhz:.0f} MHz"))
                     self._tick(s)
-                verify = stress.run(cfg.final_test_s, cfg.max_temp_c, on_tick=_tick_v, mode="mixed")
+                verify = self._srun(stress, cfg.final_test_s, cfg.max_temp_c, on_tick=_tick_v, mode="mixed")
                 if self._stop.is_set():
                     return
             game = None
@@ -2356,7 +2635,22 @@ class AutoTuner:
                     return
                 if not game.passed:
                     verify = game             # the failed phase decides the step back
+            hard = None
+            if endurance.passed and verify is not None and verify.passed and cfg.hard_test:
+                hard = self._hard_test(97, {"name": T("Kandidat", "candidate"),
+                                            "curve_points": [[int(mv), int(f)] for mv, f in sorted(cur)],
+                                            "curve_cap_mv": int(cap or 0), "mem_offset_mhz": mem,
+                                            "power_limit_pct": pwr})
+                if hard is None:
+                    return
+                if not hard.passed:
+                    verify = hard             # its failure voltage decides the step back
             if endurance.passed and verify is not None and verify.passed:
+                if hard is not None and not hard.aborted:
+                    notes.append(T(f"Härtetest ({cfg.hard_test_min:.0f} min 3D + Video-Encoder + Rechnen/Speicher "
+                                   f"zugleich): bestanden",
+                                   f"Hardness test ({cfg.hard_test_min:.0f} min 3D + video encoder + "
+                                   f"compute/memory at once): passed"))
                 if game is not None:
                     notes.append(T(f"Spiel-Endtest ({cfg.game_cool_s} s abkühlen, {cfg.game_transient_s // 60} "
                                    f"min Lastwechsel, {cfg.game_boost_s // 60} min Boost-Punkt): bestanden",
@@ -2380,28 +2674,33 @@ class AutoTuner:
                                           f"Rücknahme(n) — KEIN Profil gespeichert, GPU auf Standard",
                                           f"Final test failed ({why}), even after {len(retries)} "
                                           f"step-back(s) — NO profile saved, GPU back to stock"))
+            mem_was = mem
             cur, mem, cap, pwr, what = CT.final_backoff(attempt, cur, mem, cap, pwr, unstable,
                                                          thermal, cfg.curve_step_mhz, de, cap_mvs,
                                                          crash_mv=crash_mv,
-                                                         mem_step=cfg.mem_curve_step_mhz)
+                                                         mem_step=cfg.mem_curve_step_mhz,
+                                                         mem_fault=bool(verify is not None and verify.mem_fault),
+                                                         window_mv=cfg.curve_anchor_step_mv,
+                                                         curve_backs=curve_backs)
+            curve_backs = curve_backs + 1 if (unstable and mem == mem_was) else 0
             retries.append(what)
             self._set_state(TunerState.BACKOFF)
-            self._log(T(f"  Endtest ✗{tdr_note}  {why} — zurück: {what} → Endtest wird wiederholt",
-                        f"  Final test ✗{tdr_note}  {why} — step back: {what} → final test again"),
+            self._log(T(f"  Endtest ✗{tdr_note}  {why} — zurück: {what} → Endtest wird wiederholt (alle Tests)",
+                        f"  Final test ✗{tdr_note}  {why} — step back: {what} → final test again (every test)"),
                       "warning")
             attempt += 1
 
-        # The fair "after": the same short benchmark as the stock run.
-        after = chosen if (not retries and chosen in tested and chosen.passed) else None
+        # The fair "after": the same short benchmark as the stock run — always at the very end, on
+        # exactly what is saved (after every final test and step back), cooled down like the stock
+        # run. The candidates' numbers above only pick the variant.
+        after = self._bench(stress, cfg.bench_s, T("Nachher-Benchmark", "After benchmark"), 98, 1,
+                            cool=True)
         if after is None:
-            after = self._bench(stress, cfg.bench_s, T("Nachher-Benchmark", "After benchmark"), 98, 1,
-                                cool=True)
-            if after is None:
-                return
-            if not after.passed:          # the profile passed the final test — keep it, say so
-                notes.append(T(f"Nachher-Benchmark ✗ ({after.note}) — Vergleich vorher/nachher fehlt",
-                               f"After benchmark ✗ ({after.note}) — no before/after comparison"))
-                after = CT.Candidate(T("nicht gemessen", "not measured"))
+            return
+        if not after.passed:              # the profile passed the final test — keep it, say so
+            notes.append(T(f"Nachher-Benchmark ✗ ({after.note}) — Vergleich vorher/nachher fehlt",
+                           f"After benchmark ✗ ({after.note}) — no before/after comparison"))
+            after = CT.Candidate(T("nicht gemessen", "not measured"))
 
         # 8) save + report
         self._set_state(TunerState.SAVING)

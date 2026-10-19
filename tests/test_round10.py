@@ -14,6 +14,8 @@ import tempfile as _tf                     # never the app's own settings (run o
 from pathlib import Path as _P
 from core import app_settings as _AS
 _AS.SETTINGS_FILE = _P(_tf.mkdtemp(prefix="gop_set_")) / "settings.json"
+import atexit as _ax, shutil as _sh  # noqa: E401,E402
+_ax.register(_sh.rmtree, str(_AS.SETTINGS_FILE.parent), True)
 
 FAILS = []
 def check(c, label):
@@ -216,10 +218,11 @@ check(not any("Conservative" in m or "conservative" in m for m in logs), "no unt
 
 g = GPU(final_limit=160, mem_limit=900)
 t, logs, ab, saved = tune(g, mem_offset_mhz=1000)
-check([(c, m) for c, m, p in g.finals] == [(172, 1000), (157, 1000), (157, 900)],
-      f"with a memory offset: core first, then memory one 100-MHz step back (was: halved): {g.finals}")
-check(t.best_profile and t.best_profile.mem_offset_mhz == 900 and t.best_profile.core_offset_mhz == 157,
-      "saved: +157 core / +900 memory (what passed)")
+check([(c, m) for c, m, p in g.finals] == [(172, 1000), (157, 1000), (142, 1000), (127, 1000), (127, 900)],
+      f"with a memory offset: the core first; memory one 100-MHz step back after 3 core step-backs that "
+      f"did not help (round 33 — was: every second try): {g.finals}")
+check(t.best_profile and t.best_profile.mem_offset_mhz == 900 and t.best_profile.core_offset_mhz == 127,
+      "saved: +127 core / +900 memory (what passed)")
 
 g = GPU(never=True)
 t, logs, ab, saved = tune(g)
@@ -234,7 +237,10 @@ hot = StressResult(passed=False, max_temp=86, throttle_hit=True)
 err = StressResult(passed=False, compute_error=True)
 check(b(cfg, hot, 1, 100, 0, 90)[2] == 85, "thermal failure -> power limit -5 % first")
 check(b(cfg, err, 1, 100, 0, 100)[0] == 85, "instability -> core offset one step back")
-check(b(cfg, err, 2, 100, 500, 100)[1] == 400, "... alternating with the memory offset")
+check(b(cfg, err, 2, 100, 500, 100)[:2] == (85, 500), "... also on the second try: memory stays (round 33)")
+memerr = StressResult(passed=False, compute_error=True, mem_fault=True)
+check(b(cfg, memerr, 1, 100, 500, 100)[:2] == (100, 400) and b(cfg, err, 4, 100, 500, 100, core_backs=3)[:2]
+      == (100, 400), "memory: when its own test failed, or after 3 core step-backs that did not help")
 check(b(cfg, err, 1, 0, 0, 100) is None, "stock settings failing: nothing left to take back")
 check(b(cfg, err, 1, 0, 0, 90)[2] == 95, "power limit only: power limit back up")
 

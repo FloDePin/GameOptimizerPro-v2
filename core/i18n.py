@@ -38,10 +38,10 @@ def _save_lang(lang: str):
 
 STRINGS = {
     # ── App general ───────────────────────────────────────────────────────────
-    "app_subtitle":       {"de": "Windows & Gaming Optimizer v2.0 -- by FloDePin",
-                           "en": "Windows & Gaming Optimizer v2.0 -- by FloDePin"},
-    "admin_required_title": {"de": "GameOptimizerPro v2.0 — Admin erforderlich",
-                             "en": "GameOptimizerPro v2.0 — Admin required"},
+    "app_subtitle":       {"de": "Windows & Gaming Optimizer v2.1 -- by FloDePin",
+                           "en": "Windows & Gaming Optimizer v2.1 -- by FloDePin"},
+    "admin_required_title": {"de": "GameOptimizerPro v2.1 — Admin erforderlich",
+                             "en": "GameOptimizerPro v2.1 — Admin required"},
     "admin_required_msg": {
         "de": ("GameOptimizerPro benötigt Administrator-Rechte für:\n\n"
                "  • Windows Registry Tweaks\n"

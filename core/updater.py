@@ -1,8 +1,8 @@
 """
 GameOptimizerPro v2.0 — updates from GitHub (stdlib only)
 
-The version stays "2.0" across releases, so a release is identified by the
-integer in build.json (raised with every release). At start-up — when the user
+Releases are named by version only (2.1); the app tells its updates apart by the
+integer in build.json (raised with every update). At start-up — when the user
 leaves "check for updates" on — the app compares it with build.json on GitHub:
 
   * zip install: download the repository zip, unpack it to logs/update/ and

@@ -13,6 +13,8 @@ import tempfile as _tf                     # never the app's own settings (run o
 from pathlib import Path as _P
 from core import app_settings as _AS
 _AS.SETTINGS_FILE = _P(_tf.mkdtemp(prefix="gop_set_")) / "settings.json"
+import atexit as _ax, shutil as _sh  # noqa: E401,E402
+_ax.register(_sh.rmtree, str(_AS.SETTINGS_FILE.parent), True)
 
 FAILS = []
 
