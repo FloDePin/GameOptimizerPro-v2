@@ -73,7 +73,7 @@ Jede Karte ist anders — deine Werte zeigt der Profilvergleich in der App.
 ## Sicherheit
 
 - Keine BIOS- oder Treiberänderungen — die GPU läuft über MSI Afterburner und NVML; der BIOS-Guide zeigt nur, was einzustellen ist.
-- Jeder Tweak lässt sich einzeln oder komplett zurücksetzen; vor jeder Änderung ein Registry-Backup, ein Wiederherstellungspunkt ist ein Klick.
+- Jeder Tweak lässt sich einzeln oder komplett zurücksetzen; vor jeder Änderung ein Registry-Backup, vor jeder App-Entfernung ein Wiederherstellungspunkt (sonst ein Klick).
 - *Abbrechen* setzt die GPU sofort auf Standard; der GPU-Wächter meldet Abstürze im Spiel (auch einen, der den PC neu startet) und entschärft das Profil dort, wo es gehakt hat.
 
 ## FAQ
@@ -99,7 +99,7 @@ Windows 10 / 11 · Python 3.10+ · Admin-Rechte (der Launcher fragt per UAC) · 
 
 - 📖 [Alle Funktionen im Detail](docs/FEATURES.de.md) — samt Projektstruktur
 - 📜 [Changelog](CHANGELOG.md) (Englisch)
-- 🧪 1384 automatische Prüfungen in 36 Test-Suiten (`python tests\run_all_tests.py`), vor jedem Push
+- 🧪 1412 automatische Prüfungen in 37 Test-Suiten (`python tests\run_all_tests.py`), vor jedem Push
 - 🤝 Pull Requests sind willkommen — bei größeren Änderungen bitte zuerst ein Issue öffnen.
 
 <div align="center">

@@ -4,13 +4,13 @@ TESTS = ["test_ab_profile.py", "test_real_profile.py", "test_ab_controller.py", 
          "test_mahm_threads.py", "test_tuner_apply.py", "test_tuner_stages.py", "test_worker.py",
          "test_ui_ab.py", "test_selftest_tool.py", "test_services.py", "test_score_clean_display.py",
          "test_ui_new.py", "test_round10.py", "test_memstage.py", "test_round12.py",
-         "test_ui_round12.py", "test_round13.py", "test_ui_round13.py", "test_round14.py", "test_round15.py", "test_round16.py", "test_round17.py", "test_round18.py", "test_round20.py", "test_round23.py", "test_round24.py", "test_round28.py", "test_round29.py", "test_round30.py", "test_round31.py", "test_round32.py", "test_round33.py", "test_app_start.py", "ps_parse_all.py",
+         "test_ui_round12.py", "test_round13.py", "test_ui_round13.py", "test_round14.py", "test_round15.py", "test_round16.py", "test_round17.py", "test_round18.py", "test_round20.py", "test_round23.py", "test_round24.py", "test_round28.py", "test_round29.py", "test_round30.py", "test_round31.py", "test_round32.py", "test_round33.py", "test_round34.py", "test_app_start.py", "ps_parse_all.py",
          "ci_backslash_check.py"]
 SKIPPED = 2          # exit code of a test that can't run here (e.g. no Afterburner)
 # These map real (alpha-0) windows for real geometry. They run on their own,
 # never-shown desktop (run_hidden_desktop.py), so the battery can't take the
 # focus from a fullscreen game while it runs.
-WINDOWED = {"test_ui_new.py", "test_round10.py", "test_ui_round12.py", "test_round30.py", "test_round33.py"}
+WINDOWED = {"test_ui_new.py", "test_round10.py", "test_ui_round12.py", "test_round30.py", "test_round33.py", "test_round34.py"}
 env = dict(os.environ, PYTHONIOENCODING="utf-8")
 # The battery often runs next to a game: numpy (the fake GPU load of the stress-worker
 # tests) gets one thread instead of every core, and the battery — with every suite it

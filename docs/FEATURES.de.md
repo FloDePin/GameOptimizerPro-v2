@@ -87,7 +87,9 @@ Alles, was die App macht, im Detail. Zitierte Ergebnisse aus Live-Läufen stamme
 - **Drift-Prüfung beim Start:** Tweaks, die du angewendet hast und die ein Windows-Update zurückgesetzt hat, werden mit je einem Haken aufgelistet — mit Haken erneut anwenden (vorher Registry-Backup), ohne Haken nicht mehr nachfragen; „Später“ fragt beim nächsten Start wieder
 - **Entweder-oder:** nur ein Energieplan und ein DNS-Anbieter wählbar („⇄ entweder-oder“); ein Haken nimmt den anderen weg, und die Höchstleistungs-Pläne schalten im Netzbetrieb weder Bildschirm noch PC ab
 - **Immer nur ein Durchlauf gleichzeitig**, mit sichtbarem Fortschritt bei langen Tweaks (die Datenträgerbereinigung dauert Minuten); Mausrad funktioniert über der ganzen Liste
-- Live-Statusverifizierung — liest den tatsächlichen Registry-/Dienst-Zustand (nicht nur die JSON-Datei)
+- Live-Statusverifizierung — liest den tatsächlichen Registry-/Dienst-Zustand (nicht nur die JSON-Datei), alle Prüfungen wenige Sekunden nach dem Start; Gruppen-Überschriften, Preset-Karten („x/n aktiv“) und die Preset-Vorschau zählen, was auf dem System aktiv ist — auch wenn es außerhalb der App gesetzt wurde
+- **Snapshot & Vergleich:** speichert den Zustand aller Tweaks (z. B. vor einem Windows-Update) und listet später jeden Tweak, der sich seitdem geändert hat — der Snapshot bleibt über einen Neustart erhalten
+- **App-Entfernungen** sind markiert („🗑 entfernt Apps“) und bekommen vorher einen Wiederherstellungspunkt — das Einzige, was *Alles zurücksetzen* nicht zurückholt; reine Windows-11-Tweaks (Taskleiste, Start, Explorer) sind unter Windows 10 ausgeblendet
 - 3-stufige Statusanzeige: ● Grün (verifiziert aktiv) / ◑ Amber (angewendet, ungeprüft) / ○ Grau (inaktiv)
 - **Abgestufte Ein-Klick-Presets — 🟢 Minimal → 🟡 Mittel → 🔴 Hart (Debloat)** — kumulative Intensitätsstufen, die ein kuratiertes, ansteigendes Tweak-Set anwenden
 - **10 integrierte Presets:** die 3 Intensitätsstufen + Gaming, Privacy & Anti-Telemetry, Debloat, Network, Performance, Windows 11 Classic, Alle sicheren Tweaks

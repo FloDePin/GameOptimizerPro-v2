@@ -361,10 +361,11 @@ VERIFY_MAP: dict[str, str] = {
         '-Name BingSearchEnabled -EA SilentlyContinue).BingSearchEnabled; '
         'if($v -eq 0){"1"}else{"0"}'
     ),
+    # the part that works on every edition (the CloudContent policy only counts on Enterprise / Education)
     "disable_consumer_features": (
-        '$v=(Get-ItemProperty "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\CloudContent" '
-        '-Name DisableWindowsConsumerFeatures -EA SilentlyContinue).DisableWindowsConsumerFeatures; '
-        'if($v -eq 1){"1"}else{"0"}'
+        '$k=Get-ItemProperty "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager" '
+        '-EA SilentlyContinue; if($k -and $k.SilentInstalledAppsEnabled -eq 0 -and $k.OemPreInstalledAppsEnabled '
+        '-eq 0 -and $k.PreInstalledAppsEnabled -eq 0){"1"}else{"0"}'
     ),
     "disable_hibernation": (
         '$v=(Get-ItemProperty "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Power" '
@@ -582,29 +583,62 @@ SLOW_CHECKS = {"remove_cortana", "remove_xbox", "remove_bloatware",
                "disable_scheduled_defrag", "nvme_queue_depth", "disable_write_cache_flush"}
 
 
+# Windows starts a process with at most 32767 characters of command line. One PowerShell call per
+# batch passed every check in -Command; with 109 tweaks that grew past the limit (the network
+# adapter checks are long) and Windows refused to start it — no tweak had a status any more.
+# Batches are split below this size and the parts run side by side.
+MAX_SCRIPT_CHARS = 24000
+
+
+def _check_line(tid: str) -> str:
+    cmd = VERIFY_MAP[tid].strip()
+    # NOTE: $(...) subexpression — NOT (...). A grouping expression
+    # (...) only accepts a single pipeline, so any verify command
+    # written as two statements ("$v=...; if(...){}") fails to parse
+    # and silently returns no output (amber dot). $(...) allows the
+    # multi-statement form used by most registry checks.
+    return (f'try {{ $__r=$({cmd}); Write-Output "{tid}|$__r" }}'
+            f' catch {{ Write-Output "{tid}|ERR" }}')
+
+
+def split_batch(ids: list[str], limit: int = MAX_SCRIPT_CHARS) -> list[list[str]]:
+    """The ids in order, in parts whose script stays below `limit` characters."""
+    parts, cur, size = [], [], 0
+    for tid in ids:
+        n = len(_check_line(tid)) + 1
+        if cur and size + n > limit:
+            parts.append(cur)
+            cur, size = [], 0
+        cur.append(tid)
+        size += n
+    if cur:
+        parts.append(cur)
+    return parts
+
+
 class TweakVerifier:
     def __init__(self, timeout_s: int = 45):
         self.timeout = timeout_s
 
     def _run_batch(self, ids: list[str], expected: dict,
                    timeout: int) -> dict[str, VerifyResult]:
-        """Run a batch of verify commands in one PS call."""
+        """Run a batch of verify commands — one PS call per part (split_batch), side by side."""
         if not ids:
             return {}
+        parts = split_batch(ids)
+        if len(parts) == 1:
+            return self._run_part(parts[0], expected, timeout)
+        from concurrent.futures import ThreadPoolExecutor
+        results: dict[str, VerifyResult] = {}
+        with ThreadPoolExecutor(max_workers=len(parts)) as ex:
+            for r in ex.map(lambda p: self._run_part(p, expected, timeout), parts):
+                results.update(r)
+        return results
 
-        lines = []
-        for tid in ids:
-            cmd = VERIFY_MAP[tid].strip()
-            # NOTE: $(...) subexpression — NOT (...). A grouping expression
-            # (...) only accepts a single pipeline, so any verify command
-            # written as two statements ("$v=...; if(...){}") fails to parse
-            # and silently returns no output (amber dot). $(...) allows the
-            # multi-statement form used by most registry checks.
-            lines.append(
-                f'try {{ $__r=$({cmd}); Write-Output "{tid}|$__r" }}'
-                f' catch {{ Write-Output "{tid}|ERR" }}'
-            )
-        script = "\n".join(lines)
+    def _run_part(self, ids: list[str], expected: dict,
+                  timeout: int) -> dict[str, VerifyResult]:
+        """Run verify commands in one PS call."""
+        script = "\n".join(_check_line(tid) for tid in ids)
 
         results = {}
         try:

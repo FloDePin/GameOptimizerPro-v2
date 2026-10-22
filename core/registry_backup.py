@@ -36,6 +36,7 @@ BACKUP_KEYS: list[str] = [
     r"HKCU\Software\Microsoft\GameBar",
     r"HKCU\Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo",
     r"HKCU\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications",
+    r"HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager",
     r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced",
     r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved",
     r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects",

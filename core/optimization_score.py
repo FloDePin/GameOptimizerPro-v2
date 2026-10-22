@@ -38,6 +38,8 @@ def applicable(tweak: Tweak, hw) -> bool:
         return False
     if getattr(tweak, "requires_nvme", False) and not getattr(hw, "has_nvme", False):
         return False
+    if getattr(tweak, "requires_win11", False) and getattr(hw, "is_win10", False):
+        return False
     return True
 
 

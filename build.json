@@ -1,6 +1,6 @@
 {
-  "build": 41,
+  "build": 42,
   "date": "2026-10-22",
-  "notes": "Tuner und Stresstest-Seite belasten die GPU nicht mehr gleichzeitig (das verfälschte jede Messung). Update-Hinweise jetzt auch auf Englisch, Zeitangaben der Tuner-Modi korrigiert.",
-  "notes_en": "The tuner and the stress test page no longer load the GPU at the same time (that skewed every measurement). Update notes in English too, the tuner modes' durations corrected."
+  "notes": "Live-Status der Tweaks wie in v1: alle Prüfungen laufen wieder (die Abfrage war zu lang für Windows), Zähler und Presets zeigen, was wirklich aktiv ist. Neu: Snapshot & Vergleich, Wiederherstellungspunkt vor dem Entfernen von Apps, Durchsatz von Datenträger und Netzwerk im Dashboard.",
+  "notes_en": "Live tweak status as in v1: every check runs again (the query had grown too long for Windows), counts and presets show what is really active. New: snapshot & compare, a restore point before apps are removed, disk and network throughput on the dashboard."
 }

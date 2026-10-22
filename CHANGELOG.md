@@ -27,8 +27,11 @@ named by version only.
 - **App** — new interface with a sidebar, English throughout (German included), no console window,
   updates from GitHub, tray, stress tests (FurMark 1/2, 3DMark, hardness test).
 - **Update 2026-10-22** — the tuner and the stress test page never load the GPU at the same time;
-  update notes and the installer in English and German; durations of the tuner modes corrected.
-- 1384 checks in 36 suites, all green.
+  update notes and the installer in English and German; durations of the tuner modes corrected. Live tweak
+  status as in v1: every check runs again (the batch had grown past Windows' command-line limit), counts and
+  presets show what is active on the system; snapshot & compare; a restore point before app removals;
+  suggested apps really stopped on Home / Pro; disk and network throughput on the dashboard.
+- 1412 checks in 37 suites, all green.
 
 <details>
 <summary><b>Development log — rounds 8–33</b> (one or two lines per round)</summary>

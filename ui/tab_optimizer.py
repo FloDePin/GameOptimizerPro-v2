@@ -79,6 +79,7 @@ class OptimizerTab(Page):
         self.hw           = hw
         self.verifier     = TweakVerifier()
         self.exim         = ExportImport(profiles_dir, logs_dir)
+        self._logs_dir    = logs_dir
         self._vars:         dict[str, tk.BooleanVar] = {}
         self._user_presets: list[TweakPreset]         = []
         self._section_frames: dict[str, tk.Widget]    = {}
@@ -253,7 +254,7 @@ class OptimizerTab(Page):
         usable  = [tid for tid in preset.tweak_ids
                    if get_by_id(tid) and self._is_applicable(get_by_id(tid))]
         n       = len(usable)
-        already = sum(1 for tid in usable if self.runner.is_applied(tid))
+        already = sum(1 for tid in usable if self._is_active(tid))
         s_col   = GREEN if n and already == n else AMBER if already > 0 else DIM
         tk.Label(txt, text=f"{already}/{n} {'aktiv' if _lang == 'de' else 'active'}", font=F_XS,
                  fg=s_col, bg=CARD_BG, anchor="w").pack(fill="x")
@@ -279,8 +280,10 @@ class OptimizerTab(Page):
         tweaks   = [get_by_id(tid) for tid in resolve_selection(
                         [tid for tid in preset.tweak_ids if get_by_id(tid)], self.runner._applied)]
         skipped  = [t for t in tweaks if not self._is_applicable(t)]
+        # what is already active on the system is left alone — also when it was set outside the
+        # app: applying it again would make it the app's, and "Revert all" would switch it off
         to_apply = [t for t in tweaks
-                    if self._is_applicable(t) and not self.runner.is_applied(t.id)]
+                    if self._is_applicable(t) and not self._is_active(t.id)]
         if not to_apply:
             messagebox.showinfo("Preset", tr(f"'{preset_name(preset, current_lang())}' ist bereits vollständig aktiv.", f"'{preset_name(preset, current_lang())}' is already fully active."))
             return
@@ -290,11 +293,12 @@ class OptimizerTab(Page):
             msg += (tr(f"\n\n{len(skipped)} Tweak(s) passen nicht zu deiner Hardware und "
                     f"werden übersprungen ({', '.join(tweak_name(t, current_lang()) for t in skipped)}).", f"\n\n{len(skipped)} tweak(s) don't fit your hardware and are skipped ({', '.join(tweak_name(t, current_lang()) for t in skipped)})."))
         if needs_rb: msg += tr("\n\n⚠ Einige benötigen einen Neustart.", "\n\n⚠ Some need a restart.")
+        msg += self._removal_note(to_apply)
         if not messagebox.askyesno(tr("Preset anwenden", "Apply preset"), msg): return
 
         def _run():
             self.log.append(f"Preset: {preset.icon} {preset_name(preset, current_lang())}", "header")
-            self._backup_before("PreApply")
+            self._backup_before("PreApply", to_apply)
             for i, t in enumerate(to_apply):
                 self._apply_one(t, prefix=f"  [{i+1}/{len(to_apply)}] ")
             self.log.append(tr("Fertig.", "Done."), "success")
@@ -309,15 +313,36 @@ class OptimizerTab(Page):
             if t and not self._is_applicable(t):
                 state = "— n/a  "          # passt nicht zu dieser Hardware
             else:
-                state = "✓ aktiv" if self.runner.is_applied(tid) else "○ inaktiv"
+                state = tr("✓ aktiv", "✓ active") if self._is_active(tid) else tr("○ inaktiv", "○ inactive")
             lines.append(f"  {state}  {tweak_name(t, current_lang()) if t else tid}")
         messagebox.showinfo(f"Preset: {preset_name(preset, current_lang())}", "\n".join(lines))
 
-    def _backup_before(self, label: str):
+    def _removal_note(self, tweaks) -> str:
+        if not self._removes_apps(tweaks):
+            return ""
+        return tr("\n\n🗑 Dabei werden Apps entfernt — „Alle zurücksetzen“ holt sie nicht zurück. Vorher wird "
+                  "ein Windows-Wiederherstellungspunkt angelegt (damit kommen sie zurück).",
+                  "\n\n🗑 This removes apps — 'Revert all' does not bring them back. A Windows restore point is "
+                  "created first (that brings them back).")
+
+    @staticmethod
+    def _removes_apps(tweaks) -> bool:
+        """App removals — the one thing "Revert all" cannot bring back (only System Restore can)."""
+        return any(t is not None and t.id.startswith("remove_") for t in tweaks)
+
+    def _backup_before(self, label: str, tweaks=()):
         """Registry backup before a batch of changes (runs in the worker thread).
         TweakRunner.apply_batch()/revert_all() already did this — but the UI
         never calls those; it applies/reverts tweak by tweak. So the automatic
-        backup has to be triggered here, where the batches actually happen."""
+        backup has to be triggered here, where the batches actually happen.
+        A batch that removes apps gets a System Restore point first (v1 made one before every
+        apply; Windows itself makes at most one a day)."""
+        if self._removes_apps(tweaks):
+            from core import restore_point
+            self.log.append(tr("Wiederherstellungspunkt (nur er holt entfernte Apps zurück) …",
+                               "Restore point (only it brings removed apps back) …"), "dim")
+            ok, msg = restore_point.create("GameOptimizerPro before app removal")
+            self.log.append("  " + msg, "success" if ok else "warning")
         self.log.append(tr("Sichere Registry (Backup vor der Änderung) …", "Backing up the registry (before the change) …"), "dim")
         res = self.runner.backup_registry(label)
         if res is None:
@@ -416,10 +441,16 @@ class OptimizerTab(Page):
             pass
         self._pack_rows(key, None)
 
+    def _is_active(self, tid: str) -> bool:
+        """Active the way the status dot shows it (v1: the live state everywhere): confirmed on the
+        system (green, also when it was set outside the app) or applied by the app and not confirmed
+        yet (amber, e.g. waiting for a restart). Before the first check: what the app applied."""
+        return self._verify_states.get(tid) is True or self.runner.is_applied(tid)
+
     def _refresh_group_counts(self):
         for (key, group), h in self._group_heads.items():
             active = sum(1 for k2, _w, t in self._rows.get(key, [])
-                         if k2 == "row" and t.group == group and self.runner.is_applied(t.id))
+                         if k2 == "row" and t.group == group and self._is_active(t.id))
             try:
                 h["count"].config(text=tr(f"{h['n']} Tweaks · {active} aktiv", f"{h['n']} tweaks · {active} active"))
             except tk.TclError:
@@ -491,6 +522,8 @@ class OptimizerTab(Page):
             return False
         if getattr(tweak, "requires_nvme", False) and not self.hw.has_nvme:
             return False
+        if getattr(tweak, "requires_win11", False) and getattr(self.hw, "is_win10", False):
+            return False                # v1: greyed out on Windows 10
         return True
 
     def _build_tweak_row(self, parent, tweak: Tweak, color: str = ACC):
@@ -541,8 +574,11 @@ class OptimizerTab(Page):
         from core.tweaks import alternatives_of
         if alternatives_of(tweak.id):
             badge(badge_f, tr("⇄ entweder-oder", "⇄ either-or"), CYAN, bg).pack(anchor="e", pady=1)
+        elif tweak.id.startswith("remove_"):
+            # v1: "removes app" — only System Restore brings it back (a restore point is made first)
+            badge(badge_f, tr("🗑 entfernt Apps", "🗑 removes apps"), AMBER, bg).pack(anchor="e", pady=1)
         elif not (tweak.revert_cmd or "").strip():
-            badge(badge_f, "⟳ einmalig", TEXT2, bg).pack(anchor="e", pady=1)
+            badge(badge_f, tr("⟳ einmalig", "⟳ one-time"), TEXT2, bg).pack(anchor="e", pady=1)
         act = badge(badge_f, "✓ " + tr("aktiv", "active"), GREEN, bg)
         if is_applied:
             act.pack(anchor="e", pady=1)
@@ -621,13 +657,16 @@ class OptimizerTab(Page):
             # themselves before ever using GameOptimizerPro. _applied only ever
             # lists tweaks this app actually applied.
 
+            from datetime import datetime
+            self._verified_at = datetime.now().strftime("%H:%M")
             self._verifying = False
-            self.after(0, self._update_dots)
+            self.after(0, lambda: self._update_dots(checked=True))
 
         threading.Thread(target=_do, daemon=True).start()
 
-    def _update_dots(self):
-        """
+    def _update_dots(self, checked: bool = False):
+        """checked=True: a status check just finished — the preset cards count again too.
+
         Update dot labels. Priority order:
         1. v_state True  → ● green (registry confirmed active)
         2. v_state False AND is_applied → ◑ amber (we applied it, registry disagrees — trust JSON)
@@ -679,13 +718,22 @@ class OptimizerTab(Page):
         if applied_count:  parts.append(f"◑ {applied_count} " + tr("angewendet", "applied"))
         if inactive_count: parts.append(f"○ {inactive_count} " + tr("inaktiv", "inactive"))
         if open_count:     parts.append(f"○ {open_count} " + tr("offen", "open"))
+        at = getattr(self, "_verified_at", "")
+        if parts and at:
+            parts.append(tr(f"geprüft {at}", f"checked {at}"))
         self.lbl_verify_hint.config(
             text="   ".join(parts) if parts else tr("Keine Daten", "No data"),
             fg=GREEN if inactive_count == 0 and open_count == 0 else TEXT2)
+        if checked and getattr(self, "_preset_area", None) is not None:
+            try:
+                self._refresh_presets()            # "x/n active" from the live state
+            except tk.TclError:
+                pass
 
     # ── Verify Section ────────────────────────────────────────────────────────
 
     def _build_verify(self, p):
+        self._build_snapshot(p)          # packed at the bottom first: always visible
         card = Card(p, tr("Status-Prüfung", "Status verification"),
                     subtitle=tr("Liest den tatsächlichen Registry-Zustand und vergleicht ihn mit dem, "
                                 "was GameOptimizerPro angewendet hat. Findet Tweaks, die ein "
@@ -717,6 +765,101 @@ class OptimizerTab(Page):
                kind="primary", color=AMBER, height=30).pack(side="left")
         self.lbl_fix_result = tk.Label(fix_f, text="", font=F_MONO, fg=DIM, bg=CARD_BG)
         self.lbl_fix_result.pack(side="left", padx=12)
+
+    # ── Snapshot & compare (v1's dashboard tool; the snapshot survives a restart) ──
+
+    def _build_snapshot(self, p):
+        card = Card(p, tr("Snapshot & Vergleich", "Snapshot & compare"),
+                    subtitle=tr("Speichert den Zustand aller Tweaks — z. B. vor einem Windows-Update. „Vergleichen“ "
+                                "prüft erneut und listet jeden Tweak, der sich seitdem geändert hat. Der Snapshot "
+                                "bleibt über einen Neustart erhalten.",
+                                "Saves the state of every tweak — e.g. before a Windows update. 'Compare' checks "
+                                "again and lists every tweak that changed since. The snapshot survives a restart."),
+                    accent=CYAN)
+        card.pack(side="bottom", fill="x", pady=(12, 0))
+        self.btn_snap_cmp = button(card.actions, tr("Vergleichen", "Compare"), self._compare_snapshot, height=30)
+        self.btn_snap_cmp.pack(side="right")
+        self.btn_snap_take = button(card.actions, tr("Snapshot speichern", "Take snapshot"), self._take_snapshot,
+                                    kind="primary", color=CYAN, height=30)
+        self.btn_snap_take.pack(side="right", padx=(0, 6))
+        self.lbl_snap = tk.Label(card.body, text="", font=F_MONO, fg=DIM, bg=CARD_BG, anchor="w", justify="left")
+        self.lbl_snap.pack(fill="x")
+        tbl = Table(card.body, [("name", "Tweak", 320, "w"), ("before", tr("Vorher", "Before"), 90, "center"),
+                                ("now", tr("Jetzt", "Now"), 90, "center")], height=5)
+        tbl.pack(fill="x", pady=(6, 0))
+        self.snap_tree = tbl.tree
+        self.snap_tree.tag_configure("on", foreground=GREEN)
+        self.snap_tree.tag_configure("off", foreground=AMBER)
+        self._show_snapshot_info()
+
+    def _show_snapshot_info(self):
+        from datetime import datetime
+        from core import tweak_snapshot as TS
+        snap = TS.load(self._logs_dir)
+        if snap:
+            when = datetime.fromtimestamp(snap.get("t", 0)).strftime("%d.%m. %H:%M")
+            self.lbl_snap.config(text=tr(f"Snapshot vom {when} ({len(snap['states'])} Tweaks)",
+                                         f"Snapshot of {when} ({len(snap['states'])} tweaks)"), fg=TEXT2)
+        else:
+            self.lbl_snap.config(text=tr("Noch kein Snapshot.", "No snapshot yet."), fg=DIM)
+
+    def _snapshot_work(self, work):
+        """Check every tweak off the UI thread, then work(results) on it."""
+        for b in (self.btn_snap_take, self.btn_snap_cmp):
+            b.configure(state="disabled")
+        self.lbl_snap.config(text=tr("Prüfe alle Tweaks …", "Checking every tweak …"), fg=AMBER)
+
+        def _do():
+            ids = list(VERIFY_MAP)
+            res = self.verifier.verify_all(ids, {i: False for i in ids})
+
+            def _done():
+                for b in (self.btn_snap_take, self.btn_snap_cmp):
+                    b.configure(state="normal")
+                work(res)
+            self.after(0, _done)
+        threading.Thread(target=_do, daemon=True).start()
+
+    def _take_snapshot(self):
+        from core import tweak_snapshot as TS
+
+        def work(res):
+            snap = TS.take(res)
+            if TS.save(self._logs_dir, snap):
+                self._show_snapshot_info()
+                for row in self.snap_tree.get_children():
+                    self.snap_tree.delete(row)
+            else:
+                self.lbl_snap.config(text=tr("Snapshot konnte nicht gespeichert werden.",
+                                             "The snapshot could not be saved."), fg=ERR)
+        self._snapshot_work(work)
+
+    def _compare_snapshot(self):
+        from core import tweak_snapshot as TS
+        snap = TS.load(self._logs_dir)
+        if not snap:
+            self.lbl_snap.config(text=tr("Noch kein Snapshot — erst „Snapshot speichern“.",
+                                         "No snapshot yet — 'Take snapshot' first."), fg=AMBER)
+            return
+
+        def work(res):
+            from datetime import datetime
+            changed, unknown = TS.compare(snap, res)
+            for row in self.snap_tree.get_children():
+                self.snap_tree.delete(row)
+            word = lambda on: tr("aktiv", "active") if on else tr("inaktiv", "inactive")   # noqa: E731
+            for tid, before, now in changed:
+                t = get_by_id(tid)
+                self.snap_tree.insert("", "end", values=(tweak_name(t, current_lang()) if t else tid,
+                                                         word(before), word(now)), tags=("on" if now else "off",))
+            when = datetime.fromtimestamp(snap.get("t", 0)).strftime("%d.%m. %H:%M")
+            text = (tr(f"Seit {when}: {len(changed)} Tweak(s) geändert", f"Since {when}: {len(changed)} tweak(s) "
+                       f"changed") if changed else tr(f"Seit {when}: nichts geändert", f"Since {when}: no change"))
+            if unknown:
+                text += tr(f" · {unknown} ohne Antwort (nicht verglichen)", f" · {unknown} without an answer "
+                           f"(not compared)")
+            self.lbl_snap.config(text=text, fg=AMBER if changed else GREEN)
+        self._snapshot_work(work)
 
     def _run_verify(self):
         self.lbl_verify_summary.config(text=tr("Prüfe System-Zustand...", "Checking the system state..."), fg=DIM)
@@ -1185,11 +1328,12 @@ class OptimizerTab(Page):
         if replaced:
             msg += tr("\n\nErsetzt (Entweder-oder): ", "\n\nReplaced (either-or): ") + ", ".join(tweak_name(t, current_lang()) for t in replaced if t)
         if needs_rb: msg += tr("\n\n⚠ Einige benötigen einen Neustart.", "\n\n⚠ Some need a restart.")
+        msg += self._removal_note(selected)
         if not messagebox.askyesno(tr("Anwenden", "Apply"), msg): return
 
         def _run():
             self.log.append(tr(f"Wende {len(selected)} Tweak(s) an...", f"Applying {len(selected)} tweak(s)..."), "header")
-            self._backup_before("PreApply")
+            self._backup_before("PreApply", selected)
             for i, t in enumerate(selected):
                 self._apply_one(t, prefix=f"  [{i+1}/{len(selected)}] ")
             self.log.append(tr("Fertig.", "Done."), "success")

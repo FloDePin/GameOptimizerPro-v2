@@ -142,8 +142,12 @@ class DashboardTab(Page):
         st = ResponsiveGrid(sysc.body, min_width=90, max_cols=3, gap=8, bg=CARD_BG)
         st.pack(fill="x")
         self._sys_tiles = {}
-        for key, label, color in (("cpu", "CPU", ACC), ("ram", "RAM", VIOLET), ("disk", tr("Laufwerk C:", "Disk C:"), AMBER)):
-            f, vl = tile(st, label, "--", color, "%")
+        for key, label, color, unit in (("cpu", "CPU", ACC, "%"), ("ram", "RAM", VIOLET, "%"),
+                                        ("disk", tr("Laufwerk C:", "Disk C:"), AMBER, "%"),
+                                        # v1's live monitor: what the disks and the network move right now
+                                        ("io", tr("Datenträger", "Disk I/O"), GREEN, "MB/s"),
+                                        ("net", tr("Netzwerk", "Network"), BLUE, "Mbit/s")):
+            f, vl = tile(st, label, "--", color, unit)
             st.add(f)
             self._sys_tiles[key] = vl
 
@@ -270,8 +274,10 @@ class DashboardTab(Page):
             self._psutil = None
 
         def loop():
+            prev = None                          # (time, disk bytes, network bytes)
             while self._running:
                 if not self._visible:            # hidden page: no sensor reads
+                    prev = None
                     time.sleep(0.5)
                     continue
                 try:
@@ -284,18 +290,44 @@ class DashboardTab(Page):
                             disk = self._psutil.disk_usage(self._sysdrive).percent
                         except Exception:
                             disk = 0.0
-                        self.after(0, self._update_sys, cpu, ram, disk)
+                        cur = (time.monotonic(), self._io_bytes(), self._net_bytes())
+                        io = net = None
+                        if prev is not None and cur[0] > prev[0]:
+                            dt = cur[0] - prev[0]
+                            if cur[1] is not None and prev[1] is not None:
+                                io = max(0, cur[1] - prev[1]) / dt / 1e6
+                            if cur[2] is not None and prev[2] is not None:
+                                net = max(0, cur[2] - prev[2]) * 8 / dt / 1e6
+                        prev = cur
+                        self.after(0, self._update_sys, cpu, ram, disk, io, net)
                 except Exception:
                     pass
                 time.sleep(1.0)
         threading.Thread(target=loop, daemon=True).start()
 
-    def _update_sys(self, cpu, ram, disk):
+    def _io_bytes(self):
+        try:
+            c = self._psutil.disk_io_counters()
+            return c.read_bytes + c.write_bytes if c else None
+        except Exception:
+            return None
+
+    def _net_bytes(self):
+        try:
+            c = self._psutil.net_io_counters()
+            return c.bytes_sent + c.bytes_recv if c else None
+        except Exception:
+            return None
+
+    def _update_sys(self, cpu, ram, disk, io=None, net=None):
         if "cpu" not in self._sys_tiles:
             return
         self._sys_tiles["cpu"].config(text=f"{cpu:.0f}", fg=ERR if cpu >= 90 else AMBER if cpu >= 70 else ACC)
         self._sys_tiles["ram"].config(text=f"{ram:.0f}", fg=ERR if ram >= 90 else AMBER if ram >= 80 else VIOLET)
         self._sys_tiles["disk"].config(text=f"{disk:.0f}", fg=ERR if disk >= 95 else AMBER if disk >= 85 else GREEN)
+        for key, v in (("io", io), ("net", net)):
+            if key in self._sys_tiles:
+                self._sys_tiles[key].config(text="--" if v is None else f"{v:.1f}" if v < 10 else f"{v:.0f}")
 
     def _update(self, s):
         if s.voltage_mv > 0:

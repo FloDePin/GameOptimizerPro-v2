@@ -137,7 +137,7 @@ TWEAK_DESC_EN: dict[str, str] = {
     "disable_bing_search":
         "Disables Bing web integration in Windows Search. Start menu search stays local and loads faster.",
     "disable_consumer_features":
-        "Stops Windows from auto-installing suggested apps and bloatware (Candy Crush & co. reappear after updates otherwise). Policy only, no uninstall.",
+        "Stops Windows from silently installing suggested apps and games (Candy Crush, TikTok & co.) — also the ones the PC maker and Microsoft line up. Works on every edition incl. Home and Pro (Content Delivery Manager); plus the 'Turn off Microsoft consumer experiences' policy, which Windows honours on Enterprise / Education only. Apps already installed stay — 'Remove Bloatware' is for those.",
     "disable_hibernation":
         "Disables hibernation and deletes hiberfil.sys (otherwise uses RAM-size on the SSD, e.g. 32 GB). Also turns off the often flaky Fast Startup. Safe on desktop gaming PCs.",
     "end_task_right_click":
@@ -248,6 +248,7 @@ TWEAK_DESC_EN: dict[str, str] = {
 
 # English names, only where the German name differs. Most names are already English.
 TWEAK_NAME_EN: dict[str, str] = {
+    "disable_consumer_features": "Stop Auto-Installed Suggested Apps",
     "timer_resolution":     "Let Timer Requests Apply System-wide",
     "disable_eee":          "Disable Energy-Efficient Ethernet",
     "disable_interrupt_moderation": "Disable Interrupt Moderation",

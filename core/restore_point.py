@@ -37,7 +37,7 @@ def create(description: str = "GameOptimizerPro Tweaks") -> tuple[bool, str]:
         out = ((r.stdout or "") + (r.stderr or "")).strip()
         low = out.lower()
         if "OK" in out and "ERR:" not in out and r.returncode == 0:
-            return True, "✓ Wiederherstellungspunkt erstellt."
+            return True, _tr("✓ Wiederherstellungspunkt erstellt.", "✓ Restore point created.")
         # Häufige Fälle klar benennen
         if "1440" in out or "frequency" in low or "429" in out:
             return False, (_tr("Windows hat den Punkt übersprungen — es gibt bereits einen aus den "
@@ -48,7 +48,7 @@ def create(description: str = "GameOptimizerPro Tweaks") -> tuple[bool, str]:
                            "Systemsteuerung → System → Computerschutz → Laufwerk C: → Konfigurieren → "
                            "Schutz aktivieren.", "System protection is off on the system drive. Turn it on: Control Panel → System → System protection → drive C: → Configure → Turn on system protection."))
         if "access" in low or "denied" in low or "verweigert" in low or "0x80070005" in out:
-            return False, "Zugriff verweigert — GameOptimizerPro muss als Administrator laufen."
+            return False, _tr("Zugriff verweigert — GameOptimizerPro muss als Administrator laufen.", "Access denied — GameOptimizerPro has to run as administrator.")
         return False, _tr(f"Fehlgeschlagen: {out[:200] or 'unbekannter Fehler'}", f"Failed: {out[:200] or 'unknown error'}")
     except subprocess.TimeoutExpired:
         return False, _tr("Timeout (über 180s) — Systemwiederherstellung reagiert nicht.", "Timeout (over 180 s) — System Restore does not respond.")

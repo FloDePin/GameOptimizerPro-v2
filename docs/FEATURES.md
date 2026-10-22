@@ -88,7 +88,9 @@ Everything the app does, in detail. Results quoted from live runs are from one t
 - **Drift check at start:** tweaks you applied that a Windows update has reset are listed with one tick box each — ticked ones are re-applied (after a registry backup), unticked ones are no longer tracked; "later" asks again next time
 - **Either-or choices:** only one power plan and one DNS provider can be selected ("⇄ entweder-oder"); ticking one unticks the other, and the high-performance plans never turn the screen off or go to sleep on mains power
 - **One batch at a time** with visible progress for long tweaks (Disk Cleanup takes minutes); mouse wheel works over the whole list
-- Live status verification — reads actual Registry/Service state (not just JSON)
+- Live status verification — reads actual Registry/Service state (not just JSON), every check within a few seconds after the start; group headers, preset cards ("x/n active") and the preset preview count what is active on the system, also when it was set outside the app
+- **Snapshot & compare:** saves the state of every tweak (e.g. before a Windows update) and later lists every tweak that changed since — the snapshot survives a restart
+- **App removals** are marked ("🗑 removes apps") and get a System Restore point before they run — the one thing *Revert all* cannot bring back; Windows 11-only taskbar / Start / Explorer tweaks are hidden on Windows 10
 - 3-state indicators: ● Green (verified active) / ◑ Amber (applied, unverified) / ○ Grey (inactive)
 - **Graduated one-click presets — 🟢 Minimal → 🟡 Medium → 🔴 Hard (Debloat)** — cumulative intensity tiers that apply a curated, escalating set of tweaks
 - **10 built-in Presets:** the 3 intensity tiers + Gaming, Privacy & Anti-Telemetry, Debloat, Network, Performance, Windows 11 Classic, All Safe Tweaks

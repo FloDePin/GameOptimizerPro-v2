@@ -19,6 +19,7 @@ class Tweak:
     requires_nvidia: bool = False
     requires_amd:    bool = False
     requires_nvme:   bool = False
+    requires_win11:  bool = False      # set from WIN11_ONLY below
     requires_reboot: bool = False
     risk:        str = "safe"   # "safe" | "moderate" | "advanced"
     tags:        list = field(default_factory=list)
@@ -389,12 +390,23 @@ exit 0
     ),
     Tweak(
         id="disable_consumer_features",
-        name="Disable Consumer Features",
-        desc="Verhindert dass Windows automatisch vorgeschlagene Apps und Bloatware nachinstalliert "
-             "(Candy Crush & Co. tauchen sonst nach Updates wieder auf). Reine Richtlinie, keine Deinstallation.",
+        name="Vorgeschlagene Apps nicht still installieren",
+        desc="Verhindert, dass Windows vorgeschlagene Apps und Spiele (Candy Crush, TikTok & Co.) still "
+             "nachinstalliert — auch die vom Hersteller und von Microsoft vorgesehenen. Wirkt auf allen Editionen "
+             "inkl. Home und Pro (Content Delivery Manager); dazu die Richtlinie „Microsoft-Verbrauchererlebnisse "
+             "aus“, die Windows nur in Enterprise / Education beachtet. Bereits installierte Apps bleiben — dafür "
+             "gibt es „Remove Bloatware“.",
         category="Windows", group="Bloatware",
-        ps_command='reg add "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\CloudContent" /v DisableWindowsConsumerFeatures /t REG_DWORD /d 1 /f',
-        revert_cmd='reg delete "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\CloudContent" /v DisableWindowsConsumerFeatures /f 2>$null',
+        ps_command=('$c="HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager"; '
+                    'foreach($n in "SilentInstalledAppsEnabled","OemPreInstalledAppsEnabled","PreInstalledAppsEnabled")'
+                    '{ reg add $c /v $n /t REG_DWORD /d 0 /f | Out-Null }; '
+                    'reg add "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\CloudContent" '
+                    '/v DisableWindowsConsumerFeatures /t REG_DWORD /d 1 /f | Out-Null'),
+        revert_cmd=('$c="HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager"; '
+                    'foreach($n in "SilentInstalledAppsEnabled","OemPreInstalledAppsEnabled","PreInstalledAppsEnabled")'
+                    '{ reg add $c /v $n /t REG_DWORD /d 1 /f | Out-Null }; '
+                    'reg delete "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\CloudContent" '
+                    '/v DisableWindowsConsumerFeatures /f 2>$null | Out-Null; exit 0'),
         risk="safe",
     ),
 
@@ -1958,6 +1970,16 @@ def get_groups(category: str) -> list[str]:
             seen.add(t.group)
             groups.append(t.group)
     return groups
+
+# Windows 11 only (v1 greys them out on Windows 10): taskbar, Start and Explorer settings that exist
+# only in Windows 11 — on Windows 10 they write values nothing reads. Hidden there like the
+# tweaks for another GPU.
+WIN11_ONLY = {"w11_classic_context_menu", "w11_taskbar_left", "w11_disable_widgets", "w11_disable_snap_suggest",
+              "w11_remove_chat_icon", "w11_hide_recommended", "end_task_right_click"}
+for _t in ALL_TWEAKS:
+    if _t.id in WIN11_ONLY:
+        _t.requires_win11 = True
+
 
 def get_categories() -> list[str]:
     seen, cats = set(), []
