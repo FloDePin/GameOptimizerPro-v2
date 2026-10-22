@@ -1,6 +1,6 @@
 {
-  "build": 42,
+  "build": 43,
   "date": "2026-10-22",
-  "notes": "Live-Status der Tweaks wie in v1: alle Prüfungen laufen wieder (die Abfrage war zu lang für Windows), Zähler und Presets zeigen, was wirklich aktiv ist. Neu: Snapshot & Vergleich, Wiederherstellungspunkt vor dem Entfernen von Apps, Durchsatz von Datenträger und Netzwerk im Dashboard.",
-  "notes_en": "Live tweak status as in v1: every check runs again (the query had grown too long for Windows), counts and presets show what is really active. New: snapshot & compare, a restore point before apps are removed, disk and network throughput on the dashboard."
+  "notes": "Prüfung zweier externer Audits: Beim Beenden der App enden laufende Härte- und Stresstests (FurMark lief weiter), Registry-Backups enthalten wieder die Grafikkarten- und Laufwerksschlüssel, Export nur echter Profile, Live-Überwachung übersteht ein geleertes Ereignisprotokoll, BIOS-Prüfungen auf Englisch.",
+  "notes_en": "Two external audits checked: closing the app ends a running hardness or stress test (FurMark ran on), registry backups include the graphics card and disk keys again, only real profiles are exported, the live watch survives a cleared event log, BIOS checks in English."
 }

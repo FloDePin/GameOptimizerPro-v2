@@ -31,7 +31,11 @@ named by version only.
   status as in v1: every check runs again (the batch had grown past Windows' command-line limit), counts and
   presets show what is active on the system; snapshot & compare; a restore point before app removals;
   suggested apps really stopped on Home / Pro; disk and network throughput on the dashboard.
-- 1412 checks in 37 suites, all green.
+- **Audit 2026-10-22** — closing the app ends a running hardness / internal test (FurMark windows ran on);
+  registry backups include the GPU and disk keys again; an encoder load whose kernels can't be compiled
+  counts as "no encoder"; only real profiles are exported; "destination host unreachable" counts as no
+  answer; a cleared event log no longer blinds the live watch; BIOS checks in English.
+- 1433 checks in 38 suites, all green.
 
 <details>
 <summary><b>Development log — rounds 8–33</b> (one or two lines per round)</summary>
@@ -432,5 +436,5 @@ tray threads don't delay quitting (daemon threads, the process ends at once); th
 kernel32 calls had no pointer truncation (None goes as a full-width NULL, the handles
 were typed) — argument types added anyway; PowerShell tweaks and their exit code: see
 above, the live verifier shows a tweak that didn't take effect. From the round-32 review: releasing the instance mutex before the restart's Popen gains nothing — the new instance waits for it and takes the abandoned mutex the moment this process ends (right after Popen), and ReleaseMutex only works on the owning thread (the restart usually runs on the stop thread); `_emit()` and the WMI reads keep catching their errors on purpose (a closed pipe, a broken WMI must not end the load or the start).
-
+ From the 2026-10-22 audits: `BuildInfo.text()` exists (the audit read older code); the worker finds `core` without a path change (Python puts the script's folder first); a load that reports "no encoder" never made a stop file (it only exists after a stop request); the temperature monitor has no UI callback (it only shows a Windows notification); the encoder's stall guard stays on while the encoder closes — a close taking seconds is a hang too (the audit's fix would have hidden it); catch-all blocks in hardware detection, the worker's pipes and the start-up are degradation on purpose; the mutex release before a restart: see round 32.
 </details>

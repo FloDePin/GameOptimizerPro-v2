@@ -63,6 +63,23 @@ class StressTab(Page):
 
     def stop(self):
         self._alive = False
+        self.end_gpu_tests()
+
+    def end_gpu_tests(self, wait_s: float = 15.0):
+        """The app ends: a running hardness test or internal test ends with it. Without this the
+        hardness test's FurMark windows went on for up to 3 min after the app had gone, and the
+        run was never recorded as own GPU load (the watchdog could take its driver events for a
+        game's). No Tk here — it is also called from the exit path's thread."""
+        stop, th = self._hard, getattr(self, "_hard_thread", None)
+        if stop is not None:
+            stop.set()                       # the test asks its loads to end, records its own load
+            if th is not None:
+                th.join(wait_s)
+        if self._running_internal:
+            self._running_internal = False
+            self._run_gen += 1               # the running thread stops reporting
+            gpu_watchdog.record_own_load(getattr(self, "_int_t0", time.time()), time.time())
+            self._stop_internal_worker()
 
     def _detect_furmark(self):
         # saved choice, a FurMark folder next to the app, install locations
@@ -334,7 +351,8 @@ class StressTab(Page):
             finally:
                 keep_awake(False)
             q.put(("done", res))
-        threading.Thread(target=run, daemon=True).start()
+        self._hard_thread = threading.Thread(target=run, daemon=True)
+        self._hard_thread.start()
         self.after(300, self._hard_poll)
 
     def _stop_hard(self):

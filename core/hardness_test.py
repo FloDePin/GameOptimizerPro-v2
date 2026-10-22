@@ -150,6 +150,11 @@ class _Load:
                         pass
         except Exception:
             pass
+        finally:
+            try:
+                self.proc.stdout.close()             # the process has ended: its pipe goes too
+            except Exception:
+                pass
 
     def check(self, now: float) -> Optional[tuple]:
         """None = fine, else (kind, detail)."""

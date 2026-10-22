@@ -385,8 +385,17 @@ def encode_stress(parent_pid):
     dw, dh = _res(ENC_OUT, (1920, 1080))
     dw, dh = dw // 2 * 2, dh // 2 * 2
     pitch = (dw + 255) // 256 * 256
-    mod = cp.RawModule(code=_ENC_KERNELS)
-    scene, to_nv12 = mod.get_function("scene"), mod.get_function("to_nv12")
+    try:
+        mod = cp.RawModule(code=_ENC_KERNELS)
+        scene, to_nv12 = mod.get_function("scene"), mod.get_function("to_nv12")
+    except Exception as e:
+        # Loading the kernels onto the card is GPU work: a driver error there stays one (with
+        # GOP_STRESS_GPU_OK a failure of the step). Compiling them is the CPU's NVRTC — missing or
+        # failing, that is "no encoder load here", not an unstable card.
+        if isinstance(e, getattr(getattr(cp.cuda, "driver", None), "CUDADriverError", ())):
+            raise
+        _emit(f"NOENC kernels: {e}")
+        sys.exit(EXIT_NO_ENCODER)
     src = cp.empty(sw * sh, dtype=cp.uint32)
     frames = [cp.zeros((dh * 3 // 2, pitch), dtype=cp.uint8) for _ in range(ENC_SLOTS)]
     cp.cuda.Stream.null.synchronize()
@@ -401,6 +410,8 @@ def encode_stress(parent_pid):
     state = {"done": time.time()}
 
     def stall_guard():
+        # also while the encoder closes: closing takes milliseconds — seconds there are a hung
+        # video engine as well (the close gets a full window of its own, see finally below)
         while True:
             time.sleep(0.5)
             quiet = time.time() - state["done"]
@@ -449,6 +460,7 @@ def encode_stress(parent_pid):
     except Exception as e:
         raise _GpuStarted(str(e)) from e
     finally:
+        state["done"] = time.time()
         try:
             enc.close()
         except Exception:

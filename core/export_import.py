@@ -49,13 +49,18 @@ class ExportImport:
             data["tweaks"] = applied_tweaks
 
         if include_profiles:
+            # only real GPU profiles — the folder also holds language.json, the old
+            # game_profiles.json and internal ones ("__…"); they were exported as profiles
+            from core.nvtune_core import ProfileManager
             profiles = []
             for f in sorted(self.profiles_dir.glob("*.json")):
                 try:
                     with open(f, encoding="utf-8") as fh:
-                        profiles.append(json.load(fh))
+                        d = json.load(fh)
                 except Exception:
-                    pass
+                    continue
+                if ProfileManager._is_profile(d) and not d["name"].startswith("__"):
+                    profiles.append(d)
             data["gpu_profiles"] = profiles
 
         if include_presets and user_presets:
@@ -140,13 +145,11 @@ class ExportImport:
         n_profiles = len(result["gpu_profiles"])
         n_presets  = len(result["user_presets"])
 
-        msg = (
-            f"Import gelesen:\n"
-            f"  Version: {result['meta']['version']}\n"
-            f"  Erstellt: {result['meta']['created'][:16]}\n"
-            f"  Von PC: {result['meta']['host']}\n"
-            f"  {n_tweaks} Tweaks, {n_profiles} GPU-Profile, {n_presets} Presets"
-        )
+        m = result["meta"]
+        msg = _tr(f"Import gelesen:\n  Version: {m['version']}\n  Erstellt: {m['created'][:16]}\n"
+                  f"  Von PC: {m['host']}\n  {n_tweaks} Tweaks, {n_profiles} GPU-Profile, {n_presets} Presets",
+                  f"Import read:\n  Version: {m['version']}\n  Created: {m['created'][:16]}\n"
+                  f"  From PC: {m['host']}\n  {n_tweaks} tweaks, {n_profiles} GPU profiles, {n_presets} presets")
         return True, result, msg
 
     def apply_imported_profiles(
@@ -157,9 +160,11 @@ class ExportImport:
         Returns (imported_count, skipped_count).
         """
         imported = skipped = 0
+        from core.nvtune_core import ProfileManager
         for pd in profiles:
-            name = pd.get("name", "")
-            if not name or name.startswith("__"):
+            # a broken or hostile file: a name that is no text (e.g. 123) raised on .startswith
+            name = pd.get("name", "") if isinstance(pd, dict) else ""
+            if not ProfileManager._is_profile(pd) or name.startswith("__"):
                 skipped += 1
                 continue
             safe = "".join(c if c.isalnum() or c in "-_ " else "_" for c in name)

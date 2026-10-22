@@ -112,7 +112,7 @@ class SlowTray:
 
 
 app = types.SimpleNamespace(_running=True, _tray=SlowTray(), _window=None,
-                            _abort_tuning_if_running=lambda: None,
+                            _abort_tuning_if_running=lambda: None, _end_gpu_tests=lambda: None,
                             temp_monitor=types.SimpleNamespace(stop=lambda: None),
                             monitor=types.SimpleNamespace(close=lambda: None))
 app._finish = lambda relaunch: G.GameOptimizerApp._finish(app, relaunch)
@@ -137,7 +137,7 @@ exits2.clear()
 subprocess.Popen = lambda args, **k: popens.append(list(args))
 G.os._exit = lambda code=0: exits2.append(code)
 app2 = types.SimpleNamespace(_running=True, _tray=HungTray(), _window=None,
-                             _abort_tuning_if_running=lambda: None,
+                             _abort_tuning_if_running=lambda: None, _end_gpu_tests=lambda: None,
                              temp_monitor=types.SimpleNamespace(stop=lambda: None),
                              monitor=types.SimpleNamespace(close=lambda: None))
 app2._finish = lambda relaunch: G.GameOptimizerApp._finish(app2, relaunch)

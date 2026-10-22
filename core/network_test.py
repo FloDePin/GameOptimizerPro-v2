@@ -98,7 +98,10 @@ def ping(label: str, host: str, count: int = 10, timeout_ms: int = 1000) -> Ping
             res.loss_pct = float(m.group(1))
         elif rtts:
             res.loss_pct = round((count - len(rtts)) / count * 100.0, 0)
-        if not rtts and res.loss_pct >= 100.0:
+        if not rtts:
+            # "Destination host unreachable" from the router counts as a reply for ping.exe
+            # ("0% loss") — but no reply carried a time: the host did not answer
+            res.loss_pct = 100.0
             res.error = _tr("keine Antwort", "no answer")
     except subprocess.TimeoutExpired:
         res.error = "Timeout"

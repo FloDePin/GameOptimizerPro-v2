@@ -141,25 +141,29 @@ class BiosDetector:
             return DetectResult("rebar", True, f"BAR1 {bar1:.0f} MB", "high",
                                 _tr(f"Resizable BAR aktiv — die CPU sieht {bar1 / 1024:.0f} GB Grafikspeicher am Stück", f"Resizable BAR on — the CPU sees {bar1 / 1024:.0f} GB of graphics memory at once"))
         return DetectResult("rebar", False, f"BAR1 {bar1:.0f} MB", "high",
-                            f"Resizable BAR aus — nur {bar1:.0f} MB Fenster (Grafikspeicher {vram / 1024:.0f} GB)")
+                            _tr(f"Resizable BAR aus — nur {bar1:.0f} MB Fenster (Grafikspeicher {vram / 1024:.0f} GB)",
+                                f"Resizable BAR off — a {bar1:.0f} MB window only (graphics memory "
+                                f"{vram / 1024:.0f} GB)"))
 
     @staticmethod
     def detect_secure_boot(data: dict) -> Optional[DetectResult]:
         val = data.get("secureboot")
         if val is None:
             if str(data.get("firmware") or "").lower() == "legacy":
-                return DetectResult("secure_boot", False, "Legacy-Start", "high",
-                                    "Windows startet im Legacy-Modus — Secure Boot braucht UEFI")
+                return DetectResult("secure_boot", False, _tr("Legacy-Start", "legacy boot"), "high",
+                                    _tr("Windows startet im Legacy-Modus — Secure Boot braucht UEFI",
+                                        "Windows boots in legacy mode — Secure Boot needs UEFI"))
             return None
         on = str(val).strip() == "1"
-        return DetectResult("secure_boot", on, "an" if on else "aus", "high",
-                            "Secure Boot ist aktiv" if on else "Secure Boot ist aus")
+        return DetectResult("secure_boot", on, _tr("an", "on") if on else _tr("aus", "off"), "high",
+                            _tr("Secure Boot ist aktiv", "Secure Boot is on") if on else
+                            _tr("Secure Boot ist aus", "Secure Boot is off"))
 
     @staticmethod
     def detect_csm(data: dict) -> Optional[DetectResult]:
         fw = str(data.get("firmware") or "").lower()
         if fw == "legacy":
-            return DetectResult("csm", False, "Legacy-Start", "high",
+            return DetectResult("csm", False, _tr("Legacy-Start", "legacy boot"), "high",
                                 _tr("Windows ist im Legacy-Modus installiert — CSM erst abschalten, wenn "
                                 "Windows auf UEFI umgestellt ist (MBR2GPT)", "Windows is installed in legacy mode — only turn CSM off once Windows is converted to UEFI (MBR2GPT)"))
         if fw == "uefi" and str(data.get("secureboot") or "").strip() == "1":

@@ -287,6 +287,18 @@ class GameOptimizerApp:
         except Exception:
             pass
 
+    def _end_gpu_tests(self):
+        """The stress page's hardness test / internal test: its loads asked to end (FurMark closes)
+        and the run recorded as own GPU load — before os._exit ends the process."""
+        pages = getattr(getattr(self, "_window", None), "_tab_frames", {}) or {}
+        for page in list(pages.values()):
+            end = getattr(page, "end_gpu_tests", None)
+            if end is not None:
+                try:
+                    end()
+                except Exception as e:
+                    print(f"[GameOptimizerPro] ending the stress tests: {e}")
+
     def _on_close(self):
         """Window X: into the tray (setting "close_to_tray", default on) — or quit.
         Without a tray icon (pystray missing) hiding left the app running
@@ -306,6 +318,7 @@ class GameOptimizerApp:
     def _shutdown(self, relaunch: bool = False):
         self._running = False
         self._abort_tuning_if_running()      # GPU back to stock BEFORE we die
+        self._end_gpu_tests()                # a running hardness / internal test ends with the app
         try: self.temp_monitor.stop()
         except Exception: pass
         live = getattr(self, "_live", None)
@@ -500,7 +513,7 @@ class GameOptimizerApp:
     def _watchdog_start(self):
         """One check (and dialog) at a time: the start check and a live fault can meet —
         ChoiceDialog waits in its own event loop, where the pending poll keeps running."""
-        if getattr(self, "_watchdog_busy", False):
+        if getattr(self, "_watchdog_busy", False) or getattr(self, "_watchdog_applying", False):
             return
         self._watchdog_busy = True
         from core import app_settings, gpu_watchdog
@@ -579,6 +592,7 @@ class GameOptimizerApp:
             # a check / dialog already open: the live fault waits (it is newer than what
             # that dialog marks as seen, so the next check finds it)
             if (self._watchdog_pending and not getattr(self, "_watchdog_busy", False)
+                    and not getattr(self, "_watchdog_applying", False)
                     and self._window.state() == "normal" and self._window.focus_displayof()):
                 self._watchdog_pending = False
                 self._watchdog_start()
@@ -642,12 +656,16 @@ class GameOptimizerApp:
             applied = TuneProfile(name="__stock__")
         box: dict = {}
         th = threading.Thread(target=lambda: box.update(r=work()), daemon=True)
+        # no new watchdog check until this profile is applied and recorded (Afterburner restarts
+        # for it; a check meanwhile would still see the old profile as the applied one)
+        self._watchdog_applying = True
         th.start()
 
         def poll():
             if th.is_alive():
                 self._window.after(400, poll)
                 return
+            self._watchdog_applying = False
             ok, err = box.get("r", (False, "?"))
             if ok:
                 self.cr.save_last_applied(applied.to_dict())

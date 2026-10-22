@@ -79,15 +79,22 @@ def _device_keys() -> list[str]:
     """Per-device keys can't be listed statically (the path holds the PnP
     instance ID): MSI mode writes under the GPU, NVMe queue depth and the
     write-cache setting under each disk. Their 'Device Parameters' (v1 too)."""
+    # Through PowerShell, not the wmi module: the optimizer backs up from a worker thread, where
+    # wmi.WMI() failed without COM set up for the thread — the GPU and disk keys were never in a
+    # backup. In a subprocess the thread doesn't matter.
     ids: list[str] = []
+    ps = ("Get-CimInstance Win32_VideoController | Where-Object { $_.PNPDeviceID -and $_.Name -notmatch "
+          "'Microsoft' } | ForEach-Object { $_.PNPDeviceID }; Get-CimInstance Win32_DiskDrive | "
+          "Where-Object { $_.PNPDeviceID } | ForEach-Object { $_.PNPDeviceID }")
     try:
-        import wmi
-        c = wmi.WMI()
-        ids += [g.PNPDeviceID for g in c.Win32_VideoController()
-                if g.PNPDeviceID and "microsoft" not in (g.Name or "").lower()]
-        ids += [d.PNPDeviceID for d in c.Win32_DiskDrive() if d.PNPDeviceID]
-    except Exception:
-        pass
+        r = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        ids = [ln.strip() for ln in (r.stdout or "").splitlines() if ln.strip()]
+        if not ids:
+            print(f"[registry backup] no device keys found (exit {r.returncode}): {(r.stderr or '')[:200]}")
+    except (OSError, subprocess.TimeoutExpired) as e:
+        print(f"[registry backup] device keys not read: {e}")
     seen, out = set(), []
     for i in ids:
         if i.lower() not in seen:

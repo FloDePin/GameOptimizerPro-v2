@@ -5,7 +5,8 @@ While the app runs (window or tray): once a second clock, voltage, power,
 temperature and load into a ring buffer of the last minutes — written to
 logs/gpu_flight.json every few seconds, so a crash that restarts the PC leaves
 the seconds before it on disk. Every few seconds the System event log is read
-from where it was last time (classic event log API, no PowerShell): a GPU hang /
+from where it was last time (classic event log API, the modern one as the fallback — no
+PowerShell): a GPU hang /
 reset (nvlddmkm 13 / 14 / 153, Display 4101) that is not one of the app's own
 loads becomes a fault — the recording around it is saved, the state just before
 it (gpu_watchdog.fault_point) recorded for the next tune, and `on_fault` called.
@@ -50,12 +51,87 @@ def parse_records(data: bytes) -> list:
     return out
 
 
+class _EvtVariant(ctypes.Structure):
+    _fields_ = [("v", ctypes.c_uint64), ("count", wintypes.DWORD), ("type", wintypes.DWORD)]
+
+
+class _ModernLog:
+    """The same reads through the modern event log API (wevtapi: EvtQuery / EvtRender) — the fallback
+    when the classic API fails. Seen live: after a cleaning tool had cleared the logs, every classic
+    ReadEventLog ended with ERROR_OPERATION_ABORTED (995), also on a new handle — the live watch and the
+    hardness test would have been blind to driver resets; the modern API read the log fine."""
+    PROVIDER, EVENT_ID, TIME, RECORD = 0, 2, 8, 9          # EVT_SYSTEM_PROPERTY_ID
+
+    def __init__(self, log: str, after_record: int):
+        H, D = wintypes.HANDLE, wintypes.DWORD
+        w = ctypes.WinDLL("wevtapi", use_last_error=True)
+        w.EvtQuery.restype = H
+        w.EvtQuery.argtypes = [H, wintypes.LPCWSTR, wintypes.LPCWSTR, D]
+        w.EvtNext.restype = wintypes.BOOL
+        w.EvtNext.argtypes = [H, D, ctypes.POINTER(H), D, D, ctypes.POINTER(D)]
+        w.EvtCreateRenderContext.restype = H
+        w.EvtCreateRenderContext.argtypes = [D, ctypes.c_void_p, D]
+        w.EvtRender.restype = wintypes.BOOL
+        w.EvtRender.argtypes = [H, H, D, D, ctypes.c_void_p, ctypes.POINTER(D), ctypes.POINTER(D)]
+        w.EvtClose.restype = wintypes.BOOL
+        w.EvtClose.argtypes = [H]
+        self._w, self._log, self.last = w, log, int(after_record)
+        self._ctx = w.EvtCreateRenderContext(0, None, 1)        # EvtRenderContextSystem
+        if not self._ctx:
+            raise OSError(ctypes.get_last_error(), "EvtCreateRenderContext")
+
+    def _render(self, ev) -> Optional[tuple]:
+        size = 4096
+        for _ in range(2):
+            buf = ctypes.create_string_buffer(size)
+            used, cnt = wintypes.DWORD(), wintypes.DWORD()
+            if self._w.EvtRender(self._ctx, ev, 0, size, buf, ctypes.byref(used), ctypes.byref(cnt)):
+                vals = ctypes.cast(buf, ctypes.POINTER(_EvtVariant))
+                prov = ctypes.wstring_at(vals[self.PROVIDER].v) if vals[self.PROVIDER].v else ""
+                t = vals[self.TIME].v / 1e7 - 11644473600                # FILETIME -> epoch
+                return int(vals[self.RECORD].v), float(int(t)), prov, int(vals[self.EVENT_ID].v) & 0xFFFF
+            if ctypes.get_last_error() != 122 or used.value <= size:
+                return None
+            size = used.value
+        return None
+
+    def poll(self) -> list:
+        w, H = self._w, wintypes.HANDLE
+        q = w.EvtQuery(None, self._log, f"*[System[EventRecordID>{self.last}]]", 0x1)
+        if not q:
+            return []
+        out = []
+        try:
+            arr, n = (H * 64)(), wintypes.DWORD()
+            while len(out) < 5000 and w.EvtNext(q, 64, arr, 1000, 0, ctypes.byref(n)):
+                for i in range(n.value):
+                    try:
+                        r = self._render(arr[i])
+                        if r:
+                            rec, t, src, eid = r
+                            out.append((t, src, eid))
+                            self.last = max(self.last, rec)
+                    finally:
+                        w.EvtClose(arr[i])
+        finally:
+            w.EvtClose(q)
+        return out
+
+    def close(self):
+        if self._ctx:
+            self._w.EvtClose(self._ctx)
+            self._ctx = None
+
+
 class EventTail:
-    """New records of a classic event log since the last poll."""
+    """New records of a classic event log since the last poll (the modern API as the fallback)."""
     SEEK, FORWARDS = 0x2, 0x4
     ERROR_INSUFFICIENT_BUFFER, ERROR_HANDLE_EOF = 122, 38
+    ERROR_EVENTLOG_FILE_CHANGED = 1503     # the log was cleared: Microsoft says reopen the handle
 
     def __init__(self, log: str = "System"):
+        self._log = log
+        self._modern: Optional[_ModernLog] = None
         api = ctypes.WinDLL("advapi32", use_last_error=True)
         api.OpenEventLogW.restype = wintypes.HANDLE
         api.OpenEventLogW.argtypes = [wintypes.LPCWSTR, wintypes.LPCWSTR]
@@ -82,18 +158,41 @@ class EventTail:
 
     def poll(self) -> list:
         """[(epoch, source, event id)] written since the last poll."""
+        if getattr(self, "_modern", None) is not None:
+            out = self._modern.poll()
+            self.next = self._modern.last + 1
+            return out
         oldest, newest = self._range()
         if self.next < oldest or self.next > newest + 1:      # wrapped or cleared
             self.next = oldest if self.next < oldest else newest + 1
-        out, size = [], 64 * 1024
+        out, size, reopened = [], 64 * 1024, False
         while self.next <= newest:
             buf = ctypes.create_string_buffer(size)
             got, need = wintypes.DWORD(), wintypes.DWORD()
             if not self._api.ReadEventLogW(self._h, self.SEEK | self.FORWARDS, self.next, buf, size,
                                            ctypes.byref(got), ctypes.byref(need)):
-                if ctypes.get_last_error() == self.ERROR_INSUFFICIENT_BUFFER and need.value > size:
+                err = ctypes.get_last_error()
+                if err == self.ERROR_INSUFFICIENT_BUFFER and need.value > size:
                     size = need.value
                     continue
+                if err == self.ERROR_EVENTLOG_FILE_CHANGED and not reopened:
+                    # cleared while open: every read on this handle fails from now on (the live
+                    # watch went blind until the next app start) — reopen, read from the new start
+                    reopened = True
+                    if self._reopen():
+                        oldest, newest = self._range()
+                        self.next = oldest
+                        continue
+                if err != self.ERROR_HANDLE_EOF:
+                    # the classic API can't read this log (live: 995 after the logs were cleared):
+                    # from here on the modern API, from the same record on
+                    try:
+                        self._modern = _ModernLog(self._log, self.next - 1)
+                    except (OSError, AttributeError):
+                        break
+                    out += self._modern.poll()
+                    self.next = self._modern.last + 1
+                    return out
                 break
             recs = parse_records(buf.raw[:got.value])
             if not recs:
@@ -103,10 +202,17 @@ class EventTail:
                 self.next = max(self.next, recno + 1)
         return out
 
+    def _reopen(self) -> bool:
+        self.close()
+        self._h = self._api.OpenEventLogW(None, self._log)
+        return bool(self._h)
+
     def close(self):
         if self._h:
             self._api.CloseEventLog(self._h)
             self._h = None
+        if getattr(self, "_modern", None) is not None:
+            self._modern.close()
 
 
 def sample_of(stats) -> dict:
