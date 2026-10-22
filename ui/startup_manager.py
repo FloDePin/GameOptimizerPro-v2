@@ -1,5 +1,5 @@
 """
-GameOptimizerPro v2.0 — Startup Manager page
+GameOptimizerPro — Startup Manager page
 Lists every autostart entry (Run keys + Startup folders) and enables/disables
 it like Task Manager does. For each entry:
   - on/off state (the real Windows state, not guessed)

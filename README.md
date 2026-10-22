@@ -34,7 +34,7 @@
 
 1. Install **Python 3.10+** from [python.org](https://python.org/downloads) and tick **"Add Python to PATH"**.
 2. Click **Code → Download ZIP** above and extract it to a folder of its own, e.g. `C:\Tools\GameOptimizerPro`.
-3. Double-click **`install.bat`** and answer **J** (yes) to the GPU load question (`cupy`, about 1–2 GB, no CUDA toolkit needed).
+3. Double-click **`install.bat`** and answer **Y** (yes) to the GPU load question (`cupy`, about 1–2 GB, no CUDA toolkit needed).
 4. For the GPU tuner: install [MSI Afterburner](https://www.msi.com/Landing/afterburner/graphics-cards) and set it up (below). Recommended: put [FurMark 2](https://geeks3d.com/furmark/) into a folder `FurMark_win64` next to the app — the tuner compares with its benchmark.
 5. Start **`GameOptimizerPro.bat`** and allow the Windows prompt. From then on the app updates itself (*Settings → Check for updates*).
 
@@ -54,7 +54,7 @@
 | **All-round · Balanced** | 70–105 min | performance **and** efficiency above stock — the recommendation |
 | **All-round · Max performance** | 70–105 min | the highest score |
 | **All-round · Efficiency** | 70–105 min | stock performance (≥ 99 %) at the least power — cooler, quieter |
-| **Quick (OC + UV)** | 30–55 min | one clock offset and a power limit, no own curve |
+| **Quick (OC + UV)** | 40–70 min | one clock offset and a power limit, no own curve |
 
 **What it did on a test card** (FurMark 2, 60 s each; stock = the mean of ten stock runs):
 
@@ -97,7 +97,7 @@ Windows 10 / 11 · Python 3.10+ · admin rights (the launcher asks through UAC) 
 
 - 📖 [All features in detail](docs/FEATURES.md) — including the project structure
 - 📜 [Changelog](CHANGELOG.md)
-- 🧪 1378 automated checks in 36 test suites (`python tests\run_all_tests.py`), run on every push
+- 🧪 1384 automated checks in 36 test suites (`python tests\run_all_tests.py`), run before every push
 - 🤝 Pull requests are welcome — for bigger changes please open an issue first.
 
 <div align="center">

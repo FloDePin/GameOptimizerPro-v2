@@ -1,5 +1,5 @@
 """
-GameOptimizerPro v2.1 — Tweak translations
+GameOptimizerPro — Tweak translations
 English descriptions for all tweaks. German lives in tweaks.py as the default.
 Lookup by tweak id. If an id is missing here, the German default is used.
 """

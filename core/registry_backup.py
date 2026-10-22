@@ -1,5 +1,5 @@
 r"""
-GameOptimizerPro v2.0 — Registry Backup
+GameOptimizerPro — Registry Backup
 
 Portiert aus GameOptimizerPro v1 (Backup-Registry). Exportiert vor dem Anwenden
 oder Zurücksetzen von Tweaks alle Registry-Zweige, die die Tweaks anfassen

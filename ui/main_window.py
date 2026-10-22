@@ -1,5 +1,5 @@
 """
-GameOptimizerPro v2.0 — Main Window (CustomTkinter)
+GameOptimizerPro — Main Window (CustomTkinter)
 Sidebar navigation on the left, the page on the right, status bar at the
 bottom. Only the dashboard is built at start-up, so the window is up at once;
 the other pages are built in the background while the user doesn't click or

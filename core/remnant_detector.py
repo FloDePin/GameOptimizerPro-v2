@@ -1,5 +1,5 @@
 """
-GameOptimizerPro v2.0 — Remnant Detection
+GameOptimizerPro — Remnant Detection
 
 Scans (read-only) for leftovers of *other* PC-tweaking tools that commonly stay
 behind after use or uninstall and can quietly affect stability/latency. It only

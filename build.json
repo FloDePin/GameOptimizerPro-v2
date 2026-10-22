@@ -1,5 +1,6 @@
 {
-  "build": 40,
-  "date": "2026-10-19",
-  "notes": "Härtetest: 3D, Video-Encoder, Rechnen und Speicher zugleich (wie Spielen mit Stream) — im Stresstest und als letzte Tuner-Stufe. Jeder Endtest-Fehler senkt gezielt die Kurve an der Fehlerstelle, danach laufen alle Endtests neu. Vergleich mit Standard immer ganz am Ende, jeder Tune startet gleich warm."
+  "build": 41,
+  "date": "2026-10-22",
+  "notes": "Tuner und Stresstest-Seite belasten die GPU nicht mehr gleichzeitig (das verfälschte jede Messung). Update-Hinweise jetzt auch auf Englisch, Zeitangaben der Tuner-Modi korrigiert.",
+  "notes_en": "The tuner and the stress test page no longer load the GPU at the same time (that skewed every measurement). Update notes in English too, the tuner modes' durations corrected."
 }

@@ -1,5 +1,5 @@
 """
-GameOptimizerPro v2.0 — Profile comparison page (up to 4 GPU profiles side by side)
+GameOptimizerPro — Profile comparison page (up to 4 GPU profiles side by side)
 
 What tells profiles apart is how they do against stock in the same benchmark —
 performance and efficiency (core/profile_score.py). Stock is a column of its own (point 0:
@@ -460,7 +460,7 @@ class CurveChart(tk.Canvas):
         if r is None:
             return
         x0, x1, _y0, _y1 = r
-        w, h = self.winfo_width(), self.winfo_height()
+        w = self.winfo_width()
         if not (self.PAD_L <= e.x <= w - self.PAD_R):
             return self._clear_hover()
         mv = x0 + (e.x - self.PAD_L) / max(w - self.PAD_L - self.PAD_R, 1) * (x1 - x0)

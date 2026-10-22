@@ -376,6 +376,23 @@ tab._user_settings.pop("ab_slot", None)
 tab._clamp_fields()
 check(tab.v_ab_slot.get() == 2 and _AS.get("tuner_settings").get("ab_slot") == 2,
       "a typed value outside the range is corrected — and that correction is kept")
+# a test on the stress page still loads the GPU: no tune next to it (two loads skew every measurement)
+import time as _time
+from core import gpu_watchdog as _WD
+_WD.SESSIONS_FILE = None              # never the app's own session list
+_INF, _si = [], messagebox.showinfo
+messagebox.showinfo = lambda title, msg, **k: _INF.append(msg)
+started = []
+tuner.start = lambda: started.append(tuner.config)    # never a real run here
+n0, t_own = len(started), _time.time()
+_WD.own_load_started(t_own)
+tab._start_tune()
+check(len(started) == n0 and _INF and "Stresstest-Seite" in _INF[-1] and "verfälschen" in _INF[-1],
+      "a stress-page test still running: the tune does not start, a box says why")
+_WD.record_own_load(t_own, _time.time())
+tab._start_tune()
+check(len(started) == n0 + 1, "... once it has ended, the tune starts")
+messagebox.showinfo = _si
 root.destroy()
 
 shutil.rmtree(tmp, ignore_errors=True)

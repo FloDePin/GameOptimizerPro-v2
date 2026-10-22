@@ -1,5 +1,5 @@
 """
-GameOptimizerPro v2.0 — update check and offer (app start + settings page).
+GameOptimizerPro — update check and offer (app start + settings page).
 The network / download part runs in a worker thread; every dialog and widget
 update happens on the main thread (a poll via after(), never after() from the
 worker — that raises on Python 3.14).
@@ -110,7 +110,7 @@ class UpdateFlow:
         if not manual and app_settings.get("update_declined") == remote.build:
             self._status(on_status, tr(f"Build {remote.build} verfügbar.", f"Build {remote.build} available."))
             return
-        notes = f"\n\n{remote.notes}" if remote.notes else ""
+        notes = f"\n\n{remote.text()}" if remote.notes else ""
         when = f" ({remote.date})" if remote.date else ""
         if st == "git":
             if res.get("clean") is not True:

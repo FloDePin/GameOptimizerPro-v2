@@ -33,8 +33,8 @@ if not defined PY (
 )
 
 if not defined PY (
-    echo [ERROR] Keine klassische python.exe gefunden.
-    echo Bitte Python von python.org installieren ^(nicht aus dem Microsoft Store^).
+    echo [ERROR] No classic python.exe found - install Python from python.org ^(not from the Microsoft Store^).
+    echo [FEHLER] Keine klassische python.exe gefunden - Python von python.org installieren ^(nicht aus dem Microsoft Store^).
     pause
     exit /b 1
 )
@@ -51,29 +51,28 @@ echo [2/2] Installing dependencies from requirements.txt...
 
 echo.
 echo  ==========================================
-echo   GPU-Stresstest fuer den Auto-Tuner (NVIDIA)
+echo   GPU load for the auto-tuner (NVIDIA) / GPU-Last fuer den Auto-Tuner
 echo  ==========================================
-echo   Der Auto-Tuner braucht echte GPU-Last. Dafuer gibt es 'cupy'
-echo   (ca. 1-2 GB Download, kein CUDA-Toolkit noetig). Ohne cupy geht
-echo   der Tuner nur mit parallel laufendem FurMark.
+echo   The tuner needs real GPU load: 'cupy' (about 1-2 GB, no CUDA toolkit needed).
+echo   Der Tuner braucht echte GPU-Last: 'cupy' (ca. 1-2 GB, kein CUDA-Toolkit noetig).
 echo.
-choice /C JN /M "cupy jetzt installieren (J = ja, N = nein)"
-if not errorlevel 2 (
+choice /C JYN /M "Install cupy now? / cupy jetzt installieren? (J/Y = yes/ja, N = no/nein)"
+if not errorlevel 3 (
     echo [optional] Installing cupy-cuda12x[ctk] ...
     "%PY%" -m pip install "cupy-cuda12x[ctk]"
 )
 echo.
 echo  ==========================================
-echo   Fertig! Afterburner einrichten (einmalig):
+echo   Done! Set up MSI Afterburner once / Afterburner einmalig einrichten:
 echo  ==========================================
-echo    Einstellungen ^> Allgemein:
-echo      [x] Spannungssteuerung freischalten
-echo      [x] Spannungsueberwachung freischalten
-echo      [x] Minimiert starten (empfohlen)
-echo    Einstellungen ^> Ueberwachung: [x] GPU-Spannung, [x] Leistung
-echo    Nichts verstellen, dann Speichern ^> Slot 1 klicken
-echo    Details: TESTANLEITUNG.md
+echo    Settings ^> General / Einstellungen ^> Allgemein:
+echo      [x] Unlock voltage control / Spannungssteuerung freischalten
+echo      [x] Unlock voltage monitoring / Spannungsueberwachung freischalten
+echo      [x] Start minimized / Minimiert starten (recommended / empfohlen)
+echo    Settings ^> Monitoring / Ueberwachung: [x] GPU voltage / GPU-Spannung, [x] Power / Leistung
+echo    Change nothing, click Save, then slot 1 / Nichts verstellen, Speichern, dann Slot 1
+echo    Details: README.md (Setting up MSI Afterburner)
 echo.
-echo  Start with: GameOptimizerPro.bat
+echo  Start with / Starten mit: GameOptimizerPro.bat
 echo.
 pause

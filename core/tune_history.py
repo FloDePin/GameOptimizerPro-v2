@@ -1,5 +1,5 @@
 """
-GameOptimizerPro v2.0 — Tune history
+GameOptimizerPro — Tune history
 Reads every tune_*.log in logs/ and turns it into one TuneRun.
 
 A finished run has a summary ("Profile saved: …", "Core offset: …"). A run that

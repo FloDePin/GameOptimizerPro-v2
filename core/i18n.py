@@ -1,5 +1,5 @@
 """
-GameOptimizerPro v2.1 — Internationalization (i18n)
+GameOptimizerPro — Internationalization (i18n)
 DE/EN language switching. All UI strings go through t().
 Selected language is persisted to disk so it survives a restart.
 """

@@ -1639,9 +1639,9 @@ class AutoTuner:
 
     def _start_cool(self):
         """Round 33: every tune starts at the same temperature — at stock, idle until the card is
-        at most start_cool_c, at most start_cool_max_s. A card still warm from a run before boosts a
-        step lower: live (19.10.) 1070 instead of 1075 mV at stock, so other measuring points, and
-        a stock benchmark of 7192 instead of ~7250 points."""
+        at most start_cool_c, at most start_cool_max_s: the stock run (the reference of every gain)
+        always starts from the same temperature. (The highest voltage reached at stock moved between
+        1070 and 1075 mV warm or cool alike — jitter, not temperature.)"""
         cfg = self.config
         target, limit = float(cfg.start_cool_c or 0), int(cfg.start_cool_max_s or 0)
         t = self._start_temp()

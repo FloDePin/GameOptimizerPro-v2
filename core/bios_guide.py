@@ -1,5 +1,5 @@
 """
-GameOptimizerPro v2.0 — BIOS Guide database
+GameOptimizerPro — BIOS Guide database
 
 Every desktop platform since Intel's 8th gen / AMD's first Ryzen, each with the
 settings that matter for games, and the menu path on ASUS, MSI, Gigabyte and

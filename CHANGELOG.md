@@ -26,7 +26,9 @@ named by version only.
   adapter tweaks, an interrupt view, the BIOS guide for 16 platforms.
 - **App** — new interface with a sidebar, English throughout (German included), no console window,
   updates from GitHub, tray, stress tests (FurMark 1/2, 3DMark, hardness test).
-- 1378 checks in 36 suites, all green.
+- **Update 2026-10-22** — the tuner and the stress test page never load the GPU at the same time;
+  update notes and the installer in English and German; durations of the tuner modes corrected.
+- 1384 checks in 36 suites, all green.
 
 ### Development log (rounds 8–33)
 
@@ -378,8 +380,10 @@ named by version only.
     (+1.6 % → +0.2 % vs stock) for points that never failed. A pause after a crash is no longer taken
     twice in a row.
   - **Every tune starts equally warm** (both modes): at stock the card first idles down to 45 °C at most
-    (up to 3 min). Started right after another run, the card boosted a step lower at stock — other
-    measuring points (1070 instead of 1075 mV) and a lower stock score (7192 instead of ~7250 points).
+    (up to 3 min), so every stock run — the reference all gains are measured against — starts from the
+    same temperature. (Stock scores varied between 7192 and ~7250 points from run to run. The highest
+    voltage the card reaches at stock moved between 1070 and 1075 mV whether the card was warm or cool —
+    that is jitter, not temperature.)
   - All-round point search: after a **driver reset** the next step waits 30 s (was 5 s), and if that
     first step fails it is repeated once — live, the step right after a reset failed at a clock the same
     point had passed earlier that day, which lowered the point.

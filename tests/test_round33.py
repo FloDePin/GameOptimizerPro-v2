@@ -485,6 +485,28 @@ check("Testprofil" in page.lbl_hard_profile.cget("text"), "it names the profile 
 check(page._busy_text() == "", "nothing else running: can start")
 page.tuner.is_running = True
 check("Tuner" in page._busy_text(), "while the tuner runs: no hardness test")
+# ... and no other test of this page either: two GPU loads at once spoil both
+import threading  # noqa: E402
+import ui.tab_stress as TS  # noqa: E402
+_INF, _si, _l3 = [], TS.messagebox.showinfo, TS.threedmark.launch
+TS.messagebox.showinfo = lambda title, msg, **k: _INF.append(msg)
+TS.threedmark.launch = lambda path: (_INF.append("3DMARK STARTED"), (True, "ok"))[1]
+page._3dmark_path = "3DMark.exe"
+page._start_internal()
+page._launch_furmark()
+page._launch_3dmark()
+check(not page._running_internal and page._ext is None and "3DMARK STARTED" not in _INF
+      and len(_INF) == 3 and all("GPU-Tuner läuft" in m for m in _INF),
+      "tuner running: internal test, FurMark and 3DMark refuse to start, a box says why")
+page.tuner.is_running = False
+page._hard = threading.Event()
+_INF.clear()
+page._start_internal()
+page._launch_3dmark()
+check(not page._running_internal and "3DMARK STARTED" not in _INF and len(_INF) == 2
+      and all("Härtetest läuft" in m for m in _INF), "hardness test running: the same")
+page._hard = None
+TS.messagebox.showinfo, TS.threedmark.launch = _si, _l3
 page.tuner.is_running = False
 page._hard_done(H.HardResult(passed=True, seconds=1200, max_mhz=2880, max_mv=1050, peak_temp=66))
 check(page.lbl_hard_status.cget("text").startswith("✓ Bestanden"), "passed: shown")

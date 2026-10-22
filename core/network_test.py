@@ -1,5 +1,5 @@
 """
-GameOptimizerPro v2.1.1 — Network Latency Test
+GameOptimizerPro — Network Latency Test
 Pingt Gateway + öffentliche DNS-Server und misst Latenz, Paketverlust und Jitter.
 Rein lesend, keine Systemänderung. Läuft über den Windows `ping`-Befehl.
 """

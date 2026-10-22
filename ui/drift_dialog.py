@@ -1,5 +1,5 @@
 """
-GameOptimizerPro v2.0 — "Tweaks nicht mehr aktiv" dialog
+GameOptimizerPro — "Tweaks nicht mehr aktiv" dialog
 One decision PER tweak: ticked = apply again, unticked = mark as not applied
 (no more questions). "Später" changes nothing and asks again at the next start.
 (It used to be one yes/no for all of them — e.g. re-applying the power plan

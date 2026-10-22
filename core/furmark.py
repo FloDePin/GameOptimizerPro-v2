@@ -1,5 +1,5 @@
 """
-GameOptimizerPro v2.0 — FurMark launcher logic (FurMark 1 and FurMark 2)
+GameOptimizerPro — FurMark launcher logic (FurMark 1 and FurMark 2)
 
 FurMark 2 (2023+) is a different program: a command-line runner `furmark.exe`
 next to `FurMark_GUI.exe`, with options like

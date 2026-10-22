@@ -1,5 +1,5 @@
 """
-GameOptimizerPro v2.0 — Services Manager (Logik)
+GameOptimizerPro — Services Manager (Logik)
 Portiert aus v1: eine feste Liste von Windows-Diensten, die ein Gaming-PC meist
 nicht braucht — mit Beschreibung, Kategorie und Sicherheits-Einstufung.
 

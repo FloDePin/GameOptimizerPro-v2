@@ -1,5 +1,5 @@
 """
-GameOptimizerPro v2.0 — small persistent app settings (JSON next to the other
+GameOptimizerPro — small persistent app settings (JSON next to the other
 state files in logs/). Used for things the user picks once and expects to be
 remembered after a restart (e.g. the FurMark location).
 """

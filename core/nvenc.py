@@ -1,5 +1,5 @@
 """
-GameOptimizerPro v2.0 — NVIDIA video encoder (NVENC) through the driver's own
+GameOptimizerPro — NVIDIA video encoder (NVENC) through the driver's own
 nvEncodeAPI64.dll (round 33).
 
 What recording / streaming puts on the card next to a game: OBS, NVIDIA's Instant

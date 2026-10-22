@@ -1,5 +1,5 @@
 """
-GameOptimizerPro v2.0 — Startup control (v1 parity)
+GameOptimizerPro — Startup control (v1 parity)
 
 Lists autostart entries and enables/disables them EXACTLY the way the Windows
 Task Manager does: nothing is deleted or moved. Windows keeps a per-entry flag

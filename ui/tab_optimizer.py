@@ -1,5 +1,5 @@
 """
-GameOptimizerPro v2.0 — Optimizer page
+GameOptimizerPro — Optimizer page
 Sections (segmented bar): Presets | Windows | Gaming | Netzwerk | Audio |
 Spiele | Prüfen | Export/Import. Tweak lists are light tk rows (see ui/components) with
 a live status dot; the log stays visible at the bottom.
@@ -629,7 +629,7 @@ class OptimizerTab(Page):
     def _update_dots(self):
         """
         Update dot labels. Priority order:
-        1. v_state True  → ● category colour (registry confirmed active)
+        1. v_state True  → ● green (registry confirmed active)
         2. v_state False AND is_applied → ◑ amber (we applied it, registry disagrees — trust JSON)
         3. v_state False AND NOT applied → ○ grey  (confirmed inactive)
         4. is_applied (no verify) → ◑ amber (JSON says done, unverifiable)
@@ -639,10 +639,8 @@ class OptimizerTab(Page):
 
         for tweak in ALL_TWEAKS:
             dot  = self._dot_labels.get(tweak.id)
-            nlbl = self._name_labels.get(tweak.id)
             if not dot:
                 continue
-            color      = CAT_COLORS.get(tweak.category, ACC)
             v_state    = self._verify_states.get(tweak.id)  # True / False / None
             is_applied = self.runner.is_applied(tweak.id)
             active = False

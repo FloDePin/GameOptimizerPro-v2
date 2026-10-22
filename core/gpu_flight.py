@@ -1,5 +1,5 @@
 """
-GameOptimizerPro v2.0 — GPU flight recorder (round 31)
+GameOptimizerPro — GPU flight recorder (round 31)
 
 While the app runs (window or tray): once a second clock, voltage, power,
 temperature and load into a ring buffer of the last minutes — written to

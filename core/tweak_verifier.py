@@ -1,5 +1,5 @@
 """
-GameOptimizerPro v2.1 — Tweak Verifier (rewritten)
+GameOptimizerPro — Tweak Verifier (rewritten)
 Liest tatsächlichen System-Zustand per PowerShell.
 
 Fixes:

@@ -1,5 +1,5 @@
 """
-GameOptimizerPro v2.0 — GPU watchdog (round 16).
+GameOptimizerPro — GPU watchdog (round 16).
 
 A game can hang (D3D12 "device hung") on a tuned profile without anything
 telling the user. Windows records such events in

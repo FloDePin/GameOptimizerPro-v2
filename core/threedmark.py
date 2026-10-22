@@ -1,5 +1,5 @@
 """
-GameOptimizerPro v2.0 — 3DMark detection and launch
+GameOptimizerPro — 3DMark detection and launch
 
 3DMark is found in every Steam library (libraryfolders.vdf), in the usual
 standalone install folders, or where the user pointed the app to (remembered).

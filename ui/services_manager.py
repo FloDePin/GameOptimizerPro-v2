@@ -1,5 +1,5 @@
 """
-GameOptimizerPro v2.0 — Services Manager page (ported from v1)
+GameOptimizerPro — Services Manager page (ported from v1)
 Shows the known, mostly dispensable Windows services with their real status
 and start type; disables them or restores the original start type.
 Logic: core/services.py

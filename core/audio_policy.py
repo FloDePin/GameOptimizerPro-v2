@@ -1,5 +1,5 @@
 """
-GameOptimizerPro v2.0 — audio endpoint settings through the Windows audio API
+GameOptimizerPro — audio endpoint settings through the Windows audio API
 
 Windows 11 locks the endpoint property stores in the registry
 (HKLM\\...\\MMDevices\\Audio\\Render\\{id}\\Properties / FxProperties): even an

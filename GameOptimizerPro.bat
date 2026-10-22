@@ -28,8 +28,8 @@ if not defined PYW (
 )
 
 if not defined PYW (
-    echo Keine klassische pythonw.exe gefunden.
-    echo Bitte Python von python.org installieren, nicht aus dem Microsoft Store.
+    echo No classic pythonw.exe found - install Python from python.org, not from the Microsoft Store.
+    echo Keine klassische pythonw.exe gefunden - Python von python.org installieren, nicht aus dem Microsoft Store.
     pause
     exit /b 1
 )

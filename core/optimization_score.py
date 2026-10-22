@@ -1,5 +1,5 @@
 """
-GameOptimizerPro v2.0 — Optimierungs-Score & Drift-Erkennung (aus v1)
+GameOptimizerPro — Optimierungs-Score & Drift-Erkennung (aus v1)
 
 Score: Anteil der SICHEREN, auf diesem PC anwendbaren und prüfbaren Tweaks, die
 gerade wirklich aktiv sind (echter Systemzustand über den Tweak-Verifier, nicht

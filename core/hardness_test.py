@@ -1,5 +1,5 @@
 """
-GameOptimizerPro v2.0 — hardness test (round 33)
+GameOptimizerPro — hardness test (round 33)
 
 The tuner tests one load at a time: compute (CUDA), memory copies, FurMark. A game
 that is streamed or recorded puts several engines to work AT ONCE — the game's 3D

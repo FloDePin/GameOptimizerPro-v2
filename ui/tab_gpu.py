@@ -34,21 +34,23 @@ MODES = [
     ("curve", "Rundum", "All-round",
      "Empfohlen, am gründlichsten (70–105 min) — misst die V/F-Kurve alle 25 mV Punkt für Punkt "
      "(wie HYDRA), baut daraus eine eigene Kurve, vergleicht per FurMark-Benchmark und wählt nach "
-     "dem Ziel: Max. Leistung, Ausgewogen oder Effizienz (Undervolting). Endtest: 5 min FurMark + "
-     "Rechenprüfung, danach ein Bericht.",
+     "dem Ziel: Max. Leistung, Ausgewogen oder Effizienz (Undervolting). Endtest: 5 min FurMark, "
+     "Rechenprüfung, Spiel-Endtest und Härtetest, danach ein Bericht.",
      "Recommended, the most thorough (70–105 min) — measures the V/F curve point by point every "
      "25 mV (like HYDRA), builds an own curve from it, compares with FurMark benchmarks and picks "
      "by the goal: max performance, balanced or efficiency (undervolting). Final test: 5 min "
-     "FurMark + compute check, then a report."),
+     "FurMark, compute check, game test and hardness test, then a report."),
     ("oc_uv", "Schnell (OC + UV)", "Quick (OC + UV)",
-     "Etwa halb so lang (30–55 min) — ein Takt-Offset für die ganze Kurve plus das niedrigste "
+     "Kürzer (40–70 min) — ein Takt-Offset für die ganze Kurve plus das niedrigste "
      "Power-Limit, das höchstens 3 % Leistung kostet — das spart nur unter Volllast (in Spielen und "
      "FurMark bleibt die Karte meist darunter). Die Kurve wird ab der höchsten Spannung des Spiel-Endtests "
      "flach: darüber taktet die Karte nicht ungetestet hoch. Weniger genau "
      "als Rundum, braucht aber keine Kurven-Messung.",
-     "About half the time (30–55 min) — one clock offset for the whole curve plus the lowest power "
-     "limit that costs at most 3 % performance: more clock, less power. Less precise than "
-     "All-round, but needs no curve measurement."),
+     "Shorter (40–70 min) — one clock offset for the whole curve plus the lowest power limit that "
+     "costs at most 3 % performance — that saves only under full load (in games and FurMark the "
+     "card mostly stays below it). The curve goes flat from the game test's highest voltage: above "
+     "it the card does not clock up untested. Less precise than All-round, but needs no curve "
+     "measurement."),
 ]
 
 GOALS = [
@@ -1131,6 +1133,17 @@ class GpuTunerTab(Page):
         ok, why = self._tuner_support()
         if not ok:
             messagebox.showinfo(tr("GPU-Tuner", "GPU tuner"), why)
+            return
+        # a test from the stress test page still loads the GPU: two loads at once would skew every
+        # measurement of the tune (stock run, points, benchmarks)
+        from core import gpu_watchdog
+        if not getattr(self.tuner, "is_running", False) and gpu_watchdog.own_load_active():
+            messagebox.showinfo(tr("GPU-Tuner", "GPU tuner"), tr(
+                "Auf der Stresstest-Seite läuft noch ein Test (interner Test, FurMark-/3DMark-Aufzeichnung "
+                "oder Härtetest). Erst beenden — zwei GPU-Lasten zugleich verfälschen jede Messung des Tunes.",
+                "A test is still running on the stress test page (internal test, FurMark / 3DMark recording "
+                "or hardness test). End it first — two GPU loads at once would skew every measurement of "
+                "the tune."))
             return
         if self.v_mode.get() == "curve":
             return self._start_curve_tune()

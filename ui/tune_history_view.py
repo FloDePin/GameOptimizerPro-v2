@@ -1,5 +1,5 @@
 """
-GameOptimizerPro v2.0 — Auto-Tune history: every tune run (logs/tune_*.log) with
+GameOptimizerPro — Auto-Tune history: every tune run (logs/tune_*.log) with
 its values and result, the reason when a run has no profile, the log of the
 selected run, and deleting runs (selected ones or all). A view of the GPU tuner
 page (it was a part of the removed "Games & history" page).

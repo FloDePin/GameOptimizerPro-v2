@@ -465,8 +465,22 @@ class StressTab(Page):
 
     # ── Internal stress ───────────────────────────────────────────────────────
 
+    def _gpu_taken(self) -> bool:
+        """The GPU tuner or the hardness test has the GPU: a second load would spoil both
+        (said in a box) -> True."""
+        why = ""
+        if self.tuner is not None and getattr(self.tuner, "is_running", False):
+            why = tr("Der GPU-Tuner läuft gerade — erst abwarten oder abbrechen.",
+                     "The GPU tuner is running — wait for it or abort it first.")
+        elif self._hard is not None:
+            why = tr("Der Härtetest läuft gerade — erst abwarten oder stoppen.",
+                     "The hardness test is running — wait for it or stop it first.")
+        if why:
+            messagebox.showinfo("GameOptimizerPro", why, parent=self.winfo_toplevel())
+        return bool(why)
+
     def _start_internal(self):
-        if self._running_internal:
+        if self._running_internal or self._gpu_taken():
             return
         self._running_internal = True
         self._run_gen += 1
@@ -632,6 +646,8 @@ class StressTab(Page):
             self.btn_fur_dl.pack(side="left")
 
     def _launch_furmark(self):
+        if self._gpu_taken():
+            return
         if not self._furmark_path:
             messagebox.showerror("FurMark Not Found",
                                  "FurMark.exe not found.\n"
@@ -698,7 +714,7 @@ class StressTab(Page):
             self.btn_3dm_store.pack(side="left")
 
     def _launch_3dmark(self):
-        if not self._3dmark_path:
+        if not self._3dmark_path or self._gpu_taken():
             return
         ok, msg = threedmark.launch(self._3dmark_path)
         self.lbl_3dm_status.config(text=msg, fg=GREEN if ok else ERR)

@@ -1,5 +1,5 @@
 """
-GameOptimizerPro v2.1.1 — System Cleaner (Temp / Junk + Deep Clean)
+GameOptimizerPro — System Cleaner (Temp / Junk + Deep Clean)
 Standard: löscht AUSSCHLIESSLICH Dateien aus dedizierten Temp-/Dump-Verzeichnissen.
 Deep Clean (aus v1 portiert, jedes Ziel einzeln abwählbar, standardmäßig aus):
 Browser-Caches, Windows-Update-Cache, Miniaturansichten, Prefetch, System-Logs &

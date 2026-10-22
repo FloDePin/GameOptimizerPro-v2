@@ -1,5 +1,5 @@
 """
-GameOptimizerPro v2.1 — GPU Temperature Warning
+GameOptimizerPro — GPU Temperature Warning
 Sendet Windows Toast Notification wenn GPU-Temp über Limit steigt.
 Cooldown: nach einer Warnung 5 Minuten keine neue für dieselbe GPU.
 """

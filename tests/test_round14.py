@@ -148,8 +148,19 @@ from core import updater as UP
 check(UP.parse_build('{"build": 15, "date": "2026-10-02", "notes": "x"}').build == 15
       and UP.parse_build("{}") is None and UP.parse_build("nonsense") is None
       and UP.parse_build('{"build": 0}') is None, "build.json parsing")
+import core.i18n as _I18N
+_lang = _I18N._current_lang
+bi = UP.parse_build('{"build": 41, "notes": "Neu: X", "notes_en": "New: X"}')
+_I18N._current_lang = "en"
+en_text = bi.text()
+_I18N._current_lang = "de"
+check(en_text == "New: X" and bi.text() == "Neu: X"
+      and UP.BuildInfo(40, notes="Nur Deutsch").text() == "Nur Deutsch",
+      "update notes in the app's language (English when given, else the German text)")
+_I18N._current_lang = _lang
 lb = UP.local_build()
-check(lb.build >= 14 and lb.date, f"this version: build {lb.build} ({lb.date})")
+check(lb.build >= 14 and lb.date and lb.notes and lb.notes_en,
+      f"this version: build {lb.build} ({lb.date}), notes in both languages")
 check(UP.is_git_checkout(Path(ROOT)) and UP.git_clean(Path(ROOT)) in (True, False), "git checkout recognised")
 
 

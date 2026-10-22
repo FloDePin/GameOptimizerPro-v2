@@ -1,5 +1,5 @@
 """
-GameOptimizerPro v2.0 — BIOS state detector
+GameOptimizerPro — BIOS state detector
 Reads what Windows can really tell about BIOS settings, read-only. Only
 settings with a reliable signal get a result; everything else stays "not
 detectable" (grey) instead of a guess:

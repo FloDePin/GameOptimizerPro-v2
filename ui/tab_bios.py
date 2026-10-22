@@ -1,5 +1,5 @@
 """
-GameOptimizerPro v2.0 — BIOS Guide page
+GameOptimizerPro — BIOS Guide page
 Every platform from core/bios_guide.py can be opened; the hardware detection
 pre-selects the user's platform and board maker (the menu paths follow the board
 maker). Live status: green = already set, red = still to set, grey = Windows

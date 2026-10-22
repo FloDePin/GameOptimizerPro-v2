@@ -1,5 +1,5 @@
 """
-GameOptimizerPro v2.0 — Game profiles
+GameOptimizerPro — Game profiles
 
 Per game .exe, written once into the registry and applied by Windows itself every
 time the game starts — no background process, works with the app closed:

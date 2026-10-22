@@ -1,5 +1,5 @@
 """
-GameOptimizerPro v2.0 — updates from GitHub (stdlib only)
+GameOptimizerPro — updates from GitHub (stdlib only)
 
 Releases are named by version only (2.1); the app tells its updates apart by the
 integer in build.json (raised with every update). At start-up — when the user
@@ -48,7 +48,12 @@ USER_AGENT = "GameOptimizerPro-Updater"
 class BuildInfo:
     build: int
     date: str = ""
-    notes: str = ""
+    notes: str = ""           # German (older versions read only this one)
+    notes_en: str = ""        # English; "" = the German text
+
+    def text(self) -> str:
+        """The notes in the app's language."""
+        return _tr(self.notes, self.notes_en or self.notes)
 
 
 def parse_build(text: str) -> Optional[BuildInfo]:
@@ -59,7 +64,7 @@ def parse_build(text: str) -> Optional[BuildInfo]:
         return None
     if b <= 0:
         return None
-    return BuildInfo(b, str(d.get("date") or ""), str(d.get("notes") or ""))
+    return BuildInfo(b, str(d.get("date") or ""), str(d.get("notes") or ""), str(d.get("notes_en") or ""))
 
 
 def local_build(base: Path = BASE) -> BuildInfo:

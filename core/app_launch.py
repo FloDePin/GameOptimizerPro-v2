@@ -1,5 +1,5 @@
 """
-GameOptimizerPro v2.0 — start without a console window
+GameOptimizerPro — start without a console window
 
 The launcher (GameOptimizerPro.bat) starts pythonw.exe. Started any other way —
 double-click on GameOptimizerPro.py (file association / py launcher / the new

@@ -1,5 +1,5 @@
 """
-GameOptimizerPro v2.0 — Rundum-Tuner: pure logic (no hardware, fully testable)
+GameOptimizerPro — Rundum-Tuner: pure logic (no hardware, fully testable)
 
 Ideas taken from Yuri "1usmus" Bubliy's HYDRA / ClockTuner for Ryzen:
   * the V/F curve is tuned PER VOLTAGE POINT (HYDRA's NVIDIA diagnostic builds

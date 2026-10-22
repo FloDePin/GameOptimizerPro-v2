@@ -56,7 +56,7 @@
 | **Rundum · Ausgewogen** | 70–105 min | Leistung **und** Effizienz über Standard — die Empfehlung |
 | **Rundum · Max. Leistung** | 70–105 min | die höchste Punktzahl |
 | **Rundum · Effizienz** | 70–105 min | Standard-Leistung (≥ 99 %) bei möglichst wenig Watt — kühler, leiser |
-| **Schnell (OC + UV)** | 30–55 min | ein Takt-Offset und ein Power-Limit, ohne eigene Kurve |
+| **Schnell (OC + UV)** | 40–70 min | ein Takt-Offset und ein Power-Limit, ohne eigene Kurve |
 
 **Was das auf einer Testkarte brachte** (FurMark 2, je 60 s; Standard = Mittelwert aus zehn Standard-Läufen):
 
@@ -99,7 +99,7 @@ Windows 10 / 11 · Python 3.10+ · Admin-Rechte (der Launcher fragt per UAC) · 
 
 - 📖 [Alle Funktionen im Detail](docs/FEATURES.de.md) — samt Projektstruktur
 - 📜 [Changelog](CHANGELOG.md) (Englisch)
-- 🧪 1378 automatische Prüfungen in 36 Test-Suiten (`python tests\run_all_tests.py`), bei jedem Push
+- 🧪 1384 automatische Prüfungen in 36 Test-Suiten (`python tests\run_all_tests.py`), vor jedem Push
 - 🤝 Pull Requests sind willkommen — bei größeren Änderungen bitte zuerst ein Issue öffnen.
 
 <div align="center">

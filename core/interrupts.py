@@ -1,5 +1,5 @@
 """
-GameOptimizerPro v2.0 — Interrupt view (read-only)
+GameOptimizerPro — Interrupt view (read-only)
 
 Per PCI device: does it really run with MSI (Message Signaled Interrupts) or with
 the old line interrupt, how many messages it got, and the interrupt priority and

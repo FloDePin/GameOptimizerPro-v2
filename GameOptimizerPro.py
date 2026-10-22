@@ -1,5 +1,5 @@
 """
-GameOptimizerPro v2.1 — Entry Point
+GameOptimizerPro — Entry Point
 Architektur (thread-safe):
   Main-Thread  → tkinter mainloop() — einziger Thread der tkinter anfasst
   Thread 2     → pystray.run_detached() — Tray-Icon, non-blocking
@@ -476,7 +476,7 @@ class GameOptimizerApp:
     def _startup_bg(self):
         """Crash check + startup profile — runs in background thread."""
         try:
-            crashed = self.sl.check_and_handle_crash(
+            self.sl.check_and_handle_crash(
                 on_crash_detected=self._show_crash_dialog
             )
             from core import app_settings

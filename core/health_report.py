@@ -1,5 +1,5 @@
 """
-GameOptimizerPro v2.0 — PC Health Report
+GameOptimizerPro — PC Health Report
 
 Reads what Windows has *already* recorded about this machine over the last
 30 days and presents it plainly — no changes are made, nothing is installed.

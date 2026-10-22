@@ -1,5 +1,5 @@
 """
-GameOptimizerPro v2.0 — Monitor-Berater (aus v1)
+GameOptimizerPro — Monitor-Berater (aus v1)
 Prüft je aktivem Bildschirm, ob er mit der höchsten Bildwiederholrate läuft, die
 der Treiber bei der AKTUELLEN Auflösung anbietet. (v1 nahm die Maximalrate des
 Grafikadapters über alle Auflösungen — die kann der Monitor oft gar nicht.)

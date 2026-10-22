@@ -1,5 +1,5 @@
 """
-GameOptimizerPro v2.0 — Diagnose page
+GameOptimizerPro — Diagnose page
 Measure, don't guess:
   • Health Report    — 30 days of what Windows already recorded (read-only)
   • Remnant Scan     — leftovers of other tweak tools (read-only)

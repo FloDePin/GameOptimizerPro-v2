@@ -1,5 +1,5 @@
 """
-GameOptimizerPro v2.0 — keep the PC awake while a test runs
+GameOptimizerPro — keep the PC awake while a test runs
 
 An Auto-Tune takes 30–95 minutes; on a plan with sleep after 30 minutes Windows
 would suspend the PC in the middle of a stress step (and turn the screen off
