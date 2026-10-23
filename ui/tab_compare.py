@@ -18,7 +18,7 @@ import customtkinter as ctk
 
 from core.nvtune_core import ProfileManager, TuneProfile
 from core.profile_curves import flat_from, measured_points, profile_line, stock_line
-from core.profile_score import score_of, stock_of
+from core.profile_score import best_allround, score_of, stock_of
 from ui.components import Card, GaugeBar, Page, ResponsiveGrid, Table, button
 from ui.theme import (ACC, AMBER, CARD_BG, DIM, F_BB, F_S, F_SB, F_XS, GREEN, SLATE, TEXT2, VIOLET,
                       icon_image, mix, tr)
@@ -145,13 +145,15 @@ class CompareTab(Page):
             "Standard = die Karte ab Werk (0 %). Jeder Tune misst sie direkt vorher im gleichen Test, "
             "jedes Profil wird mit seiner eigenen Messung verglichen; die Spalte Standard zeigt deren "
             "Durchschnitt. Leistung = Punkte, Effizienz = Punkte pro Watt. ▲ besser als Standard, "
-            "▼ schlechter, ≈ gleich (innerhalb der Messschwankung von ±0,7 %). Profile ohne Messung: "
-            "ein neuer Tune misst es (Rundum und Schnell mit FurMark 2).",
+            "▼ schlechter, ≈ gleich (innerhalb der Messschwankung von ±0,7 %). ★ = das beste der gewählten "
+            "Profile; „Bester Allrounder“ = keine Leistung verloren und dabei am sparsamsten. Profile ohne "
+            "Messung: ein neuer Tune misst es (Rundum und Schnell mit FurMark 2).",
             "Stock = the card as it comes (0 %). Every tune measures it right before in the same test, "
             "every profile is compared with its own measurement; the stock column shows their mean. "
             "Performance = points, efficiency = points per watt. ▲ better than stock, ▼ worse, "
-            "≈ the same (within the run-to-run noise of ±0.7 %). Profiles without a measurement: "
-            "a new tune measures it (All-round and Quick with FurMark 2)."),
+            "≈ the same (within the run-to-run noise of ±0.7 %). ★ = the best of the chosen profiles; "
+            "'Best all-rounder' = no performance lost and the most frugal of those. Profiles without a "
+            "measurement: a new tune measures it (All-round and Quick with FurMark 2)."),
             font=F_XS, fg=DIM, bg=CARD_BG, anchor="w", justify="left", wraplength=900).pack(fill="x", pady=(0, 8))
         self._metric_rows: dict[str, "MetricRow"] = {}
         for label, key in [
@@ -288,6 +290,11 @@ class CompareTab(Page):
             vals = {i: s[key] for i, s in scores.items() if s}
             return max(vals, key=vals.get) if len(vals) >= 2 else None
         b_perf, b_eff = best("perf_pct"), best("eff_pct")
+        allround = best_allround(scores, NOISE_PCT)
+
+        def cell_allround(i, p):
+            s = scores.get(i)
+            return (BEST.strip() if i in allround else "—") if s else unmeasured
 
         def cell_perf(i, p):
             s = scores.get(i)
@@ -331,6 +338,7 @@ class CompareTab(Page):
             (tr("Punkte pro Watt", "Points per watt"), _dec(stock["ppw"]) if stock else "—", cell_ppw),
             (tr("Leistung ggü. Standard", "Performance vs stock"), BASE, cell_perf),
             (tr("Effizienz ggü. Standard", "Efficiency vs stock"), BASE, cell_eff),
+            (tr("Bester Allrounder", "Best all-rounder"), "—", cell_allround),
             (tr("Leistungsaufnahme", "Power draw"), f"{stock['power_w']} W" if stock else "—", cell_watt),
             (tr("Gemessen mit", "Measured with"), measured if stock else "—", cell_bench),
             (tr("Stabilitätstests", "Stability tests"), "—",

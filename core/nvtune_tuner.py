@@ -189,6 +189,23 @@ class StressTester:
     # second whenever a load ends or Afterburner applies a profile (seen live at
     # 46-53 °C) — counted at once, that failed a good step as "throttling".
     THROTTLE_SAMPLES = 3
+    # "SW thermal" ALONE far below the temperature limit is that same driver signal, not heat:
+    # the point search's load changes (23.10.) end the load every second, and live it stayed
+    # on for 3+ samples at 52-58 °C (slowdown point 94 °C) and failed good steps. It counts
+    # from this close to the limit on; the hardware slowdowns always count.
+    SW_THERMAL_NEAR_C = 15
+
+    @classmethod
+    def _protective(cls, stats, max_temp: float) -> bool:
+        """A thermal / hardware slowdown that means the card protects itself."""
+        if not getattr(stats, "throttle_protective", False):
+            return False
+        from core.nvtune_core import THR_PROTECTIVE, THR_SW_THERMAL
+        bits = int(getattr(stats, "throttle_bits", 0) or 0)
+        if bits & THR_PROTECTIVE == THR_SW_THERMAL:
+            return float(getattr(stats, "temp", 0) or 0) >= max_temp - cls.SW_THERMAL_NEAR_C
+        return True
+
     # A load that stops delivering results is a hung GPU. A game can end with
     # D3D12 "device hung" on a profile that passed every test; a hang in our
     # own load used to count as passed until the driver reset killed the worker
@@ -485,7 +502,7 @@ class StressTester:
             # (as before, with mislabelled bits) failed OC steps for no reason and
             # made the power-limit stage unable to lower anything. And only a
             # lasting one after the ramp-up (THROTTLE_SAMPLES).
-            if elapsed >= self.RAMP_S and getattr(stats, "throttle_protective", False):
+            if elapsed >= self.RAMP_S and self._protective(stats, max_temp):
                 prot_run += 1
                 if prot_run >= self.THROTTLE_SAMPLES and not result.throttle_hit:
                     result.throttle_hit = True

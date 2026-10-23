@@ -113,6 +113,34 @@ check(r.passed and not r.throttle_hit, "a 2-s blip after the ramp-up -> ignored"
 r = StressTester(Blip({4, 5, 6})).run(9, 90)
 check(r.throttle_hit and r.throttle_note == "SW-Thermal", f"3 s in a row -> counted, named: {r.throttle_note!r}")
 check(r.last_voltage_mv == 1000, "voltage just before the end recorded")
+
+
+class Bits(Blip):
+    """Real NVML reason bits (23.10. live: 'SW thermal' + power cap for 3+ s at 52-58 °C
+    during the point search's load changes; the RTX 4080 slows down at 94 °C)."""
+    def __init__(self, on, bits, temp=60):
+        super().__init__(on)
+        self.bits, self.temp = bits, temp
+
+    def read(self):
+        st = super().read()
+        st.temp = self.temp
+        st.throttle_bits = self.bits if self.n in self.on else 0x04
+        return st
+
+
+from core.nvtune_core import THR_SW_THERMAL, THR_POWER_CAP, THR_HW_SLOWDOWN
+r = StressTester(Bits({4, 5, 6, 7}, THR_SW_THERMAL | THR_POWER_CAP, temp=58)).run(9, 85)
+check(r.passed and not r.throttle_hit, "SW thermal alone for 4 s at 58 °C (limit 85) -> the driver's "
+                                       "load-change signal, ignored")
+r = StressTester(Bits({4, 5, 6}, THR_SW_THERMAL | THR_POWER_CAP, temp=72)).run(9, 85)
+check(r.throttle_hit, "SW thermal alone at 72 °C (within 15 °C of the limit) -> counted")
+r = StressTester(Bits({4, 5, 6}, THR_HW_SLOWDOWN | THR_SW_THERMAL, temp=58)).run(9, 85)
+check(r.throttle_hit, "a hardware slowdown counts at any temperature")
+ns = types.SimpleNamespace
+check(StressTester._protective(ns(throttle_protective=True, temp=50), 85)
+      and not StressTester._protective(ns(throttle_protective=False, throttle_bits=THR_HW_SLOWDOWN, temp=50), 85),
+      "no reason bits read -> the old rule (protective flag)")
 os.environ["FAKE_CORRUPT_DOT"] = "60"
 r = StressTester(Mon()).run(8, 90)
 os.environ.pop("FAKE_CORRUPT_DOT")

@@ -84,6 +84,25 @@ def stock_of(scores) -> Optional[dict]:
             "ppw": round(sum(x["stock_ppw"] for x in s) / len(s), 2), "n": len(s)}
 
 
+NOISE_PCT = 0.7   # two stock runs of the same card differ by about this much (FurMark 2, 60 s)
+
+
+def best_allround(scores: dict, noise: float = NOISE_PCT) -> set:
+    """The best all-rounder among measured profiles (23.10.): it loses no performance against
+    stock (within the noise) and is the most efficient of those — ties within the noise share
+    it. A plain sum of performance and efficiency would crown a deep undervolt that is clearly
+    slower. {key: score_of(...) or None} -> set of keys; empty with fewer than two measured
+    profiles or when none keeps stock performance AND beats stock's efficiency."""
+    measured = {k: s for k, s in scores.items() if s}
+    keeps = {k: s for k, s in measured.items() if s["perf_pct"] > -noise}
+    if len(measured) < 2 or not keeps:
+        return set()
+    top = max(s["eff_pct"] for s in keeps.values())
+    if top < noise:
+        return set()
+    return {k for k, s in keeps.items() if s["eff_pct"] > top - noise}
+
+
 def bench_record(name: str, seconds: float, score: float, power_w: float, stock_score: float,
                  stock_power_w: float, stock_seconds: float = 0.0, at: str = "") -> dict:
     """What a tune stores in TuneProfile.bench."""

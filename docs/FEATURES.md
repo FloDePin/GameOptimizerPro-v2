@@ -114,7 +114,7 @@ Everything the app does, in detail. Results quoted from live runs are from one t
 - **Interrupts** — per PCI device: MSI or the old line interrupt (read from what Windows really allocated, not just the registry flag), number of messages, interrupt priority and core assignment, shared line interrupts — with a note where it matters (a GPU without MSI points to the MSI tweak; a driver that turns MSI off on purpose is left alone). Read-only
 
 ### 📊 Profile Compare
-- Compare up to **4 saved GPU profiles side-by-side** by what they do **against stock in the same benchmark**: a **stock column** as point 0, performance (points vs stock) and efficiency (points per watt vs stock) with ▲ / ▼ / ≈ (within the ±0.7 % run-to-run noise), the FurMark points themselves, power draw, memory and mode
+- Compare up to **4 saved GPU profiles side-by-side** by what they do **against stock in the same benchmark**: a **stock column** as point 0, performance (points vs stock) and efficiency (points per watt vs stock) with ▲ / ▼ / ≈ (within the ±0.7 % run-to-run noise), the FurMark points themselves, power draw, memory and mode; ★ marks the best of the chosen profiles, and the **best all-rounder** is the one that loses no performance against stock and is the most frugal of those (a plain sum would crown a deep, clearly slower undervolt)
 - A **V/F curve chart** like Afterburner's curve editor: stock dashed, every profile in its own colour and line style, the measured points as dots, the range the card runs in under load shaded; point at it for the clocks at that voltage
 - Both tune modes measure it (60 s of FurMark 2 at stock and with the result; before each comparison run the card cools down to the stock run's starting temperature)
 

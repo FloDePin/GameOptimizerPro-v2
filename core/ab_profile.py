@@ -654,7 +654,13 @@ def startup_matches_slot(text: str, slot: int) -> Optional[bool]:
         return None
     st = pf.items(STARTUP)
     keys = [k.lower() for k in STARTUP_KEYS]
-    return _same_settings({k: st.get(k, "") for k in keys}, {k: src.get(k, "") for k in keys})
+    a, b = {k: st.get(k, "") for k in keys}, {k: src.get(k, "") for k in keys}
+    if a["vfcurve"] and b["vfcurve"]:
+        # Afterburner rewrites [Startup] itself (live 23.10., after an app restart): the same
+        # curve offsets, but its own slider value in CoreClkBoost (the curve's lowest offset,
+        # -251000) instead of the curve marker — the card runs the curve, so that is compared
+        a.pop("coreclkboost"), b.pop("coreclkboost")
+    return _same_settings(a, b)
 
 
 def slot_summary(pf: ProfileFile, slot: int, de: bool = True) -> str:

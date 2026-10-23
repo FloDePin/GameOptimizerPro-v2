@@ -1,6 +1,6 @@
 {
-  "build": 45,
+  "build": 46,
   "date": "2026-10-23",
-  "notes": "Zuverlässiger: Einstellungen und die Liste der angewendeten Tweaks werden absturzsicher gespeichert und nie mehr überschrieben, wenn sie kurz nicht lesbar sind; unerwartete Fehler landen in logs/app_errors.log; Stresslasten enden mit der App, auch nach einem Absturz. Schneller: Statusprüfung der Tweaks und Treiber-Reset-Erkennung ohne PowerShell, Benachrichtigungen über das Tray-Icon, Netzwerktest in einem Drittel der Zeit.",
-  "notes_en": "More reliable: settings and the list of applied tweaks are saved crash-safe and never overwritten when they can't be read for a moment; unexpected errors go to logs/app_errors.log; stress loads end with the app, also after a crash. Faster: tweak status checks and driver-reset detection without PowerShell, notifications through the tray icon, the network test in a third of the time."
+  "notes": "GPU-Tuner: Die Punktsuche wertet das kurze „SW-Thermal“-Signal des Treibers bei Lastwechseln weit unter der Temperaturgrenze nicht mehr als Drosselung (Hardware-Drosselung zählt weiter). Profilvergleich: „Bester Allrounder“ — keine Leistung verloren und dabei am sparsamsten. Boot-Eintrag: Afterburners eigenes Format gilt nicht mehr als anderes Profil.",
+  "notes_en": "GPU tuner: the point search no longer counts the driver's short 'SW thermal' signal around load changes far below the temperature limit as a slowdown (hardware slowdowns still count). Profile comparison: 'best all-rounder' — no performance lost and the most frugal. Boot entry: Afterburner's own format no longer counts as another profile."
 }

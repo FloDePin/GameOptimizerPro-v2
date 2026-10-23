@@ -46,7 +46,11 @@ named by version only.
   be read for a moment (that silently wiped them); unexpected errors go to `logs/app_errors.log`; the
   stress loads end with the app however it ends (Windows job); driver resets and plain registry checks
   read without PowerShell; notifications through the tray icon; the network test in parallel.
-- 1539 checks in 40 suites, all green.
+- **Update 2026-10-23 (evening)** — from the Efficiency and Max tunes: the point search no longer fails a
+  good step on the driver's short "SW thermal" signal around load changes (52–58 °C, far below the limit;
+  hardware slowdowns still count); the comparison names the best all-rounder; Afterburner rewriting its
+  boot entry in its own format is no longer reported as "boots another profile".
+- 1562 checks in 41 suites, all green.
 
 <details>
 <summary><b>Development log — rounds 8–33</b> (one or two lines per round)</summary>
