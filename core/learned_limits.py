@@ -17,8 +17,6 @@ logs/gpu_learned.json:  {"<gpu name>": {"<mv>": {"fail_mhz": 2742, "at": "2026-1
 
 from __future__ import annotations
 
-import json
-import os
 from datetime import datetime
 from pathlib import Path
 
@@ -31,25 +29,15 @@ def _path(logs_dir) -> Path:
     return Path(logs_dir) / FILE
 
 
-def _read(logs_dir) -> dict:
-    try:
-        with open(_path(logs_dir), encoding="utf-8") as f:
-            d = json.load(f)
-        return d if isinstance(d, dict) else {}
-    except (OSError, ValueError):
-        return {}
+def _read(logs_dir, strict: bool = False) -> dict:
+    from core import safe_json
+    d = safe_json.read(_path(logs_dir), {}, strict=strict)
+    return d if isinstance(d, dict) else {}
 
 
 def _write(logs_dir, d: dict) -> bool:
-    try:
-        Path(logs_dir).mkdir(parents=True, exist_ok=True)
-        tmp = _path(logs_dir).with_suffix(".tmp")
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(d, f, indent=2, ensure_ascii=False)
-        os.replace(tmp, _path(logs_dir))
-        return True
-    except OSError:
-        return False
+    from core import safe_json
+    return safe_json.write(_path(logs_dir), d)
 
 
 def load(logs_dir, gpu: str) -> dict:
@@ -70,7 +58,11 @@ def record(logs_dir, gpu: str, mv: int, fail_mhz: int, test: str = "") -> bool:
     the lowest failing clock per point. -> True when something new was learned."""
     if not gpu or not mv or fail_mhz <= 0:
         return False
-    d = _read(logs_dir)
+    from core import safe_json
+    try:
+        d = _read(logs_dir, strict=True)
+    except safe_json.Unreadable:             # never write over what could not be read
+        return False
     pts = d.setdefault(gpu, {})
     key = str(int(mv))
     old = pts.get(key) or {}
@@ -82,7 +74,13 @@ def record(logs_dir, gpu: str, mv: int, fail_mhz: int, test: str = "") -> bool:
 
 def forget(logs_dir, gpu: str = "") -> bool:
     """Forget what was learned (one GPU, or every GPU)."""
-    d = _read(logs_dir)
+    from core import safe_json
+    try:
+        d = _read(logs_dir, strict=True)
+    except safe_json.Unreadable:
+        d = {} if not gpu else None
+    if d is None:
+        return False
     if gpu:
         if gpu not in d:
             return True

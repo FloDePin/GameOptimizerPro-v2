@@ -469,8 +469,10 @@ def final_backoff(attempt: int, anchors: list, mem: int, cap_mv: int, pwr_pct: i
     first the power limit back to 100 %, then flat from the next lower cap
     voltage (cap_mvs; default: the measured points). Unstable: the curve −step MHz
     around crash_mv, the voltage the card ran when it failed (lower_near; unknown: every
-    point) — the memory offset −mem_step only when the failure came from the memory load
-    (mem_fault), or when MEM_AFTER curve step-backs in a row (curve_backs) did not help.
+    point) — the memory offset −mem_step only when the memory is the cause (mem_fault: its own
+    load failed, or the final loop's cross-check passed with the memory at stock), or — only when
+    that cross-check is off — after MEM_AFTER curve step-backs in a row (curve_backs) that did not
+    help.
     mem_why: the reason named for a memory step back (the tuner's cross-check found it).
     Round 33: memory used to take every second turn; the memory stage tests the whole card
     up to its limit with a margin, and the faults came from the core curve."""

@@ -73,6 +73,7 @@ Every card differs — the profile comparison in the app shows yours.
 - No BIOS or driver changes — the GPU goes through MSI Afterburner and NVML; the BIOS guide only shows what to set.
 - Every tweak can be reverted on its own or all at once; a registry backup runs before every change, a restore point before every app removal (and one click otherwise).
 - *Abort* puts the GPU back to stock at once; the GPU watchdog reports in-game crashes (also a crash that restarts the PC) and makes the profile safer where it failed.
+- The app's own state (settings, which tweaks it applied) is saved crash-safe with a last good copy; its stress loads end with the app, however it ends; unexpected errors are logged to `logs/app_errors.log`.
 
 ## FAQ
 
@@ -97,7 +98,7 @@ Windows 10 / 11 · Python 3.10+ · admin rights (the launcher asks through UAC) 
 
 - 📖 [All features in detail](docs/FEATURES.md) — including the project structure
 - 📜 [Changelog](CHANGELOG.md)
-- 🧪 1501 automated checks in 39 test suites (`python tests\run_all_tests.py`), run before every push
+- 🧪 1539 automated checks in 40 test suites (`python tests\run_all_tests.py`), run before every push
 - 🤝 Pull requests are welcome — for bigger changes please open an issue first.
 
 <div align="center">

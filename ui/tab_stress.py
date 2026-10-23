@@ -528,6 +528,8 @@ class StressTab(Page):
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                     creationflags=flags
                 )
+                from core import proc_job
+                proc_job.bind(proc)              # ends with the app, however the app ends
                 self._worker_proc = proc
 
             try:

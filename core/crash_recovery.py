@@ -54,22 +54,19 @@ class CrashRecovery:
     # ── Stable profile tracking ───────────────────────────────────────────────
 
     def save_last_stable(self, profile_dict: dict):
-        """Save the last known-good profile."""
-        self._last_stable.write_text(
-            json.dumps(profile_dict, indent=2), encoding="utf-8")
+        """Save the last known-good profile (atomic, the last good copy kept: core/safe_json)."""
+        from core import safe_json
+        safe_json.write(self._last_stable, profile_dict)
 
     def load_last_stable(self) -> Optional[dict]:
-        if not self._last_stable.exists():
-            return None
-        try:
-            return json.loads(self._last_stable.read_text(encoding="utf-8"))
-        except Exception:
-            return None
+        from core import safe_json
+        d = safe_json.read(self._last_stable, None)
+        return d if isinstance(d, dict) else None
 
     def save_last_applied(self, profile_dict: dict):
         """Track the most recently applied profile (for startup loader)."""
-        self._last_applied.write_text(
-            json.dumps(profile_dict, indent=2), encoding="utf-8")
+        from core import safe_json
+        safe_json.write(self._last_applied, profile_dict)
 
     def rename_last_applied(self, old: str, new: str) -> bool:
         """A profile was renamed: the last-applied record follows. Its time stays
@@ -87,12 +84,11 @@ class CrashRecovery:
             return False
 
     def load_last_applied(self) -> Optional[dict]:
-        if not self._last_applied.exists():
-            return None
-        try:
-            return json.loads(self._last_applied.read_text(encoding="utf-8"))
-        except Exception:
-            return None
+        """A broken file after a power cut: the last good copy (core/safe_json) — the profile the
+        PC starts with must not just vanish."""
+        from core import safe_json
+        d = safe_json.read(self._last_applied, None)
+        return d if isinstance(d, dict) else None
 
     # ── TDR detection via Windows Event Log ──────────────────────────────────
 
@@ -112,6 +108,13 @@ class CrashRecovery:
         """
         if os.name != "nt":
             return False
+        try:                                   # native first: no powershell.exe mid-step (23.10.)
+            import time as _time
+            from core.gpu_flight import events_since
+            return bool(events_since(_time.time() - int(seconds_back),
+                                     {"nvlddmkm": {13, 14}, "Display": {4101}}))
+        except Exception:
+            pass                               # the native API not usable here: PowerShell
         try:
             ps_cmd = (
                 f"$cutoff = (Get-Date).AddSeconds(-{int(seconds_back)}); "

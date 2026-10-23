@@ -616,6 +616,111 @@ def split_batch(ids: list[str], limit: int = MAX_SCRIPT_CHARS) -> list[list[str]
     return parts
 
 
+# ── plain registry checks without PowerShell (23.10.) ─────────────────────────
+# About a third of the checks read one registry value (or a few in one key) and compare it. They
+# ran in the big PowerShell batches — seconds for the score, the drift check at start and "check
+# status". Read through winreg they take milliseconds. Only these exact shapes are taken; anything
+# else, and a value type PowerShell would read differently (binary, multi-string), stays with
+# PowerShell. tests/test_round37.py compares every one with PowerShell on the real system.
+import re as _re
+from functools import lru_cache as _lru_cache
+
+_RX_ONE = _re.compile(
+    r"""^\$v=\(Get-ItemProperty (['"])(HKLM|HKCU):\\(.+?)\1 -Name (['"]?)(.+?)\4 -EA SilentlyContinue\)"""
+    r"""\.(['"]?)(.+?)\6;\s*if\(\$v -(eq|ne) ("[^"]*"|-?\d+)\)\{"1"\}else\{"0"\}$""")
+_RX_ALL = _re.compile(
+    r"""^\$k=Get-ItemProperty (['"])(HKLM|HKCU):\\(.+?)\1 -EA SilentlyContinue;\s*"""
+    r"""if\(\$k((?: -and \$k\.\w+ -eq -?\d+)+)\)\{"1"\}else\{"0"\}$""")
+_RX_COND = _re.compile(r"\$k\.(\w+) -eq (-?\d+)")
+
+
+@_lru_cache(maxsize=None)
+def reg_spec(tid: str):
+    """("one", hive, path, name, op, want) | ("all", hive, path, ((name, want), ...)) | None."""
+    cmd = VERIFY_MAP.get(tid, "").strip()
+    m = _RX_ONE.match(cmd)
+    if m and m.group(5) == m.group(7):
+        want = m.group(9)
+        want = want[1:-1] if want.startswith('"') else int(want)
+        name = "" if m.group(5).lower() == "(default)" else m.group(5)
+        return ("one", m.group(2), m.group(3), name, m.group(8), want)
+    m = _RX_ALL.match(cmd)
+    if m:
+        conds = tuple((n, int(v)) for n, v in _RX_COND.findall(m.group(4)))
+        return ("all", m.group(2), m.group(3), conds)
+    return None
+
+
+def _ps_value(v, rtype):
+    """What PowerShell's Get-ItemProperty gives for a value: a DWORD unsigned (measured: 0xFFFFFFFF
+    equals 4294967295 there, not -1), a QWORD below 2^63 (above it PowerShell's reading differs: left
+    to PowerShell), expandable strings expanded; another type -> LookupError (left to PowerShell)."""
+    import winreg
+    if rtype == winreg.REG_DWORD:
+        return (v,)
+    if rtype == winreg.REG_QWORD:
+        if v >= (1 << 63):
+            raise LookupError(rtype)
+        return (v,)
+    if rtype == winreg.REG_SZ:
+        return v
+    if rtype == winreg.REG_EXPAND_SZ:
+        return winreg.ExpandEnvironmentStrings(v)
+    raise LookupError(rtype)
+
+
+def _ps_eq(v, want) -> bool:
+    """PowerShell's `$v -eq want`: $null never equal; a number against text converts the text,
+    text against anything compares as text, ignoring case."""
+    if v is None:
+        return False
+    if isinstance(v, tuple):                 # a number (both readings)
+        if isinstance(want, int):
+            return want in v
+        try:
+            return int(str(want).strip(), 0) in v
+        except ValueError:
+            return False
+    return str(v).lower() == str(want).lower()
+
+
+def reg_check(tid: str):
+    """The check straight from the registry: True / False, None = not a plain registry check (or a
+    value only PowerShell reads the same way) — then PowerShell does it."""
+    spec = reg_spec(tid)
+    if spec is None or os.name != "nt":
+        return None
+    import winreg
+    hive = winreg.HKEY_LOCAL_MACHINE if spec[1] == "HKLM" else winreg.HKEY_CURRENT_USER
+    try:
+        key = winreg.OpenKey(hive, spec[2], 0, winreg.KEY_READ | winreg.KEY_WOW64_64KEY)
+    except FileNotFoundError:
+        key = None
+    except OSError:
+        return None
+    try:
+        def value(name):
+            if key is None:
+                return None
+            try:
+                v, t = winreg.QueryValueEx(key, name)
+            except FileNotFoundError:
+                return None
+            return _ps_value(v, t)
+        if spec[0] == "one":
+            _k, _h, _p, name, op, want = spec
+            eq = _ps_eq(value(name), want)
+            return eq if op == "eq" else not eq
+        if key is None:
+            return False
+        return all(_ps_eq(value(n), w) for n, w in spec[3])
+    except (LookupError, OSError):
+        return None
+    finally:
+        if key is not None:
+            winreg.CloseKey(key)
+
+
 class TweakVerifier:
     def __init__(self, timeout_s: int = 45):
         self.timeout = timeout_s
@@ -707,11 +812,19 @@ class TweakVerifier:
         if not verifiable:
             return {}
 
+        # plain registry checks straight from the registry (milliseconds), the rest through PowerShell
+        results = {}
+        for t in verifiable:
+            if t in SLOW_CHECKS:
+                continue
+            got = reg_check(t)
+            if got is not None:
+                exp = expected.get(t, False)
+                results[t] = VerifyResult(tweak_id=t, expected=exp, actual=got, mismatch=(exp != got))
         # Split into fast (registry/service) and slow (AppxPackage) batches
-        fast_ids = [t for t in verifiable if t not in SLOW_CHECKS]
+        fast_ids = [t for t in verifiable if t not in SLOW_CHECKS and t not in results]
         slow_ids = [t for t in verifiable if t in SLOW_CHECKS]
 
-        results = {}
         # Fast batch: 20s timeout
         results.update(self._run_batch(fast_ids, expected, timeout=20))
         # Slow batch: 30s timeout (AppxPackage queries take longer)

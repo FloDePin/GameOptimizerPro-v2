@@ -78,6 +78,7 @@ Alles, was die App macht, im Detail. Zitierte Ergebnisse aus Live-Läufen stamme
 - Erst scannen (zeigt freigebbaren Speicher je Gruppe), dann per Klick bereinigen
 - **Wiederherstellungspunkt erstellen** — Ein-Klick-Sicherheitsnetz vor dem Anwenden von Tweaks
 - **Registry-Backup** — exportiert alle Registry-Zweige, die die Tweaks anfassen können, als `.reg`-Dateien (zum Zurückspielen genügt ein Doppelklick). Läuft **automatisch vor jedem „Apply Selected", Preset, „Revert All" und „Abweichungen beheben"** sowie auf Knopfdruck; behält die 10 neuesten Backups und löscht ältere automatisch, damit die Platte nicht vollläuft
+- **Der eigene Zustand der App ist absturzsicher:** Einstellungen, die angewendeten Tweaks (darauf baut *Zurücksetzen* auf), die geänderten Dienste, Profile und die Listen des Wächters werden atomar mit letzter guter Kopie (`.bak`) geschrieben; eine Datei, die kurz nicht lesbar ist (Virenscanner beim Start), wird nie überschrieben, eine kaputte aus der Kopie wiederhergestellt. Unerwartete Fehler landen in `logs/app_errors.log` (die App hat keine Konsole). Die Stresslasten der App (Worker, FurMark eines Tunes / Härtetests) laufen in einem Windows-Job: Sie enden mit der App, auch nach einem Absturz
 
 ### 🛠 Windows Optimizer
 - **109 Tweaks** in den Kategorien Windows, Gaming, Network, Audio (inkl. AMD-GPU-Tweaks)
@@ -199,6 +200,11 @@ GameOptimizerPro/
 │   ├── startup_loader.py     ← Autostart + Startprofil-Loader
 │   ├── gpu_defaults.py       ← GPU-Generationen-Standardwerte-Tabelle
 │   ├── app_settings.py       ← Kleine dauerhafte Einstellungen (logs/settings.json)
+│   ├── safe_json.py          ← Absturzsichere JSON-Zustandsdateien (atomar, letzte gute Kopie, nie {} über eine gesperrte Datei)
+│   ├── errlog.py             ← Unerwartete Fehler -> logs/app_errors.log
+│   ├── proc_job.py           ← Windows-Job: die GPU-Lasten der App enden mit der App
+│   ├── notify.py             ← Benachrichtigungen über das Tray-Icon
+│   ├── learned_limits.py     ← Punkte, die einen Endtest nicht bestanden, pro Karte (der nächste Tune startet darunter)
 │   ├── audio_policy.py       ← Audio-Geräteeinstellungen über die Windows-Audio-API
 │   ├── furmark.py            ← FurMark-1/2-Erkennung + Kommandozeile
 │   ├── threedmark.py         ← 3DMark-Erkennung (Steam-Bibliotheken) + Start

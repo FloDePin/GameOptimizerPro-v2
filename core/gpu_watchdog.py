@@ -64,18 +64,15 @@ def record_own_load(start: float, end: float):
     _ACTIVE.discard(round(float(start), 1))
     if SESSIONS_FILE is None:
         return
-    try:
-        data = json.loads(SESSIONS_FILE.read_text(encoding="utf-8")) if SESSIONS_FILE.exists() else []
-        if not isinstance(data, list):
-            data = []
-    except (OSError, ValueError):
+    from core import safe_json
+    try:                                       # never write over a list that could not be read:
+        data = safe_json.read(SESSIONS_FILE, [], strict=True)   # its own loads would count as games
+    except safe_json.Unreadable:
+        return
+    if not isinstance(data, list):
         data = []
     data.append([round(float(start), 1), round(float(end), 1)])
-    try:
-        SESSIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        SESSIONS_FILE.write_text(json.dumps(data[-MAX_SESSIONS:]), encoding="utf-8")
-    except OSError:
-        pass
+    safe_json.write(SESSIONS_FILE, data[-MAX_SESSIONS:], indent=None, backup=False)
 
 
 def own_windows(logs_dir) -> list:
@@ -113,6 +110,13 @@ def read_events(since: float) -> list:
     """[(epoch, event id)] GPU hang / reset events in the System log since `since`."""
     if os.name != "nt":
         return []
+    try:                                       # native first: no powershell.exe (23.10.)
+        from core.gpu_flight import events_since
+        return sorted((t, i) for t, _src, i in events_since(
+            since, {"nvlddmkm": set(NV_IDS), "Display": {4101},
+                    "Microsoft-Windows-Kernel-Power": {RESTART_ID}}))
+    except Exception:
+        pass                                   # the native API not usable here: PowerShell
     ps = _PS.format(since=datetime.fromtimestamp(since).strftime("%Y-%m-%dT%H:%M:%S"))
     try:
         r = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps],
@@ -249,22 +253,15 @@ def affected_anchors(profile: dict, mv: float) -> list:
     return sorted(sel)
 
 
-def _read_json(path: Path, default):
-    try:
-        d = json.loads(path.read_text(encoding="utf-8"))
-        return d if isinstance(d, type(default)) else default
-    except (OSError, ValueError):
-        return default
+def _read_json(path: Path, default, strict: bool = False):
+    from core import safe_json
+    d = safe_json.read(path, default, strict=strict)
+    return d if isinstance(d, type(default)) else default
 
 
-def _write_json(path: Path, data):
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-        os.replace(tmp, path)
-    except OSError:
-        pass
+def _write_json(path: Path, data, backup: bool = False):
+    from core import safe_json
+    safe_json.write(path, data, indent=None, backup=backup)
 
 
 def record_fault(logs_dir, fault: dict, samples: list):
@@ -273,11 +270,15 @@ def record_fault(logs_dir, fault: dict, samples: list):
     d = Path(logs_dir)
     stamp = time.strftime("%Y%m%d_%H%M%S", time.localtime(fault.get("t", time.time())))
     _write_json(d / FAULTS_DIR / f"fault_{stamp}.json", dict(fault, samples=samples))
-    rows = _read_json(d / FIELD_FILE, [])
+    from core import safe_json
+    try:                                       # the field list: what the next tune keeps margin for
+        rows = _read_json(d / FIELD_FILE, [], strict=True)
+    except safe_json.Unreadable:
+        return
     row = {k: fault.get(k) for k in ("t", "gpu", "profile", "mv", "mhz", "ids", "anchors")}
     row.update({k: (fault.get("point") or {}).get(k) for k in ("mem", "w", "temp")})
     rows.append(row)
-    _write_json(d / FIELD_FILE, rows[-MAX_FIELD:])
+    _write_json(d / FIELD_FILE, rows[-MAX_FIELD:], backup=True)
 
 
 def field_faults(logs_dir) -> list:

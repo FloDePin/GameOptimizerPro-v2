@@ -694,6 +694,8 @@ class GameOptimizerApp:
             startup_loader=self.sl,
         )
         self._window.protocol("WM_DELETE_WINDOW", self._on_close)
+        from core import errlog
+        errlog.tk_hook(self._window)         # a button's error is logged, not lost
         self._window.request_exit = lambda relaunch=False: self._shutdown(relaunch=relaunch)
         # Updates from GitHub (setting "check_updates", default on) — a few
         # seconds after the start, in the background.
@@ -718,6 +720,8 @@ class GameOptimizerApp:
                 )
                 def _tray_setup(icon):
                     icon.visible = True
+                    from core import notify
+                    notify.set_tray(icon)        # notifications through the icon, not PowerShell
                 threading.Thread(
                     target=self._tray.run,
                     kwargs={"setup": _tray_setup},
@@ -734,6 +738,9 @@ class GameOptimizerApp:
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main():
+    # Unexpected errors -> logs/app_errors.log: without a console they vanished (audit 2026-10-23)
+    from core import errlog
+    errlog.install(BASE / "logs")
     # Load the saved language before any UI is built
     i18n.init_lang()
 

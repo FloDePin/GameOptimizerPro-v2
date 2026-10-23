@@ -113,18 +113,19 @@ def ping(label: str, host: str, count: int = 10, timeout_ms: int = 1000) -> Ping
 
 
 def run_all(count: int = 10) -> list[PingResult]:
-    """Testet Gateway + öffentliche DNS-Server. Gibt eine Liste von PingResults zurück."""
-    results = []
+    """Testet Gateway + öffentliche DNS-Server. Gibt eine Liste von PingResults zurück.
+    The targets are pinged at the same time (one ping a second each — no load on any line): the
+    test takes ~10 s instead of ~30 s; the order of the results stays the same."""
+    from concurrent.futures import ThreadPoolExecutor
     gw = get_default_gateway()
+    targets = ([("Gateway (Router)", gw)] if gw else []) + list(PUBLIC_TARGETS)
+    with ThreadPoolExecutor(max_workers=max(1, len(targets))) as ex:
+        found = list(ex.map(lambda t: ping(t[0], t[1], count=count), targets))
     if gw:
-        results.append(ping("Gateway (Router)", gw, count=count))
-    else:
-        r = PingResult(label="Gateway (Router)", host="?")
-        r.error = _tr("Gateway nicht gefunden", "Gateway not found")
-        results.append(r)
-    for label, host in PUBLIC_TARGETS:
-        results.append(ping(label, host, count=count))
-    return results
+        return found
+    r = PingResult(label="Gateway (Router)", host="?")
+    r.error = _tr("Gateway nicht gefunden", "Gateway not found")
+    return [r] + found
 
 
 def rate_latency(avg_ms: float) -> str:

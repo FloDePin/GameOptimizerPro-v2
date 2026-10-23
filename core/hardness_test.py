@@ -137,6 +137,8 @@ class _Load:
                                      stdin=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace",
                                      env=self.env, cwd=self.cwd, startupinfo=self.startupinfo,
                                      creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        from core import proc_job
+        proc_job.bind(self.proc)                 # FurMark too: it ends with the app, however the app ends
         threading.Thread(target=self._read, daemon=True).start()
 
     def _read(self):

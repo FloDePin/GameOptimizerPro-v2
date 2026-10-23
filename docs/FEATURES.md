@@ -79,6 +79,7 @@ Everything the app does, in detail. Results quoted from live runs are from one t
 - Scan first to see how much can be freed per group, then clean with one click
 - **Create Restore Point** — one-click Windows System Restore Point as a safety net before applying tweaks
 - **Registry Backup** — exports every registry branch the tweaks can touch as `.reg` files (double-click to restore). Runs **automatically before every Apply Selected, preset, Revert All and "fix deviations"**, plus on demand; keeps the 10 newest backups and prunes older ones so it can't fill your disk
+- **The app's own state is crash-safe:** settings, the tweaks it applied (what *revert* relies on), the services it changed, profiles and the watchdog's lists are written atomically with the last good copy kept (`.bak`); a file that can't be read for a moment (a virus scanner at boot) is never overwritten, a broken one is restored from that copy. Unexpected errors go to `logs/app_errors.log` (the app has no console). The app's stress loads (workers, FurMark of a tune / hardness test) sit in a Windows job: they end with the app, also after a crash
 
 ### 🛠 Windows Optimizer
 - **109 Tweaks** across Windows, Gaming, Network, Audio categories (incl. AMD GPU tweaks)
@@ -206,6 +207,11 @@ GameOptimizerPro/
 │   ├── startup_loader.py     ← Autostart + startup profile loader
 │   ├── gpu_defaults.py       ← GPU generation defaults table
 │   ├── app_settings.py       ← Small persistent settings (logs/settings.json)
+│   ├── safe_json.py          ← Crash-safe JSON state files (atomic, last good copy, never {} over a locked file)
+│   ├── errlog.py             ← Unexpected errors -> logs/app_errors.log
+│   ├── proc_job.py           ← Windows job: the app's GPU loads end with the app
+│   ├── notify.py             ← Notifications through the tray icon
+│   ├── learned_limits.py     ← Points that failed a final test, per card (the next tune starts below)
 │   ├── audio_policy.py       ← Audio endpoint settings via the Windows audio API
 │   ├── furmark.py            ← FurMark 1/2 detection + command line
 │   ├── threedmark.py         ← 3DMark detection (Steam libraries) + launch

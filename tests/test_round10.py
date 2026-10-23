@@ -224,6 +224,12 @@ check([(c, m) for c, m, p in g.finals] == [(172, 1000), (172, 0), (157, 1000), (
       f"then the memory): {g.finals}")
 check(t.best_profile and t.best_profile.mem_offset_mhz == 900 and t.best_profile.core_offset_mhz == 157,
       "saved: +157 core / +900 memory (what passed) — 30 MHz more core than the guess kept")
+g = GPU(final_limit=160, mem_limit=900)
+t, logs, ab, saved = tune(g, mem_offset_mhz=1000, final_cross_check=False)
+check([(c, m) for c, m, p in g.finals] == [(172, 1000), (157, 1000), (142, 1000), (127, 1000), (127, 900)]
+      and t.best_profile and t.best_profile.core_offset_mhz == 127,
+      f"without the cross-check (TunerConfig.final_cross_check=False) round 33's count is the fallback: the "
+      f"memory after 3 core step-backs that did not help: {g.finals}")
 
 g = GPU(never=True)
 t, logs, ab, saved = tune(g)

@@ -95,32 +95,62 @@ class _ModernLog:
             size = used.value
         return None
 
-    def poll(self) -> list:
+    def query(self, xpath: str, limit: int = 5000) -> list:
+        """[(record, epoch, provider, event id)] of an XPath query on the log; OSError when it
+        can't run."""
         w, H = self._w, wintypes.HANDLE
-        q = w.EvtQuery(None, self._log, f"*[System[EventRecordID>{self.last}]]", 0x1)
+        q = w.EvtQuery(None, self._log, xpath, 0x1)
         if not q:
-            return []
+            raise OSError(ctypes.get_last_error(), "EvtQuery")
         out = []
         try:
             arr, n = (H * 64)(), wintypes.DWORD()
-            while len(out) < 5000 and w.EvtNext(q, 64, arr, 1000, 0, ctypes.byref(n)):
+            while len(out) < limit and w.EvtNext(q, 64, arr, 1000, 0, ctypes.byref(n)):
                 for i in range(n.value):
                     try:
                         r = self._render(arr[i])
                         if r:
-                            rec, t, src, eid = r
-                            out.append((t, src, eid))
-                            self.last = max(self.last, rec)
+                            out.append(r)
                     finally:
                         w.EvtClose(arr[i])
         finally:
             w.EvtClose(q)
         return out
 
+    def poll(self) -> list:
+        try:
+            rows = self.query(f"*[System[EventRecordID>{self.last}]]")
+        except OSError:
+            return []
+        for rec, _t, _src, _eid in rows:
+            self.last = max(self.last, rec)
+        return [(t, src, eid) for _rec, t, src, eid in rows]
+
     def close(self):
         if self._ctx:
             self._w.EvtClose(self._ctx)
             self._ctx = None
+
+
+def events_since(since: float, ids: Optional[dict] = None, log: str = "System") -> list:
+    """[(epoch, provider, event id)] of the given providers / event ids in a Windows log since
+    `since` (epoch) — through the native API, no PowerShell start (23.10.: the tuner looked every
+    15 s with a powershell.exe, a CPU spike in the middle of every step; Get-WinEvent also had to
+    start for the GPU watchdog and the stress page). OSError when the API can't be used — the
+    callers fall back to PowerShell."""
+    if os.name != "nt":
+        raise OSError("not Windows")
+    from datetime import datetime, timezone
+    ids = GPU_SOURCES if ids is None else ids
+    t0 = datetime.fromtimestamp(max(0.0, float(since)), timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    provs = " or ".join(f"@Name='{p}'" for p in ids)
+    ml = _ModernLog(log, 0)
+    try:
+        rows = ml.query(f"*[System[Provider[{provs}] and TimeCreated[@SystemTime>='{t0}']]]")
+    finally:
+        ml.close()
+    return sorted((t, src, eid) for _rec, t, src, eid in rows
+                  if eid in ids.get(src, ()) and t >= int(since))
 
 
 class EventTail:
@@ -374,9 +404,15 @@ class LiveWatch:
 
 
 def toast(title: str, msg: str):
-    """A Windows notification (no window, nothing to click away)."""
+    """A Windows notification (no window, nothing to click away): through the app's tray icon,
+    the PowerShell toast only without one (core/notify — no process start mid-game)."""
     if os.name != "nt":
         return
+    from core import notify
+    notify.show(title, msg, fallback=lambda: _toast_ps(title, msg))
+
+
+def _toast_ps(title: str, msg: str):
     import subprocess
     esc = lambda s: s.replace('"', "'").replace("`", "'").replace("$", "")   # noqa: E731
     ps = (

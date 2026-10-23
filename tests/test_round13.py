@@ -482,16 +482,28 @@ check(rc == 3 and any(l.startswith("ERR") for l in lines), f"wrong result under 
 # ── C2: which driver events count as a crash ─────────────────────────────────
 print("C2 driver events that count as a crash")
 import core.crash_recovery as CRM
-_seen = []
+_seen, _asked = [], []
 _real_run = CRM.subprocess.run
+import core.gpu_flight as _GF
+_real_es = _GF.events_since
 CRM.subprocess.run = lambda args, **kw: (_seen.append(args), types.SimpleNamespace(stdout="NO_TDR"))[1]
+_GF.events_since = lambda since, ids=None, log="System": (_asked.append(ids), [])[1]
 try:
+    CRM.CrashRecovery(os.path.join(TMP, "cr")).check_tdr_since(20)
+    native_ids, native_ps = (_asked[-1] if _asked else None), list(_seen)
+
+    def _no_api(*a, **k):
+        raise OSError("no wevtapi here")
+    _GF.events_since = _no_api                 # the native API not usable: PowerShell as before
     CRM.CrashRecovery(os.path.join(TMP, "cr")).check_tdr_since(20)
 finally:
     CRM.subprocess.run = _real_run
+    _GF.events_since = _real_es
 cmd = " ".join(_seen[-1]) if _seen else ""
-check("Id=4101,13,14;" in cmd and "153" not in cmd and "nvlddmkm" in cmd,
-      "4101 + nvlddmkm 13/14 count; 153 does NOT (the driver logs it at the end of every stress step)")
+check(native_ids == {"nvlddmkm": {13, 14}, "Display": {4101}} and not native_ps
+      and "Id=4101,13,14;" in cmd and "153" not in cmd and "nvlddmkm" in cmd,
+      "4101 + nvlddmkm 13/14 count; 153 does NOT (the driver logs it at the end of every stress step) — read "
+      "natively (no powershell.exe), PowerShell only when that API can't be used")
 
 # ── E: the whole Rundum-Tuner against a simulated card ───────────────────────
 print("E  Rundum-Tuner against a simulated card")

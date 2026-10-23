@@ -243,6 +243,8 @@ def run_benchmark(path: str, seconds: float, width: int = 1920, height: int = 10
                                     errors="replace",
                                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                                     startupinfo=None if focus else _no_focus_startupinfo())
+            from core import proc_job
+            proc_job.bind(proc)                 # ends with the app, however the app ends
         except OSError as e:
             res["error"] = _tr(f"FurMark ließ sich nicht starten: {e}", f"FurMark could not be started: {e}")
             return res

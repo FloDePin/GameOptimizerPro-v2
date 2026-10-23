@@ -262,6 +262,8 @@ class StressTester:
                     text=True, encoding="utf-8", errors="replace",
                     creationflags=flags, env=env
                 )
+                from core import proc_job
+                proc_job.bind(self._proc)        # ends with the app, however the app ends
                 threading.Thread(target=self._read_worker,
                                  args=(self._proc, self._metrics, self._t0),
                                  daemon=True).start()
@@ -326,6 +328,8 @@ class StressTester:
                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
                 text=True, encoding="utf-8", errors="replace", env=env,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+            from core import proc_job
+            proc_job.bind(self._comp)
         except Exception:
             self._comp = None
             return
@@ -931,9 +935,10 @@ class AutoTuner:
         -> (core, mem, pwr, what) or None when nothing is left to take back.
         Thermal failures lower the power limit first; instability (wrong results,
         crash, driver reset) takes back the core offset (found with 45-s steps, right at
-        the edge); the memory offset only when the memory load failed, when CT.MEM_AFTER core
-        step-backs in a row (core_backs) did not help, or when there is no core offset left
-        (round 33 — it used to take every second turn)."""
+        the edge); the memory offset when the memory is the cause (r.mem_fault: its own load failed,
+        or the final loop's cross-check passed with the memory at stock — 23.10.), when there is no
+        core offset left, or — only without that cross-check — after CT.MEM_AFTER core step-backs
+        in a row that did not help (core_backs; round 33)."""
         unstable = r.compute_error or r.crash_detected or r.tdr_detected
         thermal = not unstable and (r.throttle_hit or r.max_temp >= cfg.max_temp_c)
         if thermal and pwr - cfg.power_step_pct >= cfg.power_min_pct:
@@ -1423,7 +1428,7 @@ class AutoTuner:
         # step back and run the final test again (it used to save an UNTESTED
         # "conservative" profile and stop).
         self._set_state(TunerState.FINAL_TEST)
-        attempt, retries_used = 1, []
+        attempt, retries_used, core_backs = 1, [], 0
         game_top_mv = 0.0             # the game test's boost voltage: the Quick curve is flat from it
         crit = self._first_check()    # fail fast: the harshest test first, after a failure the failed one
 
@@ -1486,7 +1491,10 @@ class AutoTuner:
                     self._learned_book_quick(q_gpu, best_core, got[1], self._stage_name(final.stage))
                 measured = cause == "mem" and not final.mem_fault
                 final.mem_fault = final.mem_fault or cause == "mem"
-                back = self._final_backoff(cfg, final, attempt, best_core, best_mem_offset, best_pwr)
+                back = self._final_backoff(cfg, final, attempt, best_core, best_mem_offset, best_pwr,
+                                           core_backs=0 if cfg.final_cross_check else core_backs)
+                if back is not None:
+                    core_backs = core_backs + 1 if back[0] != best_core else 0
                 if back is not None and measured and back[1] != best_mem_offset:
                     back = back[:3] + (back[3] + T(" (Ursache Speicher: ohne Speicher-Übertaktung bestanden)",
                                                    " (the memory is the cause: passed without the memory "
@@ -2534,21 +2542,16 @@ class AutoTuner:
             return 0.0
 
     def _save_floor(self, gpu: str, mv: float):
+        from core import safe_json
         path = self._floor_file()
-        try:
-            try:
-                with open(path, encoding="utf-8") as f:
-                    d = json.load(f)
-                if not isinstance(d, dict):
-                    d = {}
-            except (OSError, ValueError):
-                d = {}
-            d[gpu] = {"floor_mv": int(round(mv)), "at": datetime.now().isoformat(timespec="seconds")}
-            Path(self._log_dir).mkdir(parents=True, exist_ok=True)
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(d, f, indent=2)
-        except OSError:
-            pass
+        try:                                   # never write over a file that could not be read
+            d = safe_json.read(path, {}, strict=True)
+        except safe_json.Unreadable:
+            return
+        if not isinstance(d, dict):
+            d = {}
+        d[gpu] = {"floor_mv": int(round(mv)), "at": datetime.now().isoformat(timespec="seconds")}
+        safe_json.write(path, d, ensure_ascii=True)
 
     def _run_curve(self, stress: "StressTester", base: StressResult):
         """Rundum-Tuner — after the baseline (see _run):
@@ -2931,7 +2934,7 @@ class AutoTuner:
         #    curve?), stepped back there, and the next try starts with the test that failed —
         #    only when that passes do ALL tests run again, in one go.
         cur = list(anchors)
-        attempt, retries = 1, []
+        attempt, retries, curve_backs = 1, [], 0
         causes, learned_now = [], []          # the cross-checks' answers, the points booked (report)
         verify: Optional[StressResult] = None
         hard = game = None
@@ -3013,13 +3016,18 @@ class AutoTuner:
                 pt = LL.point_at(cur, crash_mv)
                 if pt and LL.record(self._log_dir, gpu_key, pt[0], pt[1], self._stage_name(res.stage)):
                     learned_now.append((pt[0], pt[1], self._stage_name(res.stage)))
+            mem_was = mem
             cur, mem, cap, pwr, what = CT.final_backoff(
                 attempt, cur, mem, cap, pwr, unstable, thermal, cfg.curve_step_mhz, de, cap_mvs,
                 crash_mv=crash_mv, mem_step=cfg.mem_curve_step_mhz, mem_fault=cause == "mem",
                 window_mv=cfg.curve_anchor_step_mv,
+                # without the cross-check: round 33's count (the memory after MEM_AFTER curve
+                # step-backs in a row that did not help) — with it the cause is measured
+                curve_backs=0 if cfg.final_cross_check else curve_backs,
                 mem_why=T("Ursache Speicher: ohne Speicher-Übertaktung bestanden",
                           "the memory is the cause: passed without the memory overclock")
                 if cause == "mem" and not res.mem_fault else "")
+            curve_backs = curve_backs + 1 if (unstable and mem == mem_was) else 0
             retries.append(what)
             crit = res.stage if cfg.final_fail_fast else ""
             self._set_state(TunerState.BACKOFF)

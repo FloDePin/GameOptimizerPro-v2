@@ -148,10 +148,11 @@ class ProfileManager:
         return "".join(c if c.isalnum() or c in "-_ " else "_" for c in name)
 
     def save(self, profile: TuneProfile) -> str:
+        from core import safe_json
         safe = self._safe_name(profile.name)
         path = self.dir / f"{safe}.json"
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(profile.to_dict(), f, indent=2)
+        # atomic: a crash while saving must not leave half a profile (audit 2026-10-23)
+        safe_json.write(path, profile.to_dict(), ensure_ascii=True, backup=False)
         return str(path)
 
     @staticmethod

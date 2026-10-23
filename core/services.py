@@ -19,7 +19,6 @@ Dienste, die es auf dem System nicht gibt, werden einfach nicht angezeigt.
 
 from __future__ import annotations
 
-import json
 import os
 import re
 import subprocess
@@ -221,21 +220,18 @@ def _query(name: str) -> tuple[str, str] | None:
         return None
 
 
-def load_state() -> dict:
-    try:
-        with open(STATE_FILE, encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, dict) else {}
-    except (OSError, ValueError):
-        return {}
+def load_state(strict: bool = False) -> dict:
+    """The services this app changed, with their original start type. strict: raise
+    safe_json.Unreadable when the file is there but can't be read — a caller that writes it
+    back must not write over it (audit 2026-10-23: the originals were lost that way)."""
+    from core import safe_json
+    data = safe_json.read(STATE_FILE, {}, strict=strict)
+    return data if isinstance(data, dict) else {}
 
 
 def _save_state(state: dict):
-    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    tmp = STATE_FILE.with_suffix(".tmp")
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(state, f, indent=2)
-    os.replace(tmp, STATE_FILE)
+    from core import safe_json
+    safe_json.write(STATE_FILE, state)
 
 
 def list_services() -> list[ServiceInfo]:
@@ -294,7 +290,13 @@ def disable(names) -> dict[str, tuple[bool, str]]:
     names = _check_names(names)
     if not names:
         return {}
-    state = load_state()
+    from core import safe_json
+    try:
+        state = load_state(strict=True)
+    except safe_json.Unreadable:
+        why = _tr("Liste der geänderten Dienste gerade nicht lesbar — nichts geändert, bitte gleich erneut",
+                  "list of changed services not readable right now — nothing changed, please try again")
+        return {n: (False, why) for n in names}
     fresh = []
     for n in names:
         cur = _read_start(n)
@@ -334,7 +336,11 @@ def enable(names) -> dict[str, tuple[bool, str]]:
     names = _check_names(names)
     if not names:
         return {}
-    state = load_state()
+    from core import safe_json
+    try:
+        state, writable = load_state(strict=True), True
+    except safe_json.Unreadable:             # the Windows default then — and the list stays as it is
+        state, writable = {}, False
     parts, targets = [], {}
     for n in names:
         start, delayed, origin = restore_target(n, state.get(n))
@@ -361,7 +367,7 @@ def enable(names) -> dict[str, tuple[bool, str]]:
             if n in state:
                 state.pop(n)
                 changed = True
-    if changed:
+    if changed and writable:
         _save_state(state)
     return res
 

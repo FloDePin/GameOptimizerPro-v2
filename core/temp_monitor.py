@@ -59,6 +59,14 @@ class TempMonitor:
             time.sleep(self.CHECK_INTERVAL)
 
     def _send_toast(self, temp: int):
+        """A Windows notification: through the app's tray icon (core/notify), the PowerShell
+        toast only without one."""
+        from core import notify
+        from core.i18n import tr as _tr
+        notify.show(_tr("GPU Temperatur-Warnung ⚠", "GPU temperature warning ⚠"),
+                    f"GPU: {temp}°C — Limit: {self._limit}°C", fallback=lambda: self._toast_ps(temp))
+
+    def _toast_ps(self, temp: int):
         """Send Windows Toast Notification via PowerShell."""
         try:
             from core.i18n import tr as _tr

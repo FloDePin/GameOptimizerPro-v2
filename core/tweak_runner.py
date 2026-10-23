@@ -3,7 +3,7 @@ GameOptimizerPro Tweak Runner
 Executes PowerShell tweaks as subprocess, tracks state, provides revert.
 """
 
-import subprocess, os, json, logging, threading
+import subprocess, os, logging, threading
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
@@ -20,6 +20,8 @@ class TweakRunner:
         self._state_file = self._log_dir / "applied_tweaks.json"
         self._lock = threading.RLock()
         self.last_superseded: list[str] = []
+        self._removed: set = set()           # dropped this session (a late merge must not bring them back)
+        self._state_ok = True
         self._applied: dict[str, str] = self._load_state()
         self.normalized = self._normalize()
 
@@ -31,12 +33,23 @@ class TweakRunner:
         self.logger = logging.getLogger("gop.tweaks")
 
     def _load_state(self) -> dict:
-        if self._state_file.exists():
-            try:
-                with open(self._state_file, encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception: pass
-        return {}
+        """Which tweaks THIS app applied — what "revert" and the live status rely on. Not readable
+        right now (a virus scanner at boot): start empty, but never write {} over the file —
+        _save_state reads it again and merges (audit 2026-10-23: it used to be overwritten, and
+        the app could no longer revert its own tweaks)."""
+        from core import safe_json
+        try:
+            data = safe_json.read(self._state_file, {}, strict=True)
+            self._state_ok = True
+        except safe_json.Unreadable:
+            self._state_ok = False
+            data = {}
+        return data if isinstance(data, dict) else {}
+
+    def _drop(self, tweak_id: str) -> bool:
+        """No longer applied by this app (under the lock)."""
+        self._removed.add(tweak_id)
+        return self._applied.pop(tweak_id, None) is not None
 
     def _normalize(self) -> list[str]:
         """Either-or tweaks applied together by older versions (both DNS
@@ -52,7 +65,7 @@ class TweakRunner:
                     newest = max(members, key=lambda t: str(self._applied.get(t) or ""))
                     for t in members:
                         if t != newest:
-                            del self._applied[t]
+                            self._drop(t)
                             dropped.append(t)
             if dropped:
                 self._save_state()
@@ -63,7 +76,8 @@ class TweakRunner:
         choice that is really active is the one this app manages from now on."""
         with self._lock:
             if old_id in self._applied:
-                del self._applied[old_id]
+                self._drop(old_id)
+                self._removed.discard(new_id)
                 self._applied[new_id] = datetime.now().isoformat()
                 self._save_state()
 
@@ -72,18 +86,28 @@ class TweakRunner:
         re-apply failed) — under the lock: the drift re-apply runs in a worker thread
         while the window can apply / revert at the same time."""
         with self._lock:
-            gone = [tid for tid in tweak_ids if self._applied.pop(tid, None) is not None]
+            gone = [tid for tid in tweak_ids if self._drop(tid)]
             if gone:
                 self._save_state()
         return gone
 
     def _save_state(self):
+        from core import safe_json
         with self._lock:
-            self._state_file.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self._state_file.with_suffix(".tmp")
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(self._applied, f, indent=2)
-            os.replace(tmp, self._state_file)
+            if not self._state_ok:
+                # the file could not be read at start: read it now and keep what is in it
+                try:
+                    disk = safe_json.read(self._state_file, {}, strict=True)
+                except safe_json.Unreadable:
+                    self.logger.warning("applied_tweaks.json still not readable — the change is "
+                                        "kept in memory, the file is not overwritten")
+                    return
+                merged = {k: v for k, v in (disk if isinstance(disk, dict) else {}).items()
+                          if k not in self._removed}
+                merged.update(self._applied)
+                self._applied = merged
+                self._state_ok = True
+            safe_json.write(self._state_file, self._applied)
 
     def is_applied(self, tweak_id: str) -> bool:
         return tweak_id in self._applied
@@ -101,12 +125,13 @@ class TweakRunner:
         if ok:
             from core.tweaks import alternatives_of
             with self._lock:
+                self._removed.discard(tweak.id)
                 self._applied[tweak.id] = datetime.now().isoformat()
                 # an either-or alternative is replaced by this one (e.g. DNS)
                 self.last_superseded = [t for t in alternatives_of(tweak.id)
                                         if t in self._applied]
                 for t in self.last_superseded:
-                    del self._applied[t]
+                    self._drop(t)
                 self._save_state()
             if self.last_superseded:
                 self.logger.info(f"SUPERSEDED by {tweak.id}: {', '.join(self.last_superseded)}")
@@ -126,9 +151,9 @@ class TweakRunner:
             return False, msg
         ok, out = self._run_ps(tweak.revert_cmd.strip(), getattr(tweak, "timeout_s", 60))
         self.logger.info(f"REVERT {tweak.id}: {'OK' if ok else 'FAIL'} | {out[:200]}")
-        if ok and tweak.id in self._applied:
+        if ok and (tweak.id in self._applied or not self._state_ok):
             with self._lock:
-                self._applied.pop(tweak.id, None)
+                self._drop(tweak.id)
                 self._save_state()
         if on_result: on_result(tweak.id, ok, out)
         return ok, out

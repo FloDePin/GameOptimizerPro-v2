@@ -1,6 +1,6 @@
 {
-  "build": 44,
+  "build": 45,
   "date": "2026-10-23",
-  "notes": "GPU-Tuner aus einem echten Tune verbessert: Lastwechsel schon in der Punktsuche, Endtests mit Lastwechsel-Check zuerst und gemessener Ursache (Kurve oder Speicher) statt geraten, ein fehlgeschlagener Test beginnt den nächsten Versuch; gescheiterte Punkte werden pro Karte gemerkt (vergessen auf der GPU-Seite). Dazu Vorab-Check, Restzeit, ein Start/Abbrechen-Knopf und der Ablauf als nummerierte Schritte.",
-  "notes_en": "GPU tuner improved from a real tune: load changes already in the point search, final tests with a load-change check first and the cause measured (curve or memory) instead of guessed, a failed test starts the next try; failed points are learned per card (forget them on the GPU page). Plus a pre-start check, the time left, one Start/Abort button and the procedure as numbered steps."
+  "notes": "Zuverlässiger: Einstellungen und die Liste der angewendeten Tweaks werden absturzsicher gespeichert und nie mehr überschrieben, wenn sie kurz nicht lesbar sind; unerwartete Fehler landen in logs/app_errors.log; Stresslasten enden mit der App, auch nach einem Absturz. Schneller: Statusprüfung der Tweaks und Treiber-Reset-Erkennung ohne PowerShell, Benachrichtigungen über das Tray-Icon, Netzwerktest in einem Drittel der Zeit.",
+  "notes_en": "More reliable: settings and the list of applied tweaks are saved crash-safe and never overwritten when they can't be read for a moment; unexpected errors go to logs/app_errors.log; stress loads end with the app, also after a crash. Faster: tweak status checks and driver-reset detection without PowerShell, notifications through the tray icon, the network test in a third of the time."
 }

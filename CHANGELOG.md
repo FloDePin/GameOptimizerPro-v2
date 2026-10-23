@@ -41,7 +41,12 @@ named by version only.
   learned per card (forget on the GPU page); a closed FurMark window repeats the run; a pre-start check,
   the time left, the goal checked after step-backs; Start / Abort share one button; the procedure as
   numbered steps; ping times read in every Windows language.
-- 1501 checks in 39 suites, all green.
+- **Audit 2026-10-23** — the app's own state files (settings, the tweaks it applied, the services it
+  changed, profiles, the watchdog's lists) are written crash-safe and never overwritten when they can't
+  be read for a moment (that silently wiped them); unexpected errors go to `logs/app_errors.log`; the
+  stress loads end with the app however it ends (Windows job); driver resets and plain registry checks
+  read without PowerShell; notifications through the tray icon; the network test in parallel.
+- 1539 checks in 40 suites, all green.
 
 <details>
 <summary><b>Development log — rounds 8–33</b> (one or two lines per round)</summary>
@@ -442,5 +447,5 @@ tray threads don't delay quitting (daemon threads, the process ends at once); th
 kernel32 calls had no pointer truncation (None goes as a full-width NULL, the handles
 were typed) — argument types added anyway; PowerShell tweaks and their exit code: see
 above, the live verifier shows a tweak that didn't take effect. From the round-32 review: releasing the instance mutex before the restart's Popen gains nothing — the new instance waits for it and takes the abandoned mutex the moment this process ends (right after Popen), and ReleaseMutex only works on the owning thread (the restart usually runs on the stop thread); `_emit()` and the WMI reads keep catching their errors on purpose (a closed pipe, a broken WMI must not end the load or the start).
- From the 2026-10-22 audits: `BuildInfo.text()` exists (the audit read older code); the worker finds `core` without a path change (Python puts the script's folder first); a load that reports "no encoder" never made a stop file (it only exists after a stop request); the temperature monitor has no UI callback (it only shows a Windows notification); the encoder's stall guard stays on while the encoder closes — a close taking seconds is a hang too (the audit's fix would have hidden it); catch-all blocks in hardware detection, the worker's pipes and the start-up are degradation on purpose; the mutex release before a restart: see round 32.
+ From the 2026-10-22 audits: `BuildInfo.text()` exists (the audit read older code); the worker finds `core` without a path change (Python puts the script's folder first); a load that reports "no encoder" never made a stop file (it only exists after a stop request); the temperature monitor has no UI callback (it only shows a Windows notification); the encoder's stall guard stays on while the encoder closes — a close taking seconds is a hang too (the audit's fix would have hidden it); catch-all blocks in hardware detection, the worker's pipes and the start-up are degradation on purpose; the mutex release before a restart: see round 32. From the 2026-10-23 audit: the shutdown runs its end once (a lock and a flag) and the restart waits for the old instance's mutex; an update is fetched over HTTPS from fixed GitHub hosts, checked as a zip, unpacked without path tricks and matched against its build — a checksum from the same server would add nothing; a pending update is only installed after the single-instance check, and the installer waits for the old process by its PID; the autostart task is read back after it is made (a test start would launch a second app); replacing every `except: pass` would be wrong (sensors, pipes and clean-up degrade on purpose) — the real gap was that unexpected errors were not logged anywhere. Not taken from the proposals: a cache for the GPU readings (NVML is thread-safe, a read costs milliseconds) and one stress worker for all steps (a fresh process per step keeps a broken CUDA context from carrying a fault into the next step).
 </details>
