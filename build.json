@@ -1,6 +1,6 @@
 {
-  "build": 43,
-  "date": "2026-10-22",
-  "notes": "Prüfung zweier externer Audits: Beim Beenden der App enden laufende Härte- und Stresstests (FurMark lief weiter), Registry-Backups enthalten wieder die Grafikkarten- und Laufwerksschlüssel, Export nur echter Profile, Live-Überwachung übersteht ein geleertes Ereignisprotokoll, BIOS-Prüfungen auf Englisch.",
-  "notes_en": "Two external audits checked: closing the app ends a running hardness or stress test (FurMark ran on), registry backups include the graphics card and disk keys again, only real profiles are exported, the live watch survives a cleared event log, BIOS checks in English."
+  "build": 44,
+  "date": "2026-10-23",
+  "notes": "GPU-Tuner aus einem echten Tune verbessert: Lastwechsel schon in der Punktsuche, Endtests mit Lastwechsel-Check zuerst und gemessener Ursache (Kurve oder Speicher) statt geraten, ein fehlgeschlagener Test beginnt den nächsten Versuch; gescheiterte Punkte werden pro Karte gemerkt (vergessen auf der GPU-Seite). Dazu Vorab-Check, Restzeit, ein Start/Abbrechen-Knopf und der Ablauf als nummerierte Schritte.",
+  "notes_en": "GPU tuner improved from a real tune: load changes already in the point search, final tests with a load-change check first and the cause measured (curve or memory) instead of guessed, a failed test starts the next try; failed points are learned per card (forget them on the GPU page). Plus a pre-start check, the time left, one Start/Abort button and the procedure as numbered steps."
 }

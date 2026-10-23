@@ -15,7 +15,7 @@ import customtkinter as ctk
 
 from core import furmark, gpu_watchdog, threedmark
 from core.nvtune_core import GpuMonitor
-from ui.components import (Card, GaugeBar, LogView, NumberField, Page, ResponsiveGrid, WrapLabel,
+from ui.components import (Card, GaugeBar, LogView, NumberField, Page, ResponsiveGrid, WrapLabel, swap_button,
                            button, tile)
 from ui.theme import (ACC, AMBER, BORDER, CARD_BG, CYAN, DIM, ERR, F_MONO, F_S, F_XS, GREEN,
                       INPUT_BG, MUTED, PURPLE, TEXT, TEXT2, VIOLET, icon_image, on_color, tr)
@@ -109,13 +109,14 @@ class StressTab(Page):
         self._field(ic.body, tr("Max. Temperatur (°C)", "Max temp (°C)"), self.v_max_temp, 70, 100, 1)
         row = tk.Frame(ic.body, bg=CARD_BG)
         row.pack(fill="x", pady=(10, 6))
+        # Start and Stop share one place: while the test runs the button turns into "Stop test"
         self.btn_int_start = button(row, tr("Test starten", "Start test"), self._start_internal,
-                                    kind="primary", color=ACC, height=32,
+                                    kind="primary", color=ACC, height=32, width=140,
                                     image=icon_image("play", on_color(ACC), 14), compound="left")
-        self.btn_int_start.pack(side="left", padx=(0, 6))
-        self.btn_int_stop = button(row, "Stop", self._stop_internal, kind="danger", height=32,
-                                   state="disabled")
-        self.btn_int_stop.pack(side="left")
+        self.btn_int_stop = button(row, tr("Test stoppen", "Stop test"), self._stop_internal, kind="danger",
+                                   height=32, width=140, image=icon_image("stop", "#ffffff", 13),
+                                   compound="left")
+        swap_button(self.btn_int_start, self.btn_int_stop)
         self.int_prog = tk.DoubleVar()
         self._int_bar = ctk.CTkProgressBar(ic.body, height=6, corner_radius=3, progress_color=ACC)
         self._int_bar.set(0)
@@ -255,11 +256,12 @@ class StressTab(Page):
         row = tk.Frame(hc.body, bg=CARD_BG)
         row.pack(fill="x", pady=(8, 6))
         self.btn_hard_start = button(row, tr("Härtetest starten", "Start hardness test"), self._start_hard,
-                                     kind="primary", color=VIOLET, height=32,
+                                     kind="primary", color=VIOLET, height=32, width=190,
                                      image=icon_image("play", on_color(VIOLET), 14), compound="left")
-        self.btn_hard_start.pack(side="left", padx=(0, 6))
-        self.btn_hard_stop = button(row, "Stop", self._stop_hard, kind="danger", height=32, state="disabled")
-        self.btn_hard_stop.pack(side="left")
+        self.btn_hard_stop = button(row, tr("Härtetest stoppen", "Stop hardness test"), self._stop_hard,
+                                    kind="danger", height=32, width=190,
+                                    image=icon_image("stop", "#ffffff", 13), compound="left")
+        swap_button(self.btn_hard_start, self.btn_hard_stop)
         self._hard_bar = ctk.CTkProgressBar(hc.body, height=6, corner_radius=3, progress_color=VIOLET)
         self._hard_bar.set(0)
         self._hard_bar.pack(fill="x", pady=(4, 4))
@@ -335,8 +337,8 @@ class StressTab(Page):
                             profile=profile, stop_event=stop, gpu_name=gpu,
                             on_progress=lambda p, t: q.put(("prog", p, t)),
                             on_log=lambda s, tag: q.put(("log", s, tag)))
-        self.btn_hard_start.configure(state="disabled")
         self.btn_hard_stop.configure(state="normal")
+        swap_button(self.btn_hard_stop, self.btn_hard_start)
         self.btn_int_start.configure(state="disabled")
         self.btn_fur_start.configure(state="disabled")
         self.lbl_hard_status.config(text=tr("Startet …", "Starting …"), fg=VIOLET)
@@ -386,7 +388,7 @@ class StressTab(Page):
         self._hard = None
         self._hard_bar.set(0)
         self.btn_hard_start.configure(state="normal")
-        self.btn_hard_stop.configure(state="disabled")
+        swap_button(self.btn_hard_start, self.btn_hard_stop)
         self.btn_int_start.configure(state="normal")
         if self._furmark_path:
             self.btn_fur_start.configure(state="normal")
@@ -503,8 +505,8 @@ class StressTab(Page):
         self._running_internal = True
         self._run_gen += 1
         gen = self._run_gen
-        self.btn_int_start.configure(state="disabled")
         self.btn_int_stop.configure(state="normal")
+        swap_button(self.btn_int_stop, self.btn_int_start)
         self._int_t0 = time.time()           # own GPU load: the GPU watchdog leaves it out
         gpu_watchdog.own_load_started(self._int_t0)
         self.log.append(tr("Interner Stresstest gestartet.", "Internal stress test started."), "header")
@@ -584,7 +586,7 @@ class StressTab(Page):
         gpu_watchdog.record_own_load(getattr(self, "_int_t0", time.time()), time.time())
         self._running_internal = False
         self.btn_int_start.configure(state="normal")
-        self.btn_int_stop.configure(state="disabled")
+        swap_button(self.btn_int_start, self.btn_int_stop)
         self.int_prog.set(0)
         if reason == "temp":
             result, color, tag = tr(f"✗ NICHT BESTANDEN (Temperaturgrenze {max_t} °C erreicht)",
@@ -622,7 +624,7 @@ class StressTab(Page):
         self._run_gen += 1                   # the running thread stops reporting
         self._stop_internal_worker()
         self.btn_int_start.configure(state="normal")
-        self.btn_int_stop.configure(state="disabled")
+        swap_button(self.btn_int_start, self.btn_int_stop)
         self.int_prog.set(0)
         self.lbl_int_status.config(text=tr("Stopped (kein Ergebnis).", "Stopped (no result)."), fg=AMBER)
         self.log.append(tr("Interner Test abgebrochen — kein Ergebnis.",

@@ -18,7 +18,7 @@ from tkinter import ttk
 import customtkinter as ctk
 
 from ui.theme import (ACC, APP_BG, BORDER, BORDER2, CARD_BG, CARD_BG2, DIM, ERR, F_B, F_H,
-                      F_MONO, F_MONOS, F_NUM, F_S, F_TITLE, F_XS, GREEN, HOVER, INPUT_BG,
+                      F_MONO, F_MONOS, F_NUM, F_S, F_SB, F_TITLE, F_XS, GREEN, HOVER, INPUT_BG,
                       MUTED, AMBER, RED, TEXT, TEXT2, WHITE, ctk_font, hover_of, mix, tint, tr)
 
 
@@ -122,6 +122,67 @@ def button(parent, text: str, command=None, kind: str = "secondary", color: str 
         return _FillButton(parent, fill=fg, fg_color=fg, text_color_disabled=mix(fg, TEXT2, 0.35),
                            **common, **kw)
     return ctk.CTkButton(parent, fg_color=fg, text_color_disabled=MUTED, **common, **kw)
+
+
+def swap_button(show: tk.Misc, hide: tk.Misc):
+    """Start and Stop share one place: only the button that fits the moment is shown.
+    Both sit alone in their own frame, so the place stays where it was."""
+    try:
+        if hide.winfo_manager():
+            hide.pack_forget()
+        if not show.winfo_manager():
+            show.pack(side="left")
+    except tk.TclError:
+        pass
+
+
+class StepList(tk.Frame):
+    """Numbered steps: a round number, a bold title, the details below it and an
+    optional note — thin lines between the steps, so each one stands on its own."""
+
+    def __init__(self, master, count: int, accent: str = ACC, bg: str = CARD_BG2, title: str = ""):
+        super().__init__(master, bg=bg)
+        if title:
+            tk.Label(self, text=title, font=("Segoe UI Semibold", 8), fg=MUTED, bg=bg,
+                     anchor="w").pack(fill="x", padx=12, pady=(10, 2))
+        self._rows = []
+        for i in range(count):
+            if i:
+                tk.Frame(self, bg=mix(BORDER, bg, 0.25), height=1).pack(fill="x", padx=12)
+            row = tk.Frame(self, bg=bg)
+            row.pack(fill="x", padx=12, pady=(7, 8) if i == count - 1 else 7)
+            badge = tk.Canvas(row, width=20, height=20, bg=bg, highlightthickness=0, bd=0)
+            badge.create_oval(1, 1, 19, 19, fill=mix(bg, accent, 0.22), outline="")
+            badge.create_text(10, 10, text=str(i + 1), fill=accent, font=("Segoe UI Semibold", 8))
+            badge.pack(side="left", anchor="n", padx=(0, 10))
+            col = tk.Frame(row, bg=bg)
+            col.pack(side="left", fill="x", expand=True)
+            title_lbl = tk.Label(col, text="", font=F_SB, fg=TEXT, bg=bg, anchor="w")
+            title_lbl.pack(fill="x")
+            detail = WrapLabel(col, text="", font=F_XS, fg=TEXT2, bg=bg)
+            detail.pack(fill="x")
+            note = WrapLabel(col, text="", font=F_XS, fg=mix(AMBER, TEXT2, 0.3), bg=bg)
+            self._rows.append((title_lbl, detail, note))
+
+    def set(self, i: int, title: str, detail: str, note: str = ""):
+        title_lbl, detail_lbl, note_lbl = self._rows[i]
+        title_lbl.config(text=title)
+        detail_lbl.config(text=detail)
+        note_lbl.config(text=note)
+        if note and not note_lbl.winfo_manager():
+            note_lbl.pack(fill="x", pady=(3, 0))
+        elif not note and note_lbl.winfo_manager():
+            note_lbl.pack_forget()
+
+    def text(self) -> str:
+        """Every step as one plain-text line: "1. Title: details note"."""
+        out = []
+        for i, (t, d, n) in enumerate(self._rows):
+            line = f"{i + 1}. {t.cget('text')}: {d.cget('text')}"
+            if n.cget("text"):
+                line += " " + n.cget("text")
+            out.append(line)
+        return "\n".join(out)
 
 
 def _check_images(root: tk.Misc, size: int, accent: str, bg: str, border: str):

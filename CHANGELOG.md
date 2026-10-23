@@ -14,9 +14,9 @@ named by version only.
   memory stage with the whole card under load; the boot entry and the start-up profile are managed.
 - **Tested, not guessed** — FurMark benchmarks, a compute check, a game test with load changes and the
   **hardness test** (3D, video encoder, compute and memory at once, like gaming while recording or
-  streaming); every stability step runs with the video encoder next to it. Any final-test failure
-  lowers the curve where the card failed and runs every final test again — only what passes all of
-  them in one go is saved.
+  streaming); every stability step runs with the video encoder next to it. Any final-test failure is
+  cross-checked with the memory at stock and steps back where the cause is (curve or memory) — only
+  what passes every final test in one go is saved.
 - **Fair comparison** — every tune starts equally warm; the stock run and the after benchmark use the
   same test, the after benchmark always at the very end; the profile comparison shows performance and
   efficiency against stock and the V/F curves.
@@ -35,7 +35,13 @@ named by version only.
   registry backups include the GPU and disk keys again; an encoder load whose kernels can't be compiled
   counts as "no encoder"; only real profiles are exported; "destination host unreachable" counts as no
   answer; a cleared event log no longer blinds the live watch; BIOS checks in English.
-- 1433 checks in 38 suites, all green.
+- **Update 2026-10-23** — what a live tune taught: load changes in every point step; the final tests
+  open with a load-change check, run the most sensitive first, cross-check a failure with the memory at
+  stock (curve or memory — measured, not guessed) and restart with the failed test; failed points are
+  learned per card (forget on the GPU page); a closed FurMark window repeats the run; a pre-start check,
+  the time left, the goal checked after step-backs; Start / Abort share one button; the procedure as
+  numbered steps; ping times read in every Windows language.
+- 1501 checks in 39 suites, all green.
 
 <details>
 <summary><b>Development log — rounds 8–33</b> (one or two lines per round)</summary>

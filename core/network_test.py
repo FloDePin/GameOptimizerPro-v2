@@ -82,8 +82,10 @@ def ping(label: str, host: str, count: int = 10, timeout_ms: int = 1000) -> Ping
         )
         text = (out.stdout or "") + (out.stderr or "")
         # Einzelne RTTs: "Zeit=12ms" (DE), "time=12ms" / "time<1ms" (EN), "Zeit<1ms"
+        # any Windows language: a reply line carries "TTL=" after its time ("temps=12 ms TTL=57"
+        # in French, "tiempo=12ms TTL=57" in Spanish) — the word before the time differs
         rtts = []
-        for m in re.finditer(r"(?:time|Zeit)[=<]\s*(\d+)\s*ms", text, re.IGNORECASE):
+        for m in re.finditer(r"[=<]\s*(\d+)\s*ms\s+TTL=", text, re.IGNORECASE):
             rtts.append(float(m.group(1)))
         res.rtts = rtts
         if rtts:

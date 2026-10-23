@@ -505,7 +505,8 @@ class SimGPU:
 
     def __init__(self, folder, pl_w=320.0, boost_factor=0.78, tdr_volts=(), long_margin=0,
                  voltage=True, fm_broken=False, mem_limit=5000, fm_mem_limit=None,
-                 check_crash_once=False, short_once=False, floor_mv=0.0, game_margin=0):
+                 check_crash_once=False, short_once=False, floor_mv=0.0, game_margin=0,
+                 closed_n=0):
         self.folder, self.pl_w, self.boost_factor = folder, pl_w, boost_factor
         self.floor_mv = floor_mv              # lowest voltage the card runs at under load
         self.tdr_volts, self.long_margin, self.voltage = tdr_volts, long_margin, voltage
@@ -517,6 +518,7 @@ class SimGPU:
         # a game found after hours) — only the game test's "transient" phase sees it
         self.game_margin = game_margin
         self.short_once = short_once
+        self.closed_n = closed_n
         self.curve = [(float(v), float(stock_mhz(v))) for v in VOLTS]
         self.mem, self.pwr_pct = 0, 100
         self.load, self.load_s = None, 0
@@ -571,17 +573,17 @@ class SimGPU:
         if self.on_run:
             self.on_run(self, mode)
         factor = {"gemm": 1.25, "mixed": 1.25, "boost": self.boost_factor, "transient": self.boost_factor,
-                  "mem": 0.7}[mode]
+                  "boost_trans": self.boost_factor, "mem": 0.7}[mode]
         v, f, w, capped = self.point(factor)
         r = StressResult(passed=True)
-        r.avg_gpu_usage = 64.0 if mode == "boost" else 99.0
+        r.avg_gpu_usage = 64.0 if mode in ("boost", "boost_trans") else 99.0
         r.avg_core_mhz = r.max_core_mhz = f
         vv = v if self.voltage else 0.0
         r.avg_voltage_mv = r.max_voltage_mv = r.min_voltage_mv = r.steady_voltage_mv = vv
         r.avg_power_w, r.power_capped_pct = round(w, 1), (100.0 if capped else 0.0)
         r.max_temp = r.avg_temp = round(self.temp(w, d), 1)
         r.avg_rate_tflops = (round(f * 0.0145, 2) if mode in ("gemm", "mixed")
-                             else round(f * 0.009, 2) if mode == "boost" else 0.0)
+                             else round(f * 0.009, 2) if mode in ("boost", "boost_trans") else 0.0)
         if mode == "mem":
             m = self.mem
             r.avg_bw_gbs = 700 + 0.05 * m if m <= 1000 else 750 - 0.3 * (m - 1000)
@@ -602,7 +604,7 @@ class SimGPU:
             r.abort_reason = "GPU hängt — seit 8 s keine Ergebnisse der Last"
             r.last_voltage_mv = vv
             return r
-        weaker = self.game_margin if mode == "transient" else 0
+        weaker = self.game_margin if mode in ("transient", "boost_trans") else 0
         bad = [(pv, pf_) for pv, pf_ in pts if pf_ > self.limit(pv) - weaker]
         self.runs.append((mode, d, v, f, not bad))
         if bad:
@@ -644,9 +646,14 @@ class SimGPU:
                 return dict(none, exit_code=3221226505, elapsed_s=8.0,
                             error="FurMark endete mit Code 3221226505 (Absturz?)")
             dur = seconds * 1000
+            short = False
             if self.short_once and seconds == 60 and self.benches[0] != self.benches[-1]:
-                self.short_once, dur = False, 10000
+                self.short_once, dur, short = False, 10000, True
+            if self.closed_n and seconds == 300:
+                self.closed_n, dur = self.closed_n - 1, 17000  # window closed: a normal rate
             score = round(f * 0.68 * (1 + self.mem / 50000) * dur / 60000)   # frames: grows with time
+            if short:
+                score = round(score / 3)       # live: ~10 of 60 s, 398 instead of ~7200 points (a third of the rate)
             return dict(none, ok=True, score=score, fps_avg=round(f * 0.045), fps_min=round(f * 0.04),
                         max_temp=int(self.temp(w, seconds)), max_usage=100, exit_code=0,
                         duration_ms=dur, elapsed_s=dur / 1000 + 3)
@@ -755,7 +762,7 @@ check(t.state == TunerState.DONE and bp is not None, f"tune finished: {t.state}"
 check(bp.curve_points == [[850, 2531], [900, 2629], [950, 2734], [1000, 2832], [1050, 2937]],
       f"each point = true limit found to ±5 MHz, minus 30: {bp.curve_points}")
 check("Messpunkte: 1050, 1000, 950, 900, 850 mV" in L, "points from the measured ceiling (1050 mV) down")
-boost = [x for x in gpu.runs if x[0] == "boost"]
+boost = [x for x in gpu.runs if x[0] in ("boost", "boost_trans")]
 check(boost and all(abs(x[2] - 1050) < 0.1 or x[2] in (1000, 950, 900, 850) for x in boost),
       "every point test ran the GPU exactly at its voltage point")
 first = [x[3] for x in boost[1:12]]
@@ -837,8 +844,9 @@ check(any("GPU-Fehler" in x and "1000 mV (−60 MHz)" in x for x in t.last_repor
 t, gpu, ab, logs, folder = tune({"long_margin": 40})
 bp = t.best_profile
 fin = [b for b in gpu.benches if b[0] == 300]
-check(t.state == TunerState.DONE and len(fin) == 2 and not fin[0][3] and fin[1][3],
-      f"5-min test failed, curve −15, passed on the second try: {[(b[3]) for b in fin]}")
+check(t.state == TunerState.DONE and len(fin) == 3 and not fin[0][3] and fin[1][3] and fin[2][3],
+      f"5-min test failed, curve −15, passed on the second try — FurMark alone first (fail fast), then "
+      f"every test in one go: {[(b[3]) for b in fin]}")
 check(bp.curve_points == [[850, 2531], [900, 2629], [950, 2734], [1000, 2817], [1050, 2922]],
       f"targeted: the card failed at 1025 mV (cap) -> only 1000 + 1050 −15, the SAVED curve: {bp.curve_points}")
 check(sum(1 for b in gpu.benches if b[0] == 60) >= 4 and "Nach Rücknahme(n)" in "\n".join(t.last_report["lines"]),
@@ -939,6 +947,18 @@ check([b for b in gpu.benches if b[0] == 60 and not b[3]] and gpu.benches[-1][3]
       "the crashed run did not end the tune; the final test passed")
 
 # E17 a benchmark that ended far too early (driver not clean) stops the tune
+t, gpu, ab, logs, folder = tune({"closed_n": 1})
+L = "\n".join(logs)
+check(t.state == TunerState.DONE and t.best_profile is not None
+      and "FurMark wurde nach 17 s beendet (Fenster geschlossen?) — der Lauf wird wiederholt" in L
+      and "PC neu starten" not in L and len([b for b in gpu.benches if b[0] == 300]) == 2,
+      "23.10.: FurMark ended after 17 of 300 s at a normal points rate (window closed) -> that run once more, "
+      "the tune goes on")
+t, gpu, ab, logs, folder = tune({"closed_n": 2})
+L = "\n".join(logs)
+check(t.state == TunerState.ERROR and t.best_profile is None and "vorzeitig beendet" in L
+      and "FurMark-Fenster geschlossen?" in L and "PC neu starten" not in L,
+      "... closed again: the tune ends — 'window closed?', no 'restart the PC'")
 t, gpu, ab, logs, folder = tune({"short_once": True})
 L = "\n".join(logs)
 check(t.state == TunerState.ERROR and t.best_profile is None and "unplausibel" in L
@@ -965,7 +985,7 @@ check(sorted(pts) == [850, 875, 900, 925, 950, 975, 1000, 1025, 1050]
       and all(abs(pts[v] - (gpu.limit(v) - 30)) <= 6 for v in pts),
       f"every point = its own limit found to ±5 MHz, minus 30: {bp.curve_points}")
 check(all(a[1] <= b[1] for a, b in zip(bp.curve_points, bp.curve_points[1:])), "monotonic curve")
-per_pt = Counter(round(x[2]) for x in gpu.runs if x[0] == "boost")
+per_pt = Counter(round(x[2]) for x in gpu.runs if x[0] in ("boost", "boost_trans"))
 check(max(c for v, c in per_pt.items() if v != 1050) <= 6,
       f"closer points need fewer steps (they start at the neighbour's offset): {dict(per_pt)}")
 
@@ -1007,8 +1027,9 @@ check(t.state == TunerState.DONE and "Messpunkte: 1050, 1025, 1000, 975, 950, 94
 
 # E21 round 16: the game test finds what the steady tests can't. The card is 40 MHz
 # weaker under load changes; on round 13's 30-MHz margins the transient phase fails ->
-# one step back (−15 where the card ran) -> passes; the report says so.
-t, gpu, ab, logs, folder = tune({"game_margin": 40}, game_test=True)
+# one step back (−15 where the card ran) -> passes; the report says so. (The point search
+# without its load-change part, as before 23.10. — E21b: with it.)
+t, gpu, ab, logs, folder = tune({"game_margin": 40}, game_test=True, point_transient_s=0)
 bp = t.best_profile
 L = "\n".join(logs)
 modes = [m for m, *_ in gpu.runs]
@@ -1024,6 +1045,18 @@ check("Spiel-Endtest (60 s abkühlen, 5 min Lastwechsel, 4 min Boost-Punkt): bes
       and "Kurve −15 MHz" in rep, "the report: game test passed, after a curve step back")
 top = max(bp.curve_points)
 check(top[1] <= gpu.limit(top[0]) - 40, f"saved top point below the load-change limit: {top}")
+
+# E21b 23.10.: the last 15 s of every point step are load changes — the search itself finds the
+# 40-MHz weakness, every point keeps its margin to it and the game test passes the first time
+t, gpu, ab, logs, folder = tune({"game_margin": 40}, game_test=True)
+bp = t.best_profile
+L = "\n".join(logs)
+steps = [x for x in gpu.runs if x[0] == "boost_trans"]           # the point steps (the probe: "boost")
+check(t.state == TunerState.DONE and bp is not None and len(steps) >= 10
+      and "Spiel-Endtest ✗" not in L and "Endtest ✗" not in L
+      and all(f <= gpu.limit(mv) - 40 - 30 + 5 for mv, f in bp.curve_points),
+      f"E21b: load changes in the point search: every point found below the load-change limit, minus "
+      f"the margin; no final-test step back: {bp and bp.curve_points}")
 
 # E22 round 16's margins (45, 60 at the top) cover that weakness at once
 t, gpu, ab, logs, folder = tune({"game_margin": 40}, game_test=True, curve_safety_mhz=45,
@@ -1052,18 +1085,23 @@ from core import hardness_test as H
 
 
 class FakeHard:
-    """Fails the first `fails` runs (wrong results under several loads); records each run's curve
-    and how many benchmarks had run by then."""
-    fails, calls, point = 0, [], {"mv": 1000}
+    """Fails the first `fails` runs (wrong results under several loads) — or, with `bad`, every run
+    whose settings bad(profile) calls too tight; records each run's curve, memory, phase and how
+    many benchmarks had run by then."""
+    fails, calls, point, bad = 0, [], {"mv": 1000}, None
 
     def __init__(self, read_stats, logs_dir, **kw):
         self.profile = kw.get("profile") or {}
+        self.only = kw.get("only")
 
     def run(self):
-        FakeHard.calls.append((self.profile.get("curve_points"), len(FM.run_benchmark.__self__.benches)))
-        if len(FakeHard.calls) <= FakeHard.fails:
+        FakeHard.calls.append((self.profile.get("curve_points"), len(FM.run_benchmark.__self__.benches),
+                               self.profile.get("mem_offset_mhz"), self.only))
+        fail = FakeHard.bad(self.profile) if FakeHard.bad else len(FakeHard.calls) <= FakeHard.fails
+        if fail:
             return H.HardResult(kind="compute", reason="Rechenfehler (Spiel + Aufnahme + Rechnen)",
-                                phase="game_rec_compute", point=dict(FakeHard.point), max_mv=1050)
+                                phase="Spiel + Aufnahme + Rechnen", phase_key="game_rec_compute",
+                                point=dict(FakeHard.point), max_mv=1050)
         return H.HardResult(passed=True, max_mhz=2900, max_mv=1050)
 
 
@@ -1075,10 +1113,14 @@ try:
     L = "\n".join(logs)
     n60 = [i for i, b in enumerate(gpu.benches) if b[0] == 60]
     n300 = [i for i, b in enumerate(gpu.benches) if b[0] == 300]
-    check(t.state == TunerState.DONE and t.best_profile.curve_points == E1_CURVE and len(FakeHard.calls) == 1
-          and "Härtetest (10 min 3D + Video-Encoder + Rechnen/Speicher zugleich): bestanden" in L,
-          f"E24a: hardness test passed at once: the curve as found, one run "
-          f"({t.best_profile and t.best_profile.curve_points})")
+    check(t.state == TunerState.DONE and t.best_profile.curve_points == E1_CURVE and len(FakeHard.calls) == 2
+          and FakeHard.calls[0][3] == ("game_rec_compute",) and FakeHard.calls[1][3] is None
+          and FakeHard.calls[0][1] <= n300[0]          # benchmarks before it: the 5-min one came after
+          and "Härtetest (10 min 3D + Video-Encoder + Rechnen/Speicher zugleich): bestanden" in L
+          and "Lastwechsel-Check: zuerst Härtetest-Phase „Spiel + Aufnahme + Rechnen“ (150 s)" in L,
+          f"E24a: the final tests open with the load-change check (the hardness test's harshest phase, "
+          f"before the 5-min FurMark), then the whole set; the curve as found "
+          f"({t.best_profile and t.best_profile.curve_points}, {[c[3] for c in FakeHard.calls]})")
     check(n60 and n300 and n60[-1] == len(gpu.benches) - 1 and n60[-1] > n300[-1]
           and FakeHard.calls[-1][1] <= n60[-1],
           f"E24a: no step back, still a fresh after benchmark at the very end (after the final test and "
@@ -1088,22 +1130,28 @@ try:
     t, gpu, ab, logs, folder = tune(hard_test=True)
     L = "\n".join(logs)
     bp = t.best_profile
-    curves = [c for c, _n in FakeHard.calls]
+    curves = [c[0] for c in FakeHard.calls]
     near = (950, 1000, 1050)            # the sim's points are 50 mV apart: 1000 mV ± 50
+    low15 = [[mv, f - 15 if mv in near else f] for mv, f in E1_CURVE]
     low30 = [[mv, f - 30 if mv in near else f] for mv, f in E1_CURVE]
     check(t.state == TunerState.DONE and bp is not None and bp.curve_points == low30,
           f"E24b: two failures at 1000 mV -> the points around it −30 MHz, the rest keeps its clock: "
           f"{bp and bp.curve_points}")
-    check(len(curves) == 3 and curves[0] == E1_CURVE
-          and curves[1] == [[mv, f - 15 if mv in near else f] for mv, f in E1_CURVE] and curves[2] == low30,
-          f"E24b: each hardness run on the curve one step (−15) lower there: {len(curves)} runs")
-    check(len([b for b in gpu.benches if b[0] == 300]) == 3 and len([x for x in gpu.runs if x[0] == "mixed"
-                                                                       and x[1] == 120]) == 3,
-          "E24b: after each failure EVERY final test again — three 5-min FurMark runs, three compute checks")
-    check(L.count("Endtest wird wiederholt (alle Tests)") == 2 and "Versuch 3/12" in L
+    check(curves == [E1_CURVE, low15, low30, low30]
+          and [c[3] for c in FakeHard.calls] == [("game_rec_compute",)] * 3 + [None],
+          f"E24b: fail fast — the failed phase alone on each lower curve (−15 there), the whole hardness "
+          f"test once that passed: {len(curves)} runs")
+    check(len([b for b in gpu.benches if b[0] == 300]) == 1 and len([x for x in gpu.runs if x[0] == "mixed"
+                                                                       and x[1] == 120]) == 1,
+          "E24b: no 5-min FurMark and no compute check for a try whose failed phase still fails — "
+          "the whole set once, in one go, after that phase passed")
+    check(L.count("Endtest wird wiederholt (zuerst Härtetest-Phase „Spiel + Aufnahme + Rechnen“, dann alle "
+                  "Tests)") == 2 and "Versuch 3/12" in L
           and "Kurve −15 MHz bei 950, 1000, 1050 mV" in L and "Rechenfehler (Spiel + Aufnahme + Rechnen)" in L
-          and bp.mem_offset_mhz == 0,
-          "E24b: the log names the failure, the points and the try (3/12); memory untouched")
+          and "Zuerst Härtetest-Phase „Spiel + Aufnahme + Rechnen“ — dort scheiterte der letzte Versuch" in L
+          and "jetzt alle Endtests am Stück" in L and "Ursache prüfen" not in L and bp.mem_offset_mhz == 0,
+          "E24b: the log names the failure, the points, the try (3/12) and what runs first; memory at "
+          "stock: nothing to cross-check")
     check(gpu.benches[-1][0] == 60 and FakeHard.calls[-1][1] <= len(gpu.benches) - 1
           # below the lowest point the curve keeps the smallest offset there is
           and abs(gpu.curve[0][1] - (stock_mhz(600) + min(f - stock_mhz(mv) for mv, f in low30))) < 1,
@@ -1123,9 +1171,100 @@ try:
     L = "\n".join(logs)
     check(t.state == TunerState.ERROR and t.best_profile is None and "Versuch 12/12" in L
           and len(FakeHard.calls) == NT.AutoTuner.FINAL_RETRIES + 1 and "KEIN Profil gespeichert" in L,
-          f"E24c: never passes: {NT.AutoTuner.FINAL_RETRIES + 1} tries of the whole final test, then no "
-          f"profile: {len(FakeHard.calls)} runs, {t.state}")
+          f"E24c: never passes: {NT.AutoTuner.FINAL_RETRIES + 1} tries, then no profile: "
+          f"{len(FakeHard.calls)} runs, {t.state}")
+
+    # E26 (23.10.): the MEMORY is the cause — the hardness test fails above +700 whatever the curve.
+    # Live, round 33's rule took three curve step-backs first (−45 MHz for nothing). Now the failed
+    # phase runs once more with the memory at stock: it passes -> the memory steps back, the curve stays.
+    FakeHard.fails, FakeHard.calls, FakeHard.bad = 0, [], lambda p: (p.get("mem_offset_mhz") or 0) > 700
+    t, gpu, ab, logs, folder = tune(hard_test=True, mem_stage=True)
+    L = "\n".join(logs)
+    bp = t.best_profile
+    mems = [c[2] for c in FakeHard.calls]
+    check(t.state == TunerState.DONE and bp is not None and bp.curve_points == E1_CURVE
+          and bp.mem_offset_mhz == 700,
+          f"E26: memory at fault -> +1000 → +900 → +800 → +700, the curve keeps every MHz: "
+          f"{bp and bp.curve_points}, +{bp and bp.mem_offset_mhz}")
+    check(mems == [1000, 0, 900, 0, 800, 0, 700, 700],
+          f"E26: each failure cross-checked with the memory at stock (0) before the step back: {mems}")
+    check(L.count("→ ohne Speicher-Übertaktung bestanden: Ursache ist der Speicher") == 3
+          and "Speicher +1000→+900 MHz (Ursache Speicher: ohne Speicher-Übertaktung bestanden)" in L
+          and "Kurve −15" not in L,
+          "E26: the log says how the cause was found; no curve step back at all")
+
+    # E27: the CURVE is the cause — it fails at 1000 mV above 2802 MHz with any memory offset
+    FakeHard.calls = []
+    FakeHard.bad = lambda p: dict((mv, f) for mv, f in p.get("curve_points") or []).get(1000, 0) > 2802
+    t, gpu, ab, logs, folder = tune(hard_test=True, mem_stage=True)
+    L = "\n".join(logs)
+    bp = t.best_profile
+    mems = [c[2] for c in FakeHard.calls]
+    check(t.state == TunerState.DONE and bp is not None and bp.curve_points == low30
+          and bp.mem_offset_mhz == 1000,
+          f"E27: curve at fault -> −15 twice around 1000 mV, the memory keeps +1000: "
+          f"{bp and bp.curve_points}, +{bp and bp.mem_offset_mhz}")
+    check(mems == [1000, 0, 1000, 0, 1000, 1000]
+          and L.count("→ auch ohne Speicher-Übertaktung: Ursache ist die Kern-Einstellung (bei 1000 mV)") == 2
+          and "Speicher +1000→" not in L,
+          f"E27: the cross-check fails too (memory at stock) -> the curve, never the memory: {mems}")
+    FakeHard.bad = None
+
+    # E27b the curve's failures are kept for this card (core/learned_limits.py) and the report says it
+    from core import learned_limits as LL
+    kept = LL.load(os.path.join(folder, "logs"), "NVIDIA GeForce RTX 4080")
+    rep = "\n".join(t.last_report["lines"])
+    check(kept and kept.get(1000, {}).get("fail_mhz") == 2817 and list(kept) == [1000]
+          and "Gelernt: 1000 mV hielt 2817 MHz in Härtetest-Phase „Spiel + Aufnahme + Rechnen“ nicht" in rep
+          and "Ursachen der Endtest-Fehler (gemessen, gleicher Test mit Speicher auf Standard): 2× Kurve, 0× Speicher"
+          in rep,
+          f"E27b: learned — 1000 mV failed at 2817 at the lowest; the report names it and the measured causes: {kept}")
+
+    # E29 the next tune on this card: the point starts one step below the clock that failed — the
+    # load-change check passes the first time, no half hour per step back
+    _ll = LL.load
+    LL.load = lambda logs_dir, gpu: {1000: {"fail_mhz": 2817, "at": "2026-10-23T11:38", "test": "x"}}
+    FakeHard.calls = []
+    FakeHard.bad = lambda p: dict((mv, f) for mv, f in p.get("curve_points") or []).get(1000, 0) > 2802
+    try:
+        t, gpu, ab, logs, folder = tune(hard_test=True, mem_stage=True)
+    finally:
+        LL.load = _ll
+        FakeHard.bad = None
+    L = "\n".join(logs)
+    bp = t.best_profile
+    check(t.state == TunerState.DONE and bp is not None and dict(bp.curve_points)[1000] == 2802
+          and "Gelernt aus früheren Endtests (gemischte Last): 1000 mV 2832→2802 MHz" in L
+          and "Endtest ✗" not in L and len(FakeHard.calls) == 2,
+          f"E29: learned before -> 1000 mV starts at 2802, the load-change check and the whole set pass the "
+          f"first time: {bp and bp.curve_points}")
+
+    # E30 the remaining time: set before the points, after each point, before every final try
+    etas = []
+    _se = AutoTuner._set_eta
+    AutoTuner._set_eta = lambda self, s: (etas.append(round(s)), _se(self, s))
+    FakeHard.fails, FakeHard.calls = 1, []
+    try:
+        t, gpu, ab, logs, folder = tune(hard_test=True)
+    finally:
+        AutoTuner._set_eta = _se
+    check(len(etas) >= 8 and etas[0] > etas[-1] > 0 and t.eta_end > 0,
+          f"E30: the remaining time is estimated all the way (points, memory, candidates, each final try): "
+          f"{etas[:3]} … {etas[-2:]}")
+
+    # E28 (English) the new lines
+    FakeHard.fails, FakeHard.calls = 1, []
+    t, gpu, ab, logs, folder = tune(hard_test=True, mem_stage=True, lang="en")
+    L = "\n".join(logs)
+    check(t.state == TunerState.DONE and "Load-change check: first hardness test phase 'game + recording + "
+          "compute' (150 s)" in L and "Finding the cause: hardness test phase 'game + recording + compute' "
+          "once more with memory at +0 MHz" in L and "passed without the memory overclock: the memory is the "
+          "cause" in L and "final test again (first hardness test phase" in L and "Ursache" not in L
+          and "zuerst" not in L,
+          "E28: the new lines in English")
+    I18N._current_lang = "de"
 finally:
+    FakeHard.bad = None
     del AutoTuner.hardness_factory
 
 # E25 (round 33): every run is recorded as own GPU load for the watchdog — not only through the

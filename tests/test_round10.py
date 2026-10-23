@@ -218,11 +218,12 @@ check(not any("Conservative" in m or "conservative" in m for m in logs), "no unt
 
 g = GPU(final_limit=160, mem_limit=900)
 t, logs, ab, saved = tune(g, mem_offset_mhz=1000)
-check([(c, m) for c, m, p in g.finals] == [(172, 1000), (157, 1000), (142, 1000), (127, 1000), (127, 900)],
-      f"with a memory offset: the core first; memory one 100-MHz step back after 3 core step-backs that "
-      f"did not help (round 33 — was: every second try): {g.finals}")
-check(t.best_profile and t.best_profile.mem_offset_mhz == 900 and t.best_profile.core_offset_mhz == 127,
-      "saved: +127 core / +900 memory (what passed)")
+check([(c, m) for c, m, p in g.finals] == [(172, 1000), (172, 0), (157, 1000), (157, 0), (157, 900)],
+      f"with a memory offset: each failure checked again with the memory at stock — fails too: the core "
+      f"(+172 → +157), passes: the memory (+1000 → +900); 23.10. (round 33 guessed: three core step-backs, "
+      f"then the memory): {g.finals}")
+check(t.best_profile and t.best_profile.mem_offset_mhz == 900 and t.best_profile.core_offset_mhz == 157,
+      "saved: +157 core / +900 memory (what passed) — 30 MHz more core than the guess kept")
 
 g = GPU(never=True)
 t, logs, ab, saved = tune(g)

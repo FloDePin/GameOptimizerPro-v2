@@ -72,12 +72,20 @@ LOAD_NAMES = {"game": ("3D-Last", "3D load"), "encode": ("Aufnahme (NVENC)", "re
 FURMARK_VARIANTS = (("furmark-gl", 0), ("furmark-vk", 8), ("furmark-vk", 0), ("furmark-gl", 8))
 
 
-def plan(minutes: float, phase_s: float = PHASE_S) -> list:
+def plan(minutes: float, phase_s: float = PHASE_S, only: Optional[tuple] = None) -> list:
     """[(key, (de, en), loads, seconds)] — the four combinations in turn, equal phases of about
-    phase_s seconds that fill the time."""
+    phase_s seconds that fill the time. only: just these phases (keys) — the tuner runs a single
+    phase on its own (its load-change check, the phase a final test failed in)."""
+    pool = [p for p in PHASES if p[0] in only] if only else []
+    pool = pool or list(PHASES)
     total = max(float(phase_s), float(minutes) * 60)
     n = max(1, round(total / phase_s))
-    return [PHASES[i % len(PHASES)] + (total / n,) for i in range(n)]
+    return [pool[i % len(pool)] + (total / n,) for i in range(n)]
+
+
+def phase_name(key: str) -> tuple:
+    """(de, en) of a phase key, ("", "") when unknown."""
+    return next((names for k, names, _l in PHASES if k == key), ("", ""))
 
 
 @dataclass
@@ -87,6 +95,7 @@ class HardResult:
     kind: str = ""              # compute | frame | stall | hang | crash | driver | temp | stopped | ""
     reason: str = ""
     phase: str = ""
+    phase_key: str = ""         # the phase's key (PHASES), "" = in a pause / unknown
     load: str = ""
     at_s: float = 0.0           # seconds into the test
     t_fail: float = 0.0         # epoch of the failure
@@ -258,7 +267,7 @@ class HardnessTest:
                  on_log: Optional[Callable[[str, str], None]] = None, phase_s: float = PHASE_S,
                  idle_s: float = IDLE_S, tail_factory: Optional[Callable] = None,
                  load_factory: Optional[Callable] = None, record_field: bool = True,
-                 gpu_name: str = ""):
+                 gpu_name: str = "", only: Optional[tuple] = None):
         self._read = read_stats
         self.logs_dir = Path(logs_dir)
         self.minutes = minutes
@@ -274,6 +283,8 @@ class HardnessTest:
         self._load_factory = load_factory or self._make_load
         self.record_field = record_field
         self.gpu = gpu_name
+        self.only = tuple(only) if only else None
+        self._cur_key = ""
         self.samples: list = []
         self._loads: list = []
         self._log_f = None
@@ -392,7 +403,7 @@ class HardnessTest:
     # ── the run ───────────────────────────────────────────────────────────────
     def run(self) -> HardResult:
         res = HardResult(game="FurMark" if self.furmark else "CUDA", profile=self.profile.get("name", ""))
-        steps = plan(self.minutes, self.phase_s)
+        steps = plan(self.minutes, self.phase_s, self.only)
         total = sum(s[3] for s in steps) + self.idle_s * len(steps)
         t0 = time.time()
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -417,6 +428,7 @@ class HardnessTest:
         try:
             for i, (key, names, loads, secs) in enumerate(steps):
                 name = tr(*names)
+                self._cur_key = ""
                 if self._watch(res, None, self.idle_s, t0, done_s, total,
                                tr(f"Pause vor Phase {i + 1}", f"pause before phase {i + 1}")):
                     break
@@ -427,6 +439,7 @@ class HardnessTest:
                              f"Phase {i + 1}/{len(steps)}: {name} ({int(secs)} s) — "
                              f"{', '.join(self._load_name(k) for k in used)}"), "header")
                 self._start_loads(loads, secs)
+                self._cur_key = key
                 stopped = self._watch(res, name, secs, t0, done_s, total,
                                       f"{tr('Phase', 'Phase')} {i + 1}/{len(steps)} · {name}")
                 self._delivered = self._delivered or any(ld.last for ld in self._loads)
@@ -440,6 +453,7 @@ class HardnessTest:
                 self._log(tr(f"  ✓ {name}: bestanden", f"  ✓ {name}: passed"), "success")
             else:
                 # the driver logs a few seconds late: a fault at the very end belongs to the test
+                self._cur_key = ""
                 if not self._watch(res, None, max(self.idle_s, SETTLE_S + POLL_S), t0, done_s, total,
                                    tr("Abschluss", "finishing")):
                     res.passed = True
@@ -471,8 +485,9 @@ class HardnessTest:
         what = (tr(f"Kurve {curve[0][0]}–{curve[-1][0]} mV", f"curve {curve[0][0]}–{curve[-1][0]} mV")
                 + (tr(f", flach ab {p['curve_cap_mv']} mV", f", flat from {p['curve_cap_mv']} mV")
                    if p.get("curve_cap_mv") else "")) if curve else f"+{p.get('core_offset_mhz', 0)} MHz"
-        self._log(tr(f"Härtetest: {total / 60:.0f} min, {len(steps)} Phasen", f"Hardness test: {total / 60:.0f} min, "
-                     f"{len(steps)} phases"), "header")
+        n = len(steps)
+        self._log(tr(f"Härtetest: {total / 60:.0f} min, {n} {'Phase' if n == 1 else 'Phasen'}",
+                     f"Hardness test: {total / 60:.0f} min, {n} {'phase' if n == 1 else 'phases'}"), "header")
         if p:
             self._log(tr(f"Profil: „{p.get('name', '?')}“ — {what}, Speicher +{p.get('mem_offset_mhz', 0)} MHz, "
                          f"Power-Limit {p.get('power_limit_pct', 100)} %",
@@ -549,6 +564,7 @@ class HardnessTest:
     def _fail(self, res: HardResult, kind: str, phase: str, load: str, at_s: float, events: list,
               detail: str = "", late: bool = False) -> bool:
         res.kind, res.phase, res.load, res.at_s = kind, phase, load, round(at_s, 1)
+        res.phase_key = self._cur_key
         res.t_fail = time.time()
         self._stop_loads()
         self.stop_event.wait(SETTLE_S)

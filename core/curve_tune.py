@@ -219,6 +219,8 @@ class Candidate:
     unstable: bool = False       # crash / driver reset / benchmark died
     thermal: bool = False        # hit the temperature limit
     invalid: bool = False        # ran far too short / far too few points: driver not clean
+    closed: bool = False         # ... at a normal rate: FurMark was ended (window closed)
+    ran_s: float = 0.0           # how long FurMark ran (an early end)
     last_mv: float = 0.0         # voltage the card ran right before the end / the crash
     note: str = ""
 
@@ -460,7 +462,8 @@ def lower_near(anchors: list, step: int, fault_mv: float, window_mv: int = 25):
 def final_backoff(attempt: int, anchors: list, mem: int, cap_mv: int, pwr_pct: int,
                   unstable: bool, thermal: bool, step: int = 15, de: bool = True,
                   cap_mvs: Optional[list] = None, crash_mv: float = 0, mem_step: int = 100,
-                  mem_fault: bool = False, window_mv: int = 25, curve_backs: int = 0):
+                  mem_fault: bool = False, window_mv: int = 25, curve_backs: int = 0,
+                  mem_why: str = ""):
     """One step back after failed final test number `attempt` (1-based).
     -> (anchors, mem, cap_mv, pwr_pct, what). Too hot (and nothing crashed):
     first the power limit back to 100 %, then flat from the next lower cap
@@ -468,6 +471,7 @@ def final_backoff(attempt: int, anchors: list, mem: int, cap_mv: int, pwr_pct: i
     around crash_mv, the voltage the card ran when it failed (lower_near; unknown: every
     point) — the memory offset −mem_step only when the failure came from the memory load
     (mem_fault), or when MEM_AFTER curve step-backs in a row (curve_backs) did not help.
+    mem_why: the reason named for a memory step back (the tuner's cross-check found it).
     Round 33: memory used to take every second turn; the memory stage tests the whole card
     up to its limit with a margin, and the faults came from the core curve."""
     if thermal and not unstable:
@@ -483,7 +487,7 @@ def final_backoff(attempt: int, anchors: list, mem: int, cap_mv: int, pwr_pct: i
                     else f"curve flat from {lower[0]} mV (temperature)")
     if mem > 0 and (mem_fault or curve_backs >= MEM_AFTER):
         m2 = max(0, mem - mem_step)
-        why = (("Fehler im Speicher-Test" if de else "failure in the memory test") if mem_fault else
+        why = (mem_why or ("Fehler im Speicher-Test" if de else "failure in the memory test") if mem_fault else
                (f"{curve_backs} Kurven-Rücknahmen haben nicht geholfen" if de
                 else f"{curve_backs} curve step-backs did not help"))
         return anchors, m2, cap_mv, pwr_pct, (f"Speicher +{mem}→+{m2} MHz ({why})" if de

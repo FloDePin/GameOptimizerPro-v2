@@ -97,7 +97,7 @@ Windows 10 / 11 · Python 3.10+ · admin rights (the launcher asks through UAC) 
 
 - 📖 [All features in detail](docs/FEATURES.md) — including the project structure
 - 📜 [Changelog](CHANGELOG.md)
-- 🧪 1433 automated checks in 38 test suites (`python tests\run_all_tests.py`), run before every push
+- 🧪 1501 automated checks in 39 test suites (`python tests\run_all_tests.py`), run before every push
 - 🤝 Pull requests are welcome — for bigger changes please open an issue first.
 
 <div align="center">

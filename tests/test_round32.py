@@ -109,7 +109,7 @@ def worker(mode, gpu_ok):
     return r.returncode, r.stdout, r.stderr
 
 
-for mode in ("mixed", "boost", "transient", "gemm", "mem"):
+for mode in ("mixed", "boost", "transient", "gemm", "mem", "boost_trans"):
     rc, out, err = worker(mode, True)
     check(rc == 3 and "ERR cuda" in out and "under a working GPU" in err,
           f"{mode}: after delivered runs -> compute error at once (exit {rc})")

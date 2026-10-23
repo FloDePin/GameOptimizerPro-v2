@@ -244,7 +244,7 @@ check(cfg is not None and cfg.mem_stage and cfg.mem_oc_max_mhz == gpu.v_mem_max.
       "tuner config: whole-card memory stage (cautious start, 100-MHz steps, FurMark), no fixed offset")
 check(ASKED and f"Speicher: +{gpu._mem_start()} bis +{gpu.v_mem_max.get()} MHz in 100er-Schritten, "
       f"ganze Karte unter Last" in ASKED[-1]
-      and gpu._quick_minutes(True, gpu._furmark_v2(), gpu.HARD_MIN + 1 if gpu._hard_on() else 0) in ASKED[-1],
+      and gpu._quick_minutes(True, gpu._furmark_v2(), gpu.HARD_ADD + 1 if gpu._hard_on() else 0) in ASKED[-1],
       "start dialog names the memory stage and the longer duration")
 gpu.v_mem_stage.set(False)
 gpu._start_tune()

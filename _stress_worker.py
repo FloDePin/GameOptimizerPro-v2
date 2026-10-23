@@ -34,6 +34,11 @@ printed nothing for its 10-s boost phase — every step "hung" (live, round 16).
                     voltage dips; a steady load never shows that. (A game can end
                     with D3D12 "device hung" on a profile that passed every
                     steady test.) Prints "RATE <TFLOPS>".
+  "boost_trans"     the point search's step (23.10.): "boost" for GOP_STRESS_SPLIT_S
+                    seconds (the GPU sits on the point, its voltage is measured), then
+                    "transient" at that point until the end — live, a point found with
+                    the boost load alone failed ~100 MHz lower under 3D + encoder + load
+                    changes. One process: no second start-up per step.
   "mem"             copies two large buffers back and forth and prints
                     "BW <GB/s>". GDDR6X corrects transfer errors by retrying, so a
                     memory overclock past its limit shows up as LOST bandwidth, not
@@ -180,16 +185,18 @@ def mixed_stress(parent_pid):
         raise _GpuStarted(str(e)) from e
 
 
-def boost_stress(parent_pid):
+def boost_stress(parent_pid, seconds: float = 0.0):
     """Boost load only (see module docstring): small verified products with a
-    pause after each one — ~64 % utilisation, the top of the V/F curve."""
+    pause after each one — ~64 % utilisation, the top of the V/F curve.
+    seconds: end after this long (0 = until stopped)."""
     import cupy as cp
     light = _gemm_set(cp, BOOST_N)
     cp.cuda.Stream.null.synchronize()
     flop = 2.0 * BOOST_N ** 3
+    until = time.time() + seconds if seconds > 0 else 0.0
     try:
         last, iters = time.time(), 0
-        while not _STOP.is_set():
+        while not _STOP.is_set() and not (until and time.time() >= until):
             t = time.perf_counter()
             _gemm_checked(cp, light)
             iters += 1
@@ -207,6 +214,17 @@ def boost_stress(parent_pid):
 
 
 TRANS_MAX_S = float(os.environ.get("GOP_STRESS_TRANS_MAX_S", "0.25"))
+
+
+def boost_trans_stress(parent_pid):
+    """The point search's step: the boost load, then load changes (see module docstring)."""
+    try:
+        split = max(1.0, float(os.environ.get("GOP_STRESS_SPLIT_S", "30")))
+    except ValueError:
+        split = 30.0
+    boost_stress(parent_pid, seconds=split)
+    if not _STOP.is_set() and _parent_alive(parent_pid):
+        transient_stress(parent_pid)
 
 
 def transient_stress(parent_pid):
@@ -546,8 +564,8 @@ if __name__ == "__main__":
             sys.exit(EXIT_NO_ENCODER)
         sys.exit(0)
     try:
-        {"mem": mem_stress, "mixed": mixed_stress, "boost": boost_stress,
-         "transient": transient_stress}.get(mode, cuda_stress)(parent_pid)
+        {"mem": mem_stress, "mixed": mixed_stress, "boost": boost_stress, "transient": transient_stress,
+         "boost_trans": boost_trans_stress}.get(mode, cuda_stress)(parent_pid)
     except ImportError:
         cpu_stress(parent_pid)            # kein cupy → CPU-Last
     except _GpuStarted as e:

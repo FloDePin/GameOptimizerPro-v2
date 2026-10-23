@@ -262,22 +262,24 @@ g = GPU(weak=True)
 t, logs = quick(g, core_max_mhz=0, mem_stage=True, mem_oc_max_mhz=1000, mem_curve_start_mhz=500)
 check(t.best_profile.mem_offset_mhz == 0, "copies starved from the start: memory stays at stock")
 
-# round 33: a failed hardness test takes the core offset back one step and runs EVERY final test
-# again; memory stays (it is not the memory load that failed)
+# round 33: a failed hardness test takes the core offset back one step; 23.10.: the failed phase
+# runs once more with the memory at stock first (memory or core?), and the next try starts with
+# that phase — every final test again only once it passed
 from core import hardness_test as H
 
 
 class FakeHard:
-    fails, calls = 2, []
+    fails, calls, bad = 2, [], None
 
     def __init__(self, read_stats, logs_dir, **kw):
         self.profile = kw.get("profile") or {}
 
     def run(self):
-        FakeHard.calls.append(self.profile.get("core_offset_mhz"))
-        if len(FakeHard.calls) <= FakeHard.fails:
+        FakeHard.calls.append((self.profile.get("core_offset_mhz"), self.profile.get("mem_offset_mhz")))
+        fail = FakeHard.bad(self.profile) if FakeHard.bad else len(FakeHard.calls) <= FakeHard.fails
+        if fail:
             return H.HardResult(kind="frame", reason="falsches Bild im Encoder (Spiel + Aufnahme)",
-                                phase="game_rec", point={"mv": 1050})
+                                phase="Spiel + Aufnahme", phase_key="game_rec", point={"mv": 1050})
         return H.HardResult(passed=True, max_mhz=2900, max_mv=1050)
 
 
@@ -287,14 +289,29 @@ try:
     t, logs = quick(g, hard_test=True, mem_stage=True, mem_oc_max_mhz=1000, mem_curve_start_mhz=500)
     L = "\n".join(logs)
     modes = [m for m, *_ in g.runs]
-    check(t.state == TunerState.DONE and t.best_profile.core_offset_mhz == 7 and FakeHard.calls == [37, 22, 7]
+    check(t.state == TunerState.DONE and t.best_profile.core_offset_mhz == 22
+          and FakeHard.calls == [(37, 800), (37, 0), (22, 800), (22, 800)]
           and t.best_profile.mem_offset_mhz == 800,
-          f"Quick: two hardness failures -> core +37 → +22 → +7, memory stays +800: "
-          f"{FakeHard.calls} -> +{t.best_profile and t.best_profile.core_offset_mhz}")
-    check(modes.count("transient") == 3 and "Core +37→+22 MHz" in L
-          and L.count("Endtest wird wiederholt (alle Tests)") == 2 and "nach 2 Rücknahme(n)" in t.best_profile.notes,
-          "Quick: after each failure every final test again (three game tests); the log and the profile name it")
+          f"Quick: the load-change check fails, again with the memory at stock -> the core: +37 → +22, "
+          f"memory stays +800: {FakeHard.calls} -> +{t.best_profile and t.best_profile.core_offset_mhz}")
+    check(modes.count("transient") == 1 and "Core +37→+22 MHz" in L
+          and "Ursache ist die Kern-Einstellung" in L
+          and L.count("Endtest wird wiederholt (zuerst Härtetest-Phase „Spiel + Aufnahme“, dann alle Tests)") == 1
+          and "nach 1 Rücknahme(n)" in t.best_profile.notes,
+          "Quick: the full set (one game test) only after the failed phase passed; the log and the profile name it")
+
+    FakeHard.calls, FakeHard.bad = [], lambda p: (p.get("mem_offset_mhz") or 0) > 600
+    g = GPU()
+    t, logs = quick(g, hard_test=True, mem_stage=True, mem_oc_max_mhz=1000, mem_curve_start_mhz=500)
+    L = "\n".join(logs)
+    check(t.state == TunerState.DONE and t.best_profile.core_offset_mhz == 37
+          and t.best_profile.mem_offset_mhz == 600
+          and [m for _c, m in FakeHard.calls] == [800, 0, 700, 0, 600, 600]
+          and "Speicher +800→+700 MHz (Ursache Speicher: ohne Speicher-Übertaktung bestanden)" in L
+          and "Core +37" not in L,
+          f"Quick: memory at fault -> +800 → +700 → +600, the core offset keeps +37: {FakeHard.calls}")
 finally:
+    FakeHard.bad = None
     del NT.AutoTuner.hardness_factory
 
 # ── 5) make a profile safer ──────────────────────────────────────────────────

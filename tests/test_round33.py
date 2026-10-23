@@ -86,10 +86,11 @@ check(r.returncode == W.EXIT_NO_ENCODER and r.stdout.startswith("NOENC"),
       f"encode without cupy: 'NOENC', exit 4 — never the CPU fallback (exit {r.returncode})")
 
 FAKE = os.path.join(HERE, "fakecupy")
-for mode in ("transient", "mixed", "boost", "gemm", "mem"):
+for mode in ("transient", "mixed", "boost", "gemm", "mem", "boost_trans"):
     stop = os.path.join(TMP, f"stop_{mode}")
     env = dict(os.environ, PYTHONPATH=FAKE, GOP_STRESS_N="64", GOP_STRESS_BOOST_N="32", GOP_STRESS_MEM_MB="1",
-               GOP_STRESS_HEAVY_S="0.3", GOP_STRESS_BOOST_S="0.3", GOP_STRESS_STOP_FILE=stop, OMP_NUM_THREADS="1")
+               GOP_STRESS_HEAVY_S="0.3", GOP_STRESS_BOOST_S="0.3", GOP_STRESS_STOP_FILE=stop, OMP_NUM_THREADS="1",
+               GOP_STRESS_SPLIT_S="1")
     p = subprocess.Popen([sys.executable, WORKER, str(os.getpid()), mode], stdout=subprocess.PIPE,
                          stderr=subprocess.DEVNULL, text=True, env=env,
                          creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
@@ -311,8 +312,10 @@ check(res.passed and res.aborted, "FurMark closed by hand: no verdict, the profi
 tn._stop.set()
 check(tn._hard_test(97, {}) is None, "the tune aborted: None (the run ends)")
 src = open(os.path.join(ROOT, "core", "nvtune_tuner.py"), encoding="utf-8").read()
-check(src.count("self._hard_test(") == 2 and "verify = hard" in src and "final = hard" in src,
-      "both modes run it after the game test; its failure decides the step back")
+check(src.count("self._hard_test(") == 2 and "return self._hard_test(prog, profile, only)" in src
+      and "self._final_set(stress, True" in src
+      and "self._final_set(stress, False" in src and "(hard, verify, None, hard)" in src,
+      "both modes run it in their final set (23.10.: right after the compute check — the most sensitive first; once more when FurMark was closed by hand); its failure decides the step back")
 gsrc = open(os.path.join(ROOT, "ui", "tab_gpu.py"), encoding="utf-8").read()
 check(gsrc.count("hard_test=hard_on") == 2 and '"hard_test"' in gsrc,
       "the GPU tab: one switch for both modes, remembered with the other tuner settings")
@@ -455,7 +458,7 @@ finally:
     os.environ.clear()
     os.environ.update(saved_env)
 src = open(os.path.join(ROOT, "core", "nvtune_tuner.py"), encoding="utf-8").read()
-check(src.count("self._srun(stress") == 5 and 'stress.companion = "encode" if cfg.encoder_companion' in src,
+check(src.count("self._srun(stress") == 4 and 'stress.companion = "encode" if cfg.encoder_companion' in src,
       "curve points, OC steps, final and game test run with it; baseline, power and benchmarks don't")
 check(gsrc.count("encoder_companion=self._enc_on()") == 2 and '"enc_comp"' in gsrc,
       "GPU tab: one switch for both modes, remembered")

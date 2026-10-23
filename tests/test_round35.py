@@ -198,6 +198,13 @@ NT.subprocess.run = lambda *a, **k: types.SimpleNamespace(stdout=(
     "    Packets: Sent = 2, Received = 2, Lost = 0 (0% loss),\n"), stderr="")
 r = NT.ping("Cloudflare", "1.1.1.1", count=2)
 check(r.reachable and r.loss_pct == 0.0 and r.avg_ms == 13.0 and not r.error, "normal replies as before")
+for lang, out in (("German", "Antwort von 1.1.1.1: Bytes=32 Zeit=12ms TTL=57\nAntwort von 1.1.1.1: Bytes=32 Zeit<1ms "
+                              "TTL=57\n    Pakete: Gesendet = 2, Empfangen = 2, Verloren = 0\n    (0% Verlust),\n"),
+                  ("French", "Réponse de 1.1.1.1 : octets=32 temps=12 ms TTL=57\nRéponse de 1.1.1.1 : octets=32 "
+                             "temps=14 ms TTL=57\n    Paquets : envoyés = 2, reçus = 2, perdus = 0 (perte 0%),\n")):
+    NT.subprocess.run = lambda *a, o=out, **k: types.SimpleNamespace(stdout=o, stderr="")
+    r = NT.ping("x", "1.1.1.1", count=2)
+    check(r.reachable and len(r.rtts) == 2 and not r.error, f"{lang} Windows: the reply times are read ({r.rtts})")
 NT.subprocess.run = _run
 
 # ── 8) BIOS checks in English ────────────────────────────────────────────────
