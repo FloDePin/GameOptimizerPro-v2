@@ -1,6 +1,6 @@
 {
-  "build": 47,
+  "build": 48,
   "date": "2026-10-24",
-  "notes": "GPU-Tuner: Die Suche steigt nicht mehr über die gelernten Grenzen (dort kamen die Treiber-Resets, das Ergebnis bleibt gleich, der Tune wird kürzer). Der Speicher-Gegencheck läuft mindestens doppelt so lange, wie es bis zum Fehler dauerte. Nach einem Tune mit Treiber-Resets empfiehlt die App einen Neustart vor dem Spielen.",
-  "notes_en": "GPU tuner: the search no longer climbs above the learned limits (that is where the driver resets happened; the result stays the same, the tune gets shorter). The memory cross-check runs at least twice as long as the failure took. After a tune with driver resets the app recommends a restart before playing."
+  "notes": "Profilvergleich: zeigt, ob ein Profil den Härtetest bestanden hat, und welches Profil ein anderes in Leistung und Effizienz zugleich schlägt. GPU-Tuner: ein Fehler an einer Kappung zwischen zwei Messpunkten wird nicht mehr einem falschen Punkt zugeschrieben.",
+  "notes_en": "Profile comparison: shows whether a profile passed the hardness test and which profile beats another in performance and efficiency at once. GPU tuner: a failure at a cap between two measured points is no longer booked on the wrong point."
 }

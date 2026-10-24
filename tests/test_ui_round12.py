@@ -741,7 +741,7 @@ def s_bios():
           f"comparison: refreshed every time it is shown, only real profiles: {vals}")
     c._sel_vars[0].set("P1"); c._on_select(0)
     c._sel_vars[1].set("P2"); c._on_select(1)
-    check(len(c.detail_tree.get_children()) == 14,
+    check(len(c.detail_tree.get_children()) == 15,
           "detail table (no GPU row: one PC's own profiles; points and points per watt)")
     check(len(c._metric_rows["perf"]._bars.winfo_children()) == 4,
           "one bar per chosen profile + stock (+ hidden hint)")
@@ -767,6 +767,12 @@ def s_bios():
     check(allr == ["—", "—", "—", TG.tr("nicht gemessen", "not measured"), ""],
           f"best all-rounder: none of them keeps stock performance AND beats its efficiency "
           f"(+0.1 % is noise): {allr}")
+    beat = rows[TG.tr("In beidem besser:", "Better in both:")]
+    tests_row = rows[TG.tr("Stabilitätstests", "Stability tests")]
+    check(beat == ["—", "—", "—", TG.tr("nicht gemessen", "not measured"), ""]
+          and tests_row[1:3] == [TG.tr("bestanden", "passed")] * 2,
+          f"24.10.: nobody better in both (one faster, one more frugal); the tests passed "
+          f"(not recorded in these profiles): {beat} {tests_row}")
     clock = rows[TG.tr("Takt", "Clock")]
     nm = TG.tr("nicht gemessen", "not measured")
     # column 0 = stock (point 0), then the profiles

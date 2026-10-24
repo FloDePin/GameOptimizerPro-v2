@@ -111,6 +111,9 @@ class TuneProfile:
     # The same benchmark at stock and with this profile (core/profile_score.py):
     # {name, seconds, score, power_w, stock_score, stock_seconds, stock_power_w, at}
     bench:              dict  = field(default_factory=dict)
+    # The final tests it passed (24.10.): verify | furmark | game | hard | encoder — [] = not recorded
+    # (profiles before build 48; before 18.10. no hardness test existed)
+    final_tests:        list  = field(default_factory=list)
 
     def to_dict(self):
         return asdict(self)

@@ -1045,6 +1045,7 @@ class AutoTuner:
         self._boot_profile = None             # the known-good profile is looked up per run
         self.eta_end = 0.0
         self.restart_hint = 0                 # driver faults of this run (_restart_hint)
+        self._hard_skipped = False            # the hardness test could not finish (FurMark closed twice)
         self._open_run_log()
         # The whole run is own GPU load for the watchdog — recorded in its session list, not
         # only through the tune log's name (an archived log took the run's driver events with
@@ -1082,6 +1083,31 @@ class AutoTuner:
             except Exception:
                 pass
             self._close_run_log()
+
+    @staticmethod
+    def _learn_point(anchors: list, cap: int, fault_mv: float) -> tuple:
+        """The measured point a core failure of a final test is booked on (learned_limits), () =
+        none. Live 24.10.: flat from 1035 mV — between the points 1025 and 1050 — failed at the
+        cap; booked was "1050 mV fails at 2864", a clock that never ran. In the flat part between
+        two points the failing clock belongs to no measured point: nothing is learned there."""
+        from core import learned_limits as LL
+        if cap and fault_mv >= cap - 5 and all(abs(mv - cap) > 2 for mv, _f in anchors):
+            return ()
+        return LL.point_at(anchors, fault_mv)
+
+    def _passed_tests(self, curve: bool) -> list:
+        """The final tests a saved profile passed (TuneProfile.final_tests): the compute check,
+        the 5-min FurMark (All-round), the game test, the hardness test, the video encoder next
+        to every step. The comparison shows them (24.10.: which profiles had the hardness test)."""
+        cfg = self.config
+        out = ["verify"] + (["furmark"] if curve else [])
+        if cfg.game_test:
+            out.append("game")
+        if cfg.hard_test and not getattr(self, "_hard_skipped", False):
+            out.append("hard")
+        if cfg.encoder_companion:
+            out.append("encoder")
+        return out
 
     def _driver_faults_since(self, t0: float) -> int:
         """Driver resets / GPU errors in the System log since t0 — one fault often logs several
@@ -1669,6 +1695,7 @@ class AutoTuner:
             )
             if quick_cap:
                 profile.curve_points, profile.curve_cap_mv = quick_cap
+            profile.final_tests = self._passed_tests(curve=False)
             if q_after is not None and q_after.passed and min(q_after.power_w, q_stock.power_w) > 0:
                 from core import profile_score as PS
                 profile.bench = PS.bench_record("FurMark", cfg.bench_s, q_after.score, q_after.power_w,
@@ -2401,11 +2428,15 @@ class AutoTuner:
                            steady_voltage_mv=r.max_mv, abort_reason=r.reason,
                            stage=f"hard:{key}" if key else "hard",
                            fail_at_s=0.0 if r.passed else float(getattr(r, "at_s", 0) or 0))
+        if r.passed and not r.aborted and not only:
+            self._hard_skipped = False           # a later try ran it in full
         if r.aborted:                            # FurMark closed by hand: no verdict either way
             self._log(T("  Härtetest nicht abgeschlossen — das Profil wird ohne ihn gespeichert",
                         "  Hardness test not finished — the profile is saved without it"), "warning")
             res.passed = True
             res.aborted = True
+            if not only:                         # the full test did not run: the profile says so
+                self._hard_skipped = True
         elif r.unstable:
             res.crash_detected = True
             res.compute_error = r.kind in ("compute", "frame")
@@ -3181,9 +3212,12 @@ class AutoTuner:
             cause, crash_mv = got
             causes.append((self._stage_name(res.stage), cause))
             if cause == "core" and unstable and gpu_key:
-                pt = LL.point_at(cur, crash_mv)
+                pt = self._learn_point(cur, cap, crash_mv)
                 if pt and LL.record(self._log_dir, gpu_key, pt[0], pt[1], self._stage_name(res.stage)):
                     learned_now.append((pt[0], pt[1], self._stage_name(res.stage)))
+                elif not pt and cap and crash_mv >= cap - 5:
+                    self._log(T(f"    (nicht gelernt: die Karte lief an der Kappung {cap} mV zwischen zwei Messpunkten)",
+                                f"    (not learned: the card ran at the cap {cap} mV between two measured points)"))
             mem_was = mem
             cur, mem, cap, pwr, what = CT.final_backoff(
                 attempt, cur, mem, cap, pwr, unstable, thermal, cfg.curve_step_mhz, de, cap_mvs,
@@ -3274,6 +3308,7 @@ class AutoTuner:
             from core import profile_score as PS
             profile.bench = PS.bench_record(bench_name, cfg.bench_s, after.score, after.power_w,
                                             stock.score, stock.power_w, at=profile.created_at)
+        profile.final_tests = self._passed_tests(curve=True)
         self.best_profile = profile
         self.pm.save(profile)
         self._persist(profile)                # what the PC boots with (Afterburner [Startup])

@@ -103,6 +103,41 @@ def best_allround(scores: dict, noise: float = NOISE_PCT) -> set:
     return {k for k, s in keeps.items() if s["eff_pct"] > top - noise}
 
 
+def dominated_by(scores: dict, noise: float = NOISE_PCT) -> dict:
+    """Which profile another one beats in BOTH (24.10.: Max 23.10. was faster and more frugal than
+    Schnell 24.10.): not worse in either (within the noise) and better beyond it in at least one.
+    {key: score_of(...) or None} -> {key: [keys that beat it]}, only the beaten ones."""
+    m = {k: s for k, s in scores.items() if s}
+    out = {}
+    for i, a in m.items():
+        by = [j for j, b in m.items() if j != i
+              and b["perf_pct"] >= a["perf_pct"] - noise and b["eff_pct"] >= a["eff_pct"] - noise
+              and (b["perf_pct"] > a["perf_pct"] + noise or b["eff_pct"] > a["eff_pct"] + noise)]
+        if by:
+            out[i] = by
+    return out
+
+
+HARD_SINCE = "2026-10-18"     # the hardness test exists since this day (round 33)
+
+
+def tests_label(profile, de: bool = True) -> str:
+    """What a saved profile passed, for the comparison: "bestanden · mit Härtetest" / "… ohne
+    Härtetest" — from TuneProfile.final_tests (build 48 on); older profiles from before the hardness
+    test existed say so, the ones in between just "bestanden" (not recorded)."""
+    t = (lambda d, e: d if de else e)
+    if not getattr(profile, "is_stable", True):
+        return t("nicht bestanden", "not passed")
+    tests = list(getattr(profile, "final_tests", None) or [])
+    if tests:
+        return t("bestanden · mit Härtetest", "passed · with the hardness test") if "hard" in tests else \
+            t("bestanden · ohne Härtetest", "passed · without the hardness test")
+    made = str(getattr(profile, "created_at", "") or "")
+    if made and made[:10] < HARD_SINCE:
+        return t("bestanden · ohne Härtetest (gab es noch nicht)", "passed · no hardness test (did not exist yet)")
+    return t("bestanden", "passed")
+
+
 def bench_record(name: str, seconds: float, score: float, power_w: float, stock_score: float,
                  stock_power_w: float, stock_seconds: float = 0.0, at: str = "") -> dict:
     """What a tune stores in TuneProfile.bench."""

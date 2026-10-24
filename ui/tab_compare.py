@@ -18,7 +18,8 @@ import customtkinter as ctk
 
 from core.nvtune_core import ProfileManager, TuneProfile
 from core.profile_curves import flat_from, measured_points, profile_line, stock_line
-from core.profile_score import best_allround, score_of, stock_of
+from core.i18n import current_lang
+from core.profile_score import best_allround, dominated_by, score_of, stock_of, tests_label
 from ui.components import Card, GaugeBar, Page, ResponsiveGrid, Table, button
 from ui.theme import (ACC, AMBER, CARD_BG, DIM, F_BB, F_S, F_SB, F_XS, GREEN, SLATE, TEXT2, VIOLET,
                       icon_image, mix, tr)
@@ -291,10 +292,17 @@ class CompareTab(Page):
             return max(vals, key=vals.get) if len(vals) >= 2 else None
         b_perf, b_eff = best("perf_pct"), best("eff_pct")
         allround = best_allround(scores, NOISE_PCT)
+        beaten = dominated_by(scores, NOISE_PCT)
 
         def cell_allround(i, p):
             s = scores.get(i)
             return (BEST.strip() if i in allround else "—") if s else unmeasured
+
+        def cell_beaten(i, p):
+            if not scores.get(i):
+                return unmeasured
+            by = beaten.get(i)
+            return ", ".join(f"{tr('Profil', 'Profile')} {j + 1}" for j in by) if by else "—"
 
         def cell_perf(i, p):
             s = scores.get(i)
@@ -339,10 +347,11 @@ class CompareTab(Page):
             (tr("Leistung ggü. Standard", "Performance vs stock"), BASE, cell_perf),
             (tr("Effizienz ggü. Standard", "Efficiency vs stock"), BASE, cell_eff),
             (tr("Bester Allrounder", "Best all-rounder"), "—", cell_allround),
+            (tr("In beidem besser:", "Better in both:"), "—", cell_beaten),
             (tr("Leistungsaufnahme", "Power draw"), f"{stock['power_w']} W" if stock else "—", cell_watt),
             (tr("Gemessen mit", "Measured with"), measured if stock else "—", cell_bench),
             (tr("Stabilitätstests", "Stability tests"), "—",
-             lambda i, p: tr("bestanden", "passed") if p.is_stable else tr("nicht bestanden", "not passed")),
+             lambda i, p: tests_label(p, current_lang() == "de")),
             (tr("Erstellt", "Created"), "—", lambda i, p: _created(p)),
         ]
         for label, base, fn in row_defs:
