@@ -336,10 +336,20 @@ class CompareTab(Page):
                 x = extra_of(p, key)
                 if not x:
                     return unmeasured
-                w = (tr(f" · {x['power_w']} W (Standard {x['stock_power_w']} W)",
-                        f" · {x['power_w']} W (stock {x['stock_power_w']} W)") if x["power_w"] else "")
-                return _pct_mark(x["perf_pct"]) + w
+                head = (f"{x['score']:.0f} ({_pct_mark(x['perf_pct'])})" if key.startswith("3dmark:")
+                        else _pct_mark(x["perf_pct"]))
+                w = f" · {x['power_w']} W" if x["power_w"] else ""
+                e = (tr(" · Effizienz ", " · efficiency ") + _pct(x["eff_pct"])) if x["eff_pct"] is not None else ""
+                return head + w + e
             return cell
+
+        def stock_extra(key):
+            xs = [extra_of(p, key) for _i, p in active]
+            x = next((v for v in xs if v), None)
+            if not x:
+                return BASE
+            w = f" · {x['stock_power_w']} W" if x["stock_power_w"] else ""
+            return (f"{x['stock_score']:.0f}" if key.startswith("3dmark:") else BASE) + w
         # 3DMark tests measured for any chosen profile (the 3DMark comparison on the stress page)
         tdm = sorted({k for _i, p in active for k in ((p.bench or {}) if isinstance(p.bench, dict) else {})
                       if str(k).startswith("3dmark:")})
@@ -364,9 +374,10 @@ class CompareTab(Page):
             (tr("Leistungsaufnahme", "Power draw"), f"{stock['power_w']} W" if stock else "—", cell_watt),
             (tr("Gemessen mit", "Measured with"), measured if stock else "—", cell_bench),
             (tr("Volllast ggü. Standard (Rechenlast am Power-Limit)", "Full load vs stock (compute at the power limit)"),
-             BASE, cell_extra("full")),
+             stock_extra("full"), cell_extra("full")),
         ] + [
-            (f"3DMark {k.split(':', 1)[1]} " + tr("ggü. Standard", "vs stock"), BASE, cell_extra(k)) for k in tdm
+            (f"3DMark {k.split(':', 1)[1]} " + tr("ggü. Standard", "vs stock"), stock_extra(k), cell_extra(k))
+            for k in tdm
         ] + [
             (tr("Stabilitätstests", "Stability tests"), "—",
              lambda i, p: tests_label(p, current_lang() == "de")),
@@ -375,6 +386,10 @@ class CompareTab(Page):
         for label, base, fn in row_defs:
             cells = [label, base] + [fn(i, self._selected[i]) if self._selected[i] else "" for i in range(4)]
             self.detail_tree.insert("", "end", values=cells)
+        try:                                   # every row visible — no scrolling inside the page
+            self.detail_tree.configure(height=len(row_defs))
+        except Exception:
+            pass
 
     def _update_curves(self, active):
         c = self._base_curve

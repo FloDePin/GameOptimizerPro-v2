@@ -64,8 +64,9 @@ try:
     got = t._curve_power_stage(types.SimpleNamespace(run=c.run), [(1000, 2727)], 1025, 500)
     tried = [p for m, p in c.runs if m == "curve"]
     check(got == 96 and c.runs[0] == ("stock", 100) and c.mode == "curve" and c.pwr == 96,
-          f"stock measured first, then 95 ✗ (98.9 < 99) → 98 ✓ → 96 ✓; 94/95 not tried again: {got} %, steps {tried}")
-    check(tried == [95, 98, 96], "5-% steps, halved on a miss; nothing at or below a limit that fell short")
+          f"stock measured first, the curve at 100 %, then 95 ✗ (98.9 < 99) → 98 ✓ → 96 ✓; 94/95 not tried again: "
+          f"{got} %, steps {tried}")
+    check(tried == [100, 95, 98, 96], "5-% steps, halved on a miss; nothing at or below a limit that fell short")
     check(any("→ Power-Limit 96 %" in m for m in t._log_lines)
           and any("96 %: +0,0 %" in m.replace(".", ",") or "96 %: -0" in m or "96 %: +0" in m for m in t._log_lines),
           "the log names each step against stock and the result")
@@ -85,6 +86,19 @@ try:
         def run(self, d, max_temp, on_tick=None, mode="gemm"):
             return StressResult(passed=True, avg_rate_tflops=0.0)
 
+    class Slow(Card):
+        def run(self, d, max_temp, on_tick=None, mode="gemm"):       # deeply capped: below 99 % already at 100 %
+            r = super().run(d, max_temp, on_tick, mode)
+            if self.mode == "curve":
+                r.avg_rate_tflops -= 4.0
+            return r
+
+    sl = Slow()
+    t = tuner(sl)
+    check(t._curve_power_stage(types.SimpleNamespace(run=sl.run), [], 0, 0) == 100
+          and [p for m, p in sl.runs if m == "curve"] == [100] and any("schon da unter 99 %" in m for m in t._log_lines),
+          "audit 24.10.: a curve below 99 % of stock already at 100 % — one run, no pointless 95/98/99 steps")
+
     n = NoRate()
     t = tuner(n)
     check(t._curve_power_stage(types.SimpleNamespace(run=n.run), [], 0, 0) == 100
@@ -103,7 +117,8 @@ finally:
 check(TunerConfig().curve_power_stage and TunerConfig().curve_power_min_pct == 80
       and TunerConfig().curve_power_keep == 0.99, "on by default, down to 80 %, 99 % of stock's work")
 src = open(os.path.join(ROOT, "core", "nvtune_tuner.py"), encoding="utf-8").read()
-check('if goal == "efficiency" and cfg.curve_power_stage and pwr == 100:' in src,
+check('if goal == "efficiency" and cfg.curve_power_stage and pwr == 100:' in src
+      and src.index("# Efficiency: the power limit — after the final tests") < src.rindex('after = self._bench(stress, cfg.bench_s'),
       "only the efficiency goal runs it (max and balanced keep their power limit)")
 
 import shutil  # noqa: E402

@@ -285,7 +285,7 @@ class SettingsTab(Page):
                 "recyclebin" in keys)
 
     def _cleaner_scan(self):
-        self.lbl_cleaner.config(text="Scanne…", fg=DIM)
+        self.lbl_cleaner.config(text=tr("Scanne …", "Scanning …"), fg=DIM)
         targets, with_bin = self._cleaner_targets()
 
         def work():
@@ -332,7 +332,7 @@ class SettingsTab(Page):
             "Gelöschte Dateien sind danach nicht mehr wiederherstellbar. Fortfahren?", "The Recycle Bin of ALL drives is emptied for good.\n\nDeleted files can't be restored afterwards. Continue?"),
             icon="warning"):
             with_bin = False
-        self.lbl_cleaner.config(text="Bereinige…", fg=DIM)
+        self.lbl_cleaner.config(text=tr("Bereinige …", "Cleaning …"), fg=DIM)
         self.btn_clean.configure(state="disabled")
 
         def work():

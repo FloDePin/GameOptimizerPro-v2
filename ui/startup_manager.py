@@ -233,7 +233,7 @@ class StartupManagerPage(Page):
         for row in self.tree.get_children():
             self.tree.delete(row)
         self._entries = []
-        self.lbl_count.config(text="Lade …")
+        self.lbl_count.config(text=tr("Lade …", "Loading …"))
         run_async(self, self._fetch_entries, lambda _r: self._apply_filter())
 
     def _fetch_entries(self):
@@ -380,7 +380,7 @@ class StartupManagerPage(Page):
             return
         e = sel[0]
         status_cfg = STATUS_CONFIG.get(e["status"], (DIM, "?", "?"))
-        state = "an" if e.get("enabled", True) else "AUS"
+        state = tr("an", "on") if e.get("enabled", True) else tr("AUS", "OFF")
         self.lbl_selected.config(
             text=f"{e['name']}  ·  {state}  ·  {status_cfg[1]}  ·  {e.get('publisher','?')}",
             fg=status_cfg[0]

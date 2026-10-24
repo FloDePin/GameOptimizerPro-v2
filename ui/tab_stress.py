@@ -342,6 +342,8 @@ class StressTab(Page):
             return tr("Eine FurMark-/3DMark-Aufzeichnung läuft gerade.", "A FurMark / 3DMark recording is running.")
         if self._hard is not None:
             return tr("Der Härtetest läuft gerade.", "The hardness test is running.")
+        if self._cmp is not None:
+            return tr("Der 3DMark-Vergleich läuft gerade.", "The 3DMark comparison is running.")
         return ""
 
     def _start_hard(self):
@@ -534,21 +536,18 @@ class StressTab(Page):
 
     # ── Internal stress ───────────────────────────────────────────────────────
 
-    def _gpu_taken(self) -> bool:
-        """The GPU tuner or the hardness test has the GPU: a second load would spoil both
-        (said in a box) -> True."""
-        why = ""
-        if self.tuner is not None and getattr(self.tuner, "is_running", False):
-            why = tr("Der GPU-Tuner läuft gerade — erst abwarten oder abbrechen.",
-                     "The GPU tuner is running — wait for it or abort it first.")
-        elif self._cmp is not None:
-            why = tr("Der 3DMark-Vergleich läuft gerade — erst abwarten oder abbrechen.",
-                     "The 3DMark comparison is running — wait for it or abort it first.")
-        elif self._hard is not None:
-            why = tr("Der Härtetest läuft gerade — erst abwarten oder stoppen.",
-                     "The hardness test is running — wait for it or stop it first.")
+    def _gpu_taken(self, allow_cmp: bool = False) -> bool:
+        """Something else has the GPU — the tuner, the internal test, a recording, the hardness test,
+        the 3DMark comparison: a second load would spoil both (said in a box) -> True. allow_cmp:
+        3DMark itself may start while the comparison runs — that is what it waits for."""
+        why = self._busy_text()
+        if allow_cmp and why and self._cmp is not None and why == tr("Der 3DMark-Vergleich läuft gerade.",
+                                                                     "The 3DMark comparison is running."):
+            why = ""
         if why:
-            messagebox.showinfo("GameOptimizerPro", why, parent=self.winfo_toplevel())
+            messagebox.showinfo("GameOptimizerPro", why + tr(" Erst abwarten oder abbrechen.",
+                                                             " Wait for it or stop it first."),
+                                parent=self.winfo_toplevel())
         return bool(why)
 
     def _start_internal(self):
@@ -788,12 +787,12 @@ class StressTab(Page):
             self.btn_3dm_store.pack(side="left")
 
     def _launch_3dmark(self):
-        if not self._3dmark_path or self._gpu_taken():
+        if not self._3dmark_path or self._gpu_taken(allow_cmp=True):
             return
         ok, msg = threedmark.launch(self._3dmark_path)
         self.lbl_3dm_status.config(text=msg, fg=GREEN if ok else ERR)
         self.log.append(f"3DMark: {msg}", "success" if ok else "error")
-        if ok:
+        if ok and self._cmp is None:         # the comparison measures the runs itself
             self._start_session("3DMark", prefix=threedmark.PROCESS_PREFIXES, status=self.lbl_3dm_status)
 
     def _browse_3dmark(self):
@@ -862,6 +861,11 @@ class StressTab(Page):
                 orig_slot = self.ab.slot_holding(TuneProfile.from_dict(last))
         except Exception:
             orig_slot = None
+        if not orig_slot:                      # not known: what the PC boots with
+            try:
+                orig_slot = next((sl for sl in (2, 3, 4, 5) if self.ab.startup_state(sl)), None)
+            except Exception:
+                orig_slot = None
         state = {"stock": False}
 
         def apply(key):
@@ -874,7 +878,7 @@ class StressTab(Page):
             ok, err = True, ""
             if state["stock"] and borrowed is not None:
                 ok, err = self.ab.write_and_apply(borrow, borrowed, startup=None)
-            if orig_slot:
+            if orig_slot and not (state["stock"] and orig_slot == borrow):   # that one is applied already
                 ok2, err2 = self.ab.load_profile_slot(orig_slot)
                 ok, err = ok and ok2, err or err2
             return ok, err
@@ -884,7 +888,8 @@ class StressTab(Page):
         except ValueError:
             runs = 2
         self._cmp = bench_compare.CompareSession(chosen + [bench_compare.STOCK], runs, apply, restore,
-                                                 self.monitor.read, threedmark.results_since)
+                                                 self.monitor.read, threedmark.results_since,
+                                                 names=threedmark.result_names)
         self._cmp.start()
         swap_button(self.btn_cmp_stop, self.btn_cmp_start)
         self.lbl_cmp_res.config(text="")
@@ -906,9 +911,12 @@ class StressTab(Page):
         st = sess.poll()
         name = self._cmp_name(st.key)
         last = ""
+        if st.note == "early":
+            last = tr("\n⚠ Ein Lauf startete, bevor die Karte abgekühlt war — er zählt nicht. Bitte erst bei ▶ starten.",
+                      "\n⚠ A run started before the card had cooled down — it does not count. Please start at ▶.")
         if st.last is not None:
-            last = tr(f"\nLetztes Ergebnis: {self._cmp_name(st.last.key)} — {st.last.test} {st.last.score}",
-                      f"\nLast result: {self._cmp_name(st.last.key)} — {st.last.test} {st.last.score}")
+            last += tr(f"\nLetztes Ergebnis: {self._cmp_name(st.last.key)} — {st.last.test} {st.last.score}",
+                       f"\nLast result: {self._cmp_name(st.last.key)} — {st.last.test} {st.last.score}")
         if st.phase == "applying":
             self.lbl_cmp.config(text=tr(f"„{name}“ wird aktiviert … ({st.step}/{st.steps})",
                                         f"Applying '{name}' … ({st.step}/{st.steps})") + last, fg=DIM)

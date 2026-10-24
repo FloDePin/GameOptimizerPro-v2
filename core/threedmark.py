@@ -140,7 +140,8 @@ def running_processes() -> list[str]:
 # ── Results (24.10.: the 3DMark comparison of the profiles) ──────────────────
 # Every run leaves a .3dmark-result (a zip: Result.xml with the scores, Monitoring.csv). 3DMark saves it
 # to Documents\3DMark — or, when it can't move it there (live 24.10.), to ProgramData\UL\3DMark\Results.
-_SCORE_RE = re.compile(r"<([A-Za-z]+?)Performance(Graphics)?Score>(\d+(?:\.\d+)?)</")
+_SCORE_RE = re.compile(r"<([A-Za-z0-9]+?)Performance(Graphics|3DMark)?Score>(\d+(?:\.\d+)?)</")
+_RANK = {"Graphics": 2, "3DMark": 1, "": 0}
 
 
 def result_dirs() -> list[str]:
@@ -168,14 +169,25 @@ def parse_result(path: str) -> dict | None:
     except (OSError, KeyError, zipfile.BadZipFile):
         return None
     best = None
-    for tag, graphics, val in _SCORE_RE.findall(xml):
+    for tag, kind, val in _SCORE_RE.findall(xml):
         if tag.endswith("ForPass") or float(val) <= 0:
             continue
-        if best is None or (graphics and not best[1]):
-            best = (tag, graphics, float(val))
+        if best is None or _RANK[kind] > _RANK[best[1]]:
+            best = (tag, kind, float(val))
     if best is None:
         return None
     return {"test": _test_name(best[0]), "score": int(round(best[2])), "file": name, "t": t}
+
+
+def result_names(dirs: list | None = None) -> list[str]:
+    """The names of every result there is — nothing opened (the comparison's start: what was there before)."""
+    out = []
+    for d in dirs if dirs is not None else result_dirs():
+        try:
+            out += [n for n in os.listdir(d) if n.endswith(".3dmark-result")]
+        except OSError:
+            continue
+    return out
 
 
 def results_since(since: float, dirs: list | None = None) -> list[dict]:

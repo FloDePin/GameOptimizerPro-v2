@@ -106,7 +106,7 @@ Windows 10 / 11 · Python 3.10+ · Admin-Rechte (der Launcher fragt per UAC) · 
 
 - 📖 [Alle Funktionen im Detail](docs/FEATURES.de.md) — samt Projektstruktur
 - 📜 [Changelog](CHANGELOG.md) (Englisch)
-- 🧪 1648 automatische Prüfungen in 45 Test-Suiten (`python tests\run_all_tests.py`), vor jedem Push
+- 🧪 1677 automatische Prüfungen in 46 Test-Suiten (`python tests\run_all_tests.py`), vor jedem Push
 - 🤝 Pull Requests sind willkommen — bei größeren Änderungen bitte zuerst ein Issue öffnen.
 
 <div align="center">

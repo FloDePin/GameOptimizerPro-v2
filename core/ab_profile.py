@@ -98,10 +98,10 @@ class VFCurve:
 
     def __init__(self, raw: bytes):
         if len(raw) < VF_HEADER_SIZE + VF_POINT_SIZE:
-            raise ProfileError("VFCurve zu kurz")
+            raise ProfileError(_tr("VFCurve zu kurz", "VFCurve too short"))
         version, count = struct.unpack_from("<II", raw, 0)
         if version != VF_VERSION:
-            raise ProfileError(f"unbekannte VFCurve-Version {version:#010x}")
+            raise ProfileError(_tr(f"unbekannte VFCurve-Version {version:#010x}", f"unknown VFCurve version {version:#010x}"))
         n = min(count, (len(raw) - VF_HEADER_SIZE) // VF_POINT_SIZE)
         if n <= 0:
             raise ProfileError(_tr("VFCurve enthält keine Punkte", "VFCurve has no points"))
@@ -112,7 +112,7 @@ class VFCurve:
     def from_hex(cls, text: str) -> "VFCurve":
         s = (text or "").strip()
         if not s:
-            raise ProfileError("VFCurve ist leer")
+            raise ProfileError(_tr("VFCurve ist leer", "VFCurve is empty"))
         try:
             return cls(bytes.fromhex(s))
         except ValueError as e:
@@ -545,23 +545,30 @@ def _apply_section(text: str, section: str, s: SlotSettings) -> tuple[str, list[
             act = own.active_points()
             top = max(act, key=lambda q: (q.effective_mhz, -q.voltage_mv))
             vs = sorted(int(mv) for mv, _f in s.curve)
-            notes.append(f"Eigene V/F-Kurve aus {len(vs)} Messpunkten ({vs[0]}–{vs[-1]} mV), "
-                         f"max {top.effective_mhz:.0f} MHz ab {top.voltage_mv:.0f} mV"
-                         + (f", flach ab {s.cap_mv} mV" if s.cap_mv else "")
-                         + f" (Basis-Kurve aus [{src}])")
+            notes.append(_tr(f"Eigene V/F-Kurve aus {len(vs)} Messpunkten ({vs[0]}–{vs[-1]} mV), "
+                             f"max {top.effective_mhz:.0f} MHz ab {top.voltage_mv:.0f} mV"
+                             + (f", flach ab {s.cap_mv} mV" if s.cap_mv else "")
+                             + f" (Basis-Kurve aus [{src}])",
+                             f"Own V/F curve from {len(vs)} measured points ({vs[0]}–{vs[-1]} mV), "
+                             f"max {top.effective_mhz:.0f} MHz from {top.voltage_mv:.0f} mV"
+                             + (f", flat from {s.cap_mv} mV" if s.cap_mv else "")
+                             + f" (base curve from [{src}])"))
         else:
             flat = curve.with_flatline(s.lock_mv, s.lock_mhz)
             lock = curve.lock_point(s.lock_mv)
             updates["CoreClkBoost"] = str(CORE_CURVE_MARKER)
             updates["VFCurve"]      = flat.to_hex()
-            notes.append(f"V/F-Kurve flach ab {lock.voltage_mv:.0f} mV auf {s.lock_mhz} MHz "
-                         f"(Basis-Kurve aus [{src}])")
+            notes.append(_tr(f"V/F-Kurve flach ab {lock.voltage_mv:.0f} mV auf {s.lock_mhz} MHz "
+                             f"(Basis-Kurve aus [{src}])",
+                             f"V/F curve flat from {lock.voltage_mv:.0f} mV at {s.lock_mhz} MHz "
+                             f"(base curve from [{src}])"))
     else:
         updates["CoreClkBoost"] = str(int(s.core_mhz) * 1000)
         if curve is not None:
             updates["VFCurve"] = curve.with_uniform_offset(int(s.core_mhz)).to_hex()
-            notes.append(f"Core {s.core_mhz:+d} MHz auf allen Kurvenpunkten "
-                         f"(Basis-Kurve aus [{src}])")
+            notes.append(_tr(f"Core {s.core_mhz:+d} MHz auf allen Kurvenpunkten "
+                             f"(Basis-Kurve aus [{src}])",
+                             f"Core {s.core_mhz:+d} MHz on every curve point (base curve from [{src}])"))
         else:
             notes.append(_tr(f"Core {s.core_mhz:+d} MHz (Profil ohne V/F-Kurve)", f"Core {s.core_mhz:+d} MHz (profile without a V/F curve)"))
 

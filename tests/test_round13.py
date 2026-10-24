@@ -857,9 +857,9 @@ check(any("GPU-Fehler" in x and "1000 mV (−60 MHz)" in x for x in t.last_repor
 t, gpu, ab, logs, folder = tune({"long_margin": 40})
 bp = t.best_profile
 fin = [b for b in gpu.benches if b[0] == 300]
-check(t.state == TunerState.DONE and len(fin) == 3 and not fin[0][3] and fin[1][3] and fin[2][3],
+check(t.state == TunerState.DONE and len(fin) == 2 and not fin[0][3] and fin[1][3],
       f"5-min test failed, curve −15, passed on the second try — FurMark alone first (fail fast), then "
-      f"every test in one go: {[(b[3]) for b in fin]}")
+      f"the other tests in one go, FurMark not a second time (round 43): {[(b[3]) for b in fin]}")
 check(bp.curve_points == [[850, 2531], [900, 2629], [950, 2734], [1000, 2817], [1050, 2922]],
       f"targeted: the card failed at 1025 mV (cap) -> only 1000 + 1050 −15, the SAVED curve: {bp.curve_points}")
 check(sum(1 for b in gpu.benches if b[0] == 60) >= 4 and "Nach Rücknahme(n)" in "\n".join(t.last_report["lines"]),

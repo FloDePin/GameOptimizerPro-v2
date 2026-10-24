@@ -88,7 +88,7 @@ class ServicesManagerPage(Page):
     # ── Data ──────────────────────────────────────────────────────────────────
 
     def _load(self):
-        self.lbl_count.config(text="Lade …")
+        self.lbl_count.config(text=tr("Lade …", "Loading …"))
 
         def work():
             try:

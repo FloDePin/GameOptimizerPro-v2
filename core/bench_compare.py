@@ -41,6 +41,7 @@ class State:
     temp: float = 0.0
     error: str = ""
     last: Optional[Booked] = None
+    note: str = ""      # "early": a run started before the cool-down ended (not counted)
 
 
 class CompareSession:
@@ -50,13 +51,14 @@ class CompareSession:
 
     def __init__(self, keys: list, runs: int, apply: Callable[[str], tuple], restore: Callable[[], tuple],
                  read: Callable[[], object], results_since: Callable[[float], list],
-                 now: Callable[[], float] = time.time):
+                 now: Callable[[], float] = time.time, names: Optional[Callable[[], list]] = None):
         """keys: profile names in order (STOCK is moved to the end); apply(key) -> (ok, err), blocking
         (Afterburner); restore() -> (ok, err): the borrowed slot back + the profile active before;
         read() -> stats with .temp, .gpu_usage, .gpu_power_w; results_since(t) -> parsed 3DMark results."""
         ks = [k for k in keys if k != STOCK] + ([STOCK] if STOCK in keys else [])
         self.keys, self.runs = ks, max(1, int(runs))
         self._apply, self._restore, self._read, self._since, self._now = apply, restore, read, results_since, now
+        self._names = names or (lambda: [r["file"] for r in results_since(0.0)])
         self.booked: list[Booked] = []
         self._seen: set = set()
         self._i, self._run = 0, 0
@@ -68,13 +70,15 @@ class CompareSession:
         self._error = ""
         self._temp = 0.0
         self._abort = False
+        self._note = ""
+        self._t_step = 0.0        # when the current profile's apply began
 
     # ── driving ──────────────────────────────────────────────────────────────
     def start(self):
         if not self.keys:
             self._phase = "done"
             return
-        self._seen = {r["file"] for r in self._since(0.0)}     # results from before never count
+        self._seen = set(self._names())           # results from before never count
         self._begin_apply()
 
     def abort(self):
@@ -96,7 +100,7 @@ class CompareSession:
         self._job.start()
 
     def _begin_apply(self):
-        self._phase, self._run = "applying", 0
+        self._phase, self._run, self._t_step = "applying", 0, self._now()
         key = self.keys[self._i]
         self._run_job(lambda: self._apply(key))
 
@@ -107,6 +111,13 @@ class CompareSession:
     def _begin_cool(self):
         self._phase, self._t0 = "cooling", self._now()
 
+    def _early(self):
+        """A result while applying or cooling: started too early (a warm card) — not counted, said so."""
+        for r in self._since(self._t_step - 2):
+            if r["file"] not in self._seen:
+                self._seen.add(r["file"])
+                self._note = "early"
+
     def poll(self) -> State:
         try:
             st = self._read()
@@ -115,6 +126,8 @@ class CompareSession:
             watt = float(getattr(st, "gpu_power_w", 0) or 0)
         except Exception:
             busy, watt = 0.0, 0.0
+        if self._phase in ("applying", "cooling"):
+            self._early()
         if self._phase == "applying" and self._job is not None and not self._job.is_alive():
             ok, err = self._job_res
             if self._abort:
@@ -134,6 +147,7 @@ class CompareSession:
             if new:
                 r = new[0]
                 self._seen.add(r["file"])
+                self._note = ""
                 w = round(sum(self._samples) / len(self._samples), 1) if self._samples else 0.0
                 self.booked.append(Booked(self.keys[self._i], r["test"], int(r["score"]), w, r["file"]))
                 self._run += 1
@@ -152,7 +166,7 @@ class CompareSession:
             self._phase = "error" if self._error else ("aborted" if self._abort else "done")
         i = min(self._i, len(self.keys) - 1) if self.keys else 0
         return State(self._phase, self.keys[i] if self.keys else "", i + 1, len(self.keys), self._run + 1,
-                     self.runs, self._temp, self._error, self.booked[-1] if self.booked else None)
+                     self.runs, self._temp, self._error, self.booked[-1] if self.booked else None, self._note)
 
     # ── results ──────────────────────────────────────────────────────────────
     def summary(self) -> dict:

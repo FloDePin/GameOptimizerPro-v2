@@ -98,6 +98,7 @@ class HardResult:
     phase_key: str = ""         # the phase's key (PHASES), "" = in a pause / unknown
     load: str = ""
     at_s: float = 0.0           # seconds into the test
+    phase_at_s: float = 0.0     # seconds into the failing phase (the cross-check's length, 24.10.)
     t_fail: float = 0.0         # epoch of the failure
     seconds: float = 0.0
     point: dict = field(default_factory=dict)
@@ -507,6 +508,7 @@ class HardnessTest:
                total: float, label: str) -> bool:
         """Run one phase (or the idle gap: phase None) -> True when the test ends here."""
         end = time.time() + secs
+        self._phase_t0 = time.time() if phase is not None else 0.0
         last_poll = last_line = 0.0
         while True:
             now = time.time()
@@ -526,6 +528,7 @@ class HardnessTest:
                     res.reason = tr(f"Temperaturgrenze erreicht ({s['temp']} °C ≥ {self.max_temp} °C)",
                                     f"temperature limit reached ({s['temp']} °C >= {self.max_temp} °C)")
                     res.at_s = now - t0
+                    res.phase_at_s = round(now - self._phase_t0, 1) if self._phase_t0 else round(now - t0, 1)
                     return True
             if now - last_poll >= POLL_S:
                 last_poll = now
@@ -566,6 +569,8 @@ class HardnessTest:
     def _fail(self, res: HardResult, kind: str, phase: str, load: str, at_s: float, events: list,
               detail: str = "", late: bool = False) -> bool:
         res.kind, res.phase, res.load, res.at_s = kind, phase, load, round(at_s, 1)
+        p0 = getattr(self, "_phase_t0", 0.0)
+        res.phase_at_s = round(time.time() - p0, 1) if p0 else res.at_s
         res.phase_key = self._cur_key
         res.t_fail = time.time()
         self._stop_loads()

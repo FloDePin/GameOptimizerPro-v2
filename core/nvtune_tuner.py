@@ -375,6 +375,11 @@ class StressTester:
                     m["NOENC"] = " ".join(parts[1:]) or "no encoder"
         except Exception:
             pass
+        finally:
+            try:
+                proc.stdout.close()
+            except Exception:
+                pass
 
     def companion_state(self) -> Optional[tuple]:
         """None = fine / none running; ("off", why) = not possible on this PC;
@@ -920,16 +925,18 @@ class AutoTuner:
                 if not ok:
                     raise TunerApplyError(f"Afterburner: {err}")
             elif core or mem:
-                raise TunerApplyError(
-                    "MSI Afterburner nicht gefunden — für Core-/Speicher-Offsets nötig")
+                raise TunerApplyError(CT.T(
+                    "MSI Afterburner nicht gefunden — für Core-/Speicher-Offsets nötig",
+                    "MSI Afterburner not found — needed for clock / memory offsets"))
             # Always set the limit (incl. 100 %): a later 100 % step used to
             # leave a previously reduced limit in place. 100 % = stock. Without
             # Afterburner (power-only undervolt) NVML is the only way it's applied.
             watts = self.monitor.power_pct_to_watts(pwr_pct)
             nv_ok = watts > 0 and self.monitor.set_power_limit(watts)
             if not via_ab and not nv_ok:
-                raise TunerApplyError(
-                    f"Power-Limit {pwr_pct} % ließ sich per NVML nicht setzen (Admin-Rechte?)")
+                raise TunerApplyError(CT.T(
+                    f"Power-Limit {pwr_pct} % ließ sich per NVML nicht setzen (Admin-Rechte?)",
+                    f"Power limit {pwr_pct} % could not be set through NVML (admin rights?)"))
             return True
 
     @staticmethod
@@ -1019,11 +1026,12 @@ class AutoTuner:
             if self.cr:
                 self.cr.set_tuning_active(p.to_dict())
             if not self.ab.available:
-                raise TunerApplyError("MSI Afterburner nicht gefunden — für die V/F-Kurve nötig")
+                raise TunerApplyError(CT.T("MSI Afterburner nicht gefunden — für die V/F-Kurve nötig",
+                                            "MSI Afterburner not found — needed for the V/F curve"))
             ok, err = self._ab_write(p)
         if not ok:
             # Same rule as _apply(): an unapplied curve step must not be tested.
-            raise TunerApplyError(f"V/F-Kurve: {err}")
+            raise TunerApplyError(CT.T(f"V/F-Kurve: {err}", f"V/F curve: {err}"))
         return ok
 
     # ── remaining time (idea 4, 23.10.) ─────────────────────────────────────────
@@ -1050,6 +1058,8 @@ class AutoTuner:
         elif crit == "bench":
             s += cfg.final_bench_s + 15
         s += 2 * (cfg.full_bench_s + 40) if cfg.full_bench_s else 0     # the full-load comparison
+        if cfg.mode == TuneMode.CURVE and cfg.goal == "efficiency" and cfg.curve_power_stage:
+            s += 6 * (cfg.step_test_s + 5)                                   # its power-limit stage
         return s + cfg.bench_s + 60            # the after benchmark + its cool-down
 
     def _run_safe(self):
@@ -1124,6 +1134,18 @@ class AutoTuner:
                         "  No stock reference (no compute rate measured) — power limit stays 100 %"), "warning")
             return 100
         target = ref.avg_rate_tflops * float(cfg.curve_power_keep)
+        self._apply_curve(anchors, cap, mem, 100)
+        time.sleep(2)
+        top = run(T("Power-Limit 100 %", "Power limit 100 %"))
+        if top is None:
+            return None
+        if not top.passed or top.avg_rate_tflops < target:
+            rel = (top.avg_rate_tflops / ref.avg_rate_tflops - 1) * 100 if top.avg_rate_tflops else -100.0
+            self._log(T(f"  100 %: {rel:+.1f} % ggü. Standard — schon da unter {cfg.curve_power_keep * 100:.0f} %, "
+                        f"Power-Limit bleibt 100 %",
+                        f"  100%: {rel:+.1f} % vs stock — below {cfg.curve_power_keep * 100:.0f} % already, the power "
+                        f"limit stays 100 %"))
+            return 100
         best, step = 100, max(1, int(cfg.power_step_pct))
         fail = floor - 1                         # the highest limit known to fall short (or not allowed)
         while True:
@@ -1154,13 +1176,14 @@ class AutoTuner:
         self._apply_curve(anchors, cap, mem, best)
         return best
 
-    def _full_load_pair(self, stress: "StressTester", apply_profile: Callable, apply_stock: Callable
-                        ) -> Optional[dict]:
+    def _full_load_pair(self, stress: "StressTester", apply_profile: Callable, apply_stock: Callable,
+                        reapply: bool = True) -> Optional[dict]:
         """The full-load comparison at the very end (24.10., 3DMark): FurMark 2 at 1080p drew ~250 W,
         3DMark and heavy games run into the power limit (~315 W) — there the curve profiles drew what
         stock drew and only a lower power limit saved power. The compute load runs into the power limit
         too: with the saved profile, then at stock, each from the same temperature, then the profile
-        again. -> TuneProfile.bench["full"] ({} = not measured), None = aborted."""
+        again (reapply=False: the caller saves and applies it right after — one Afterburner restart
+        less). -> TuneProfile.bench["full"] ({} = not measured), None = aborted."""
         cfg = self.config
         T = CT.T
         if not cfg.full_bench_s:
@@ -1179,7 +1202,8 @@ class AutoTuner:
             if self._stop.is_set():
                 return None
             runs.append(r)
-        apply_profile()
+        if reapply:
+            apply_profile()
         prof, stock = runs
         if (not prof.passed or not stock.passed
                 or min(prof.avg_rate_tflops, stock.avg_rate_tflops, prof.avg_power_w, stock.avg_power_w) <= 0):
@@ -1286,6 +1310,9 @@ class AutoTuner:
         self._start_cool()
         if self._stop.is_set():
             return
+        # the comparison runs cool down to this unless a stock benchmark sets its own start (Quick
+        # without FurMark had none: its full-load runs started hot — audit 24.10.)
+        self._bench_ref_temp = self._start_temp()
 
         base = stress.run(
             cfg.baseline_s, cfg.max_temp_c,
@@ -1775,11 +1802,10 @@ class AutoTuner:
         if final.passed:
             def _q_profile():
                 if quick_cap:
-                    return self._ab_write(TuneProfile(name="__quick_cap__", core_offset_mhz=best_core,
-                                                      mem_offset_mhz=best_mem_offset, power_limit_pct=best_pwr,
-                                                      curve_points=quick_cap[0], curve_cap_mv=quick_cap[1]))
+                    return self._apply_curve(quick_cap[0], quick_cap[1], best_mem_offset, best_pwr)
                 return self._apply(best_core, best_mem_offset, best_pwr)
-            q_full = self._full_load_pair(stress, _q_profile, lambda: self._apply(0, 0, 100))
+            # the profile is saved and applied right after (_persist): no third Afterburner restart here
+            q_full = self._full_load_pair(stress, _q_profile, lambda: self._apply(0, 0, 100), reapply=False)
             if q_full is None:
                 return
 
@@ -1906,10 +1932,11 @@ class AutoTuner:
             if self.cr:
                 self.cr.set_tuning_active(p.to_dict())
             if not self.ab.available:
-                raise TunerApplyError("MSI Afterburner nicht gefunden — für die V/F-Kurve nötig")
+                raise TunerApplyError(CT.T("MSI Afterburner nicht gefunden — für die V/F-Kurve nötig",
+                                            "MSI Afterburner not found — needed for the V/F curve"))
             ok, err = self._ab_write(p)
             if not ok:
-                raise TunerApplyError(f"V/F-Kurve: {err}")
+                raise TunerApplyError(CT.T(f"V/F-Kurve: {err}", f"V/F curve: {err}"))
             watts = self.monitor.power_pct_to_watts(pwr_pct)
             if watts > 0:
                 self.monitor.set_power_limit(watts)
@@ -2552,7 +2579,8 @@ class AutoTuner:
         res = StressResult(passed=r.passed, max_temp=r.peak_temp, max_core_mhz=r.max_mhz,
                            steady_voltage_mv=r.max_mv, abort_reason=r.reason,
                            stage=f"hard:{key}" if key else "hard",
-                           fail_at_s=0.0 if r.passed else float(getattr(r, "at_s", 0) or 0))
+                           fail_at_s=0.0 if r.passed else float(getattr(r, "phase_at_s", 0)
+                                                                 or getattr(r, "at_s", 0) or 0))
         if r.passed and not r.aborted and not only:
             self._hard_skipped = False           # a later try ran it in full
         if r.aborted:                            # FurMark closed by hand: no verdict either way
@@ -3251,14 +3279,6 @@ class AutoTuner:
             self._log(T(f"  Gewählt für „{gname}“ ({rule}): {chosen.label(de)}",
                         f"  Chosen for '{gname}' ({rule}): {chosen.label(de)}"))
         cap, pwr = chosen.cap_mv, chosen.pwr_pct
-        if goal == "efficiency" and cfg.curve_power_stage and pwr == 100:
-            got = self._curve_power_stage(stress, anchors, cap, mem)
-            if got is None:
-                return
-            if got < 100:
-                pwr = got
-                notes.append(T(f"Power-Limit {got} % (unter Volllast noch Standard-Leistung)",
-                               f"Power limit {got} % (stock performance under full load)"))
         self._set_eta(self._final_est(True, self._first_check()))
 
         # 7) final test — only what passed it is saved. It starts with the hardness test's harshest
@@ -3305,7 +3325,9 @@ class AutoTuner:
                     self._log(T(f"  ✓ {name} bestanden — jetzt alle Endtests am Stück",
                                 f"  ✓ {name} passed — now every final test in one go"))
             if res is None or res.passed:
-                out = self._final_set(stress, True, 80, profile_of(mem))
+                # FurMark passed a moment ago as this try's first test: not a second 5 minutes
+                again = not (crit == "bench" and res is not None and res.passed)
+                out = self._final_set(stress, again, 80, profile_of(mem))
                 if out is None:
                     return
                 res, verify, game, hard = out
@@ -3372,6 +3394,18 @@ class AutoTuner:
                         f"  → step back: {what} → final test again ({nxt})"), "warning")
             attempt += 1
 
+        # Efficiency: the power limit — after the final tests, on the curve as they left it (a step
+        # back makes it slower); a lower limit only uses lower points of that tested curve.
+        if goal == "efficiency" and cfg.curve_power_stage and pwr == 100:
+            got = self._curve_power_stage(stress, cur, cap, mem)
+            if got is None:
+                return
+            if got < 100:
+                pwr = got
+                notes.append(T(f"Power-Limit {got} % (unter Volllast noch Standard-Leistung)",
+                               f"Power limit {got} % (stock performance under full load)"))
+            self._apply_curve(cur, cap, mem, pwr)
+
         # The fair "after": the same short benchmark as the stock run — always at the very end, on
         # exactly what is saved (after every final test and step back), cooled down like the stock
         # run. The candidates' numbers above only pick the variant.
@@ -3380,7 +3414,7 @@ class AutoTuner:
         if after is None:
             return
         full = self._full_load_pair(stress, lambda: self._apply_curve(cur, cap, mem, pwr),
-                                    lambda: self._apply(0, 0, 100))
+                                    lambda: self._apply(0, 0, 100), reapply=False)
         if full is None:
             return
         if not after.passed:              # the profile passed the final test — keep it, say so

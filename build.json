@@ -1,6 +1,6 @@
 {
-  "build": 50,
+  "build": 51,
   "date": "2026-10-24",
-  "notes": "3DMark-Vergleich der Profile auf der Stresstest-Seite: aktiviert jedes gewählte Profil, wartet aufs Abkühlen, liest jedes 3DMark-Ergebnis selbst ein, misst den Strom und trägt alles in den Profilvergleich ein. Jeder GPU-Tune endet mit einem Volllast-Vergleich am Power-Limit (wie 3DMark und schwere Spiele).",
-  "notes_en": "3DMark comparison of the profiles on the stress page: applies each chosen profile, waits for the cool-down, reads every 3DMark result itself, measures the power and adds everything to the profile comparison. Every GPU tune ends with a full-load comparison at the power limit (like 3DMark and heavy games)."
+  "notes": "Letztes Audit: Effizienz senkt das Power-Limit erst nach bestandenen Endtests, der 3DMark-Vergleich verliert keinen zu früh gestarteten Lauf mehr und kommt ohne bekanntes Profil auf das Boot-Profil zurück, restliche Texte übersetzt.",
+  "notes_en": "Last audit: Efficiency lowers the power limit only after the final tests passed, the 3DMark comparison no longer loses a run started too early and falls back to the boot profile, remaining texts translated."
 }

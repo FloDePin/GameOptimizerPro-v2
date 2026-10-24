@@ -313,7 +313,7 @@ tn._stop.set()
 check(tn._hard_test(97, {}) is None, "the tune aborted: None (the run ends)")
 src = open(os.path.join(ROOT, "core", "nvtune_tuner.py"), encoding="utf-8").read()
 check(src.count("self._hard_test(") == 2 and "return self._hard_test(prog, profile, only, min_s)" in src
-      and "self._final_set(stress, True" in src
+      and "self._final_set(stress, again" in src
       and "self._final_set(stress, False" in src and "(hard, verify, None, hard)" in src,
       "both modes run it in their final set (23.10.: right after the compute check — the most sensitive first; once more when FurMark was closed by hand); its failure decides the step back")
 gsrc = open(os.path.join(ROOT, "ui", "tab_gpu.py"), encoding="utf-8").read()
