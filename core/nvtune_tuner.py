@@ -116,6 +116,12 @@ class TunerConfig:
     # Rundum-Tuner (TuneMode.CURVE) — see core/curve_tune.py. The points are
     # tested with step_test_s each, the compute-checked final run is final_test_s.
     goal:                str = "balanced"   # "max" | "balanced" | "efficiency"
+    # Efficiency (24.10., 3DMark): under full load the card runs into its power limit, where the
+    # curve alone saves ~1 % — the power limit stage lowers it as far as the curve still does
+    # stock's work under the compute load (curve_power_keep of a stock run measured right before).
+    curve_power_stage:   bool  = True
+    curve_power_min_pct: int   = 80
+    curve_power_keep:    float = 0.99
     curve_step_mhz:      int = 15      # search step per voltage point, halved on a failure ...
     curve_min_step_mhz:  int = 5       # ... down to this precision
     curve_coarse_step_mhz: int = 30    # first point without a known start value
@@ -1083,6 +1089,65 @@ class AutoTuner:
             except Exception:
                 pass
             self._close_run_log()
+
+    def _curve_power_stage(self, stress: "StressTester", anchors, cap: int, mem: int) -> Optional[int]:
+        """Efficiency only: the lowest power limit at which the chosen curve still does stock's work
+        under the compute load (which runs into the power limit like 3DMark and heavy games). Live
+        24.10., 3DMark: the curve profiles drew 313-315 W like stock (316 W) — the power limit
+        decides there; Quick's 95 % drew 299 W at +1.3 %. -> the power limit (100 = unchanged),
+        None = aborted. Steps 5 → 2 → 1 %, each against a stock run measured right before."""
+        cfg = self.config
+        T = CT.T
+        floor = max(50, int(cfg.curve_power_min_pct))
+        self._log(T(f"Power-Limit (Effizienz): das niedrigste, bei dem die Kurve unter Volllast noch "
+                    f"{cfg.curve_power_keep * 100:.0f} % der Standard-Leistung bringt (bis {floor} %) …",
+                    f"Power limit (efficiency): the lowest at which the curve still does "
+                    f"{cfg.curve_power_keep * 100:.0f} % of stock's work under full load (down to {floor} %) …"))
+
+        def run(label: str):
+            r = stress.run(cfg.step_test_s, cfg.max_temp_c,
+                           on_tick=lambda e, d, s: (self._progress(70, f"{label} {e}/{d}s"), self._tick(s)))
+            return None if self._stop.is_set() else r
+
+        self._apply(0, 0, 100)                   # stock, now — the same load and warmth as the steps
+        time.sleep(2)
+        ref = run(T("Power-Limit: Standard", "Power limit: stock"))
+        if ref is None:
+            return None
+        if not ref.passed or ref.avg_rate_tflops <= 0:
+            self._log(T("  Kein Vergleichswert bei Standard (keine Rechenleistung gemessen) — Power-Limit bleibt 100 %",
+                        "  No stock reference (no compute rate measured) — power limit stays 100 %"), "warning")
+            return 100
+        target = ref.avg_rate_tflops * float(cfg.curve_power_keep)
+        best, step = 100, max(1, int(cfg.power_step_pct))
+        fail = floor - 1                         # the highest limit known to fall short (or not allowed)
+        while True:
+            cand = best - step
+            if cand <= fail:
+                if step <= 1:
+                    break
+                step = max(1, step // 2)
+                continue
+            self._apply_curve(anchors, cap, mem, cand)
+            time.sleep(2)
+            r = run(T(f"Power-Limit {cand} %", f"Power limit {cand} %"))
+            if r is None:
+                return None
+            ok = r.passed and not r.throttle_hit and r.avg_rate_tflops >= target
+            rel = (r.avg_rate_tflops / ref.avg_rate_tflops - 1) * 100 if r.avg_rate_tflops else -100.0
+            self._log(T(f"  {cand} %: {rel:+.1f} % ggü. Standard{self._perf_note(r)} {'✓' if ok else '✗'}",
+                        f"  {cand}%: {rel:+.1f} % vs stock{self._perf_note(r)} {'✓' if ok else '✗'}"),
+                      "info" if ok else "warning")
+            if ok:
+                best = cand
+            else:
+                fail = cand
+                if step <= 1:
+                    break
+                step = max(1, step // 2)
+        self._log(T(f"  → Power-Limit {best} %", f"  → power limit {best} %"))
+        self._apply_curve(anchors, cap, mem, best)
+        return best
 
     @staticmethod
     def _learn_point(anchors: list, cap: int, fault_mv: float) -> tuple:
@@ -3126,6 +3191,14 @@ class AutoTuner:
             self._log(T(f"  Gewählt für „{gname}“ ({rule}): {chosen.label(de)}",
                         f"  Chosen for '{gname}' ({rule}): {chosen.label(de)}"))
         cap, pwr = chosen.cap_mv, chosen.pwr_pct
+        if goal == "efficiency" and cfg.curve_power_stage and pwr == 100:
+            got = self._curve_power_stage(stress, anchors, cap, mem)
+            if got is None:
+                return
+            if got < 100:
+                pwr = got
+                notes.append(T(f"Power-Limit {got} % (unter Volllast noch Standard-Leistung)",
+                               f"Power limit {got} % (stock performance under full load)"))
         self._set_eta(self._final_est(True, self._first_check()))
 
         # 7) final test — only what passed it is saved. It starts with the hardness test's harshest

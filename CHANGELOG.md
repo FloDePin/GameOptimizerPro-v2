@@ -58,7 +58,11 @@ named by version only.
   restart). Profiles keep which final tests they passed — the comparison says "with the hardness test"
   and names a profile that is better in both; a failure in the flat part of a curve capped between two
   points is no longer booked on a point that never ran that clock.
-- 1608 checks in 43 suites, all green.
+- **3DMark comparison 2026-10-24** — under full load the card sits at its power limit, where the curve
+  profiles drew what stock drew; *Efficiency* now also lowers the power limit as far as the curve still
+  does stock's work under the compute load. The README shows the tested results and what the hardness
+  test costs.
+- 1617 checks in 44 suites, all green.
 
 <details>
 <summary><b>Development log — rounds 8–33</b> (one or two lines per round)</summary>

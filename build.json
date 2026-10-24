@@ -1,6 +1,6 @@
 {
-  "build": 48,
+  "build": 49,
   "date": "2026-10-24",
-  "notes": "Profilvergleich: zeigt, ob ein Profil den Härtetest bestanden hat, und welches Profil ein anderes in Leistung und Effizienz zugleich schlägt. GPU-Tuner: ein Fehler an einer Kappung zwischen zwei Messpunkten wird nicht mehr einem falschen Punkt zugeschrieben.",
-  "notes_en": "Profile comparison: shows whether a profile passed the hardness test and which profile beats another in performance and efficiency at once. GPU tuner: a failure at a cap between two measured points is no longer booked on the wrong point."
+  "notes": "GPU-Tuner: Effizienz senkt jetzt auch das Power-Limit — so weit, wie die Kurve unter Volllast noch Standard-Leistung bringt (in 3DMark hing die Karte am Power-Limit, die Kurve allein sparte dort kaum Strom). README: die getesteten Ergebnisse und was der Härtetest kostet.",
+  "notes_en": "GPU tuner: Efficiency now also lowers the power limit — as far as the curve still does stock's work under full load (in 3DMark the card sat at its power limit, where the curve alone saved little power). README: the tested results and what the hardness test costs."
 }

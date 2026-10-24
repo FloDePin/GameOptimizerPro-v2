@@ -53,18 +53,24 @@
 |---|---|---|
 | **All-round · Balanced** | 70–105 min | performance **and** efficiency above stock — the recommendation |
 | **All-round · Max performance** | 70–105 min | the highest score |
-| **All-round · Efficiency** | 70–105 min | stock performance (≥ 99 %) at the least power — cooler, quieter |
+| **All-round · Efficiency** | 75–110 min | stock performance (≥ 99 %) at the least power, also under full load (a lower power limit) — cooler, quieter |
 | **Quick (OC + UV)** | 40–70 min | one clock offset and a power limit, no own curve |
 
-**What it did on a test card** (FurMark 2, 60 s each; stock = the mean of ten stock runs):
+**What it did on a test card** (RTX 4080 — every profile passed all final tests, the hardness test included):
 
-| Profile | Points | Watts | Performance | Efficiency |
-|---|---:|---:|---:|---:|
-| Stock (mean) | 7278 | 256 | — | — |
-| All-round · Efficiency | 7207 | 215 | ▼ −1.0 % | ▲ +17.9 % |
-| All-round · Balanced | 7491 | 257 | ▲ +2.9 % | ▲ +2.5 % |
-| All-round · Max performance | 7551 | 260 | ▲ +3.7 % | ▲ +2.1 % |
-| Quick (OC + UV) | 7524 | 265 | ▲ +3.4 % | ≈ −0.2 % |
+<img src="docs/img/results-3dmark.svg" alt="3DMark against stock: Speed Way +1.3 to +2.5 %, Time Spy +1.3 to +2.0 %, Quick at 299 W instead of 316 W" width="760">
+
+| Profile | 3DMark Speed Way | Time Spy (graphics) | Watts (Speed Way) |
+|---|---:|---:|---:|
+| Stock | 7434 | 28237 | 316 |
+| All-round · Efficiency | ▲ +2.4 % | ▲ +1.8 % | 314 |
+| All-round · Balanced | ▲ +2.0 % | ▲ +1.7 % | 313 |
+| All-round · Max performance | ▲ +2.5 % | ▲ +2.0 % | 315 |
+| Quick (OC + UV, 95 % power limit) | ▲ +1.3 % | ▲ +1.3 % | 299 |
+
+Under full load the card sits at its power limit: the curve gets about 2 % more at the same power, a lower power limit saves power — so *Efficiency* now lowers it too. Stability comes first: the same card without the hardness test looked up to 2 % faster on paper, and one of those profiles crashed while gaming and streaming.
+
+<img src="docs/img/hardness-cost.svg" alt="What the hardness test costs: 1 to 2 % performance per mode; Efficiency pays in power (215 W → 237 W)" width="760">
 
 Every card differs — the profile comparison in the app shows yours.
 
@@ -98,7 +104,7 @@ Windows 10 / 11 · Python 3.10+ · admin rights (the launcher asks through UAC) 
 
 - 📖 [All features in detail](docs/FEATURES.md) — including the project structure
 - 📜 [Changelog](CHANGELOG.md)
-- 🧪 1608 automated checks in 43 test suites (`python tests\run_all_tests.py`), run before every push
+- 🧪 1617 automated checks in 44 test suites (`python tests\run_all_tests.py`), run before every push
 - 🤝 Pull requests are welcome — for bigger changes please open an issue first.
 
 <div align="center">

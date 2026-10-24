@@ -55,18 +55,24 @@
 |---|---|---|
 | **Rundum · Ausgewogen** | 70–105 min | Leistung **und** Effizienz über Standard — die Empfehlung |
 | **Rundum · Max. Leistung** | 70–105 min | die höchste Punktzahl |
-| **Rundum · Effizienz** | 70–105 min | Standard-Leistung (≥ 99 %) bei möglichst wenig Watt — kühler, leiser |
+| **Rundum · Effizienz** | 75–110 min | Standard-Leistung (≥ 99 %) bei möglichst wenig Watt, auch unter Volllast (niedrigeres Power-Limit) — kühler, leiser |
 | **Schnell (OC + UV)** | 40–70 min | ein Takt-Offset und ein Power-Limit, ohne eigene Kurve |
 
-**Was das auf einer Testkarte brachte** (FurMark 2, je 60 s; Standard = Mittelwert aus zehn Standard-Läufen):
+**Was das auf einer Testkarte brachte** (RTX 4080 — jedes Profil hat alle Endtests bestanden, auch den Härtetest):
 
-| Profil | Punkte | Watt | Leistung | Effizienz |
-|---|---:|---:|---:|---:|
-| Standard (Ø) | 7278 | 256 | — | — |
-| Rundum · Effizienz | 7207 | 215 | ▼ −1,0 % | ▲ +17,9 % |
-| Rundum · Ausgewogen | 7491 | 257 | ▲ +2,9 % | ▲ +2,5 % |
-| Rundum · Max. Leistung | 7551 | 260 | ▲ +3,7 % | ▲ +2,1 % |
-| Schnell (OC + UV) | 7524 | 265 | ▲ +3,4 % | ≈ −0,2 % |
+<img src="docs/img/results-3dmark.de.svg" alt="3DMark gegen Standard: Speed Way +1,3 bis +2,5 %, Time Spy +1,3 bis +2,0 %, Schnell mit 299 statt 316 W" width="760">
+
+| Profil | 3DMark Speed Way | Time Spy (Grafik) | Watt (Speed Way) |
+|---|---:|---:|---:|
+| Standard | 7434 | 28237 | 316 |
+| Rundum · Effizienz | ▲ +2,4 % | ▲ +1,8 % | 314 |
+| Rundum · Ausgewogen | ▲ +2,0 % | ▲ +1,7 % | 313 |
+| Rundum · Max. Leistung | ▲ +2,5 % | ▲ +2,0 % | 315 |
+| Schnell (OC + UV, 95 % Power-Limit) | ▲ +1,3 % | ▲ +1,3 % | 299 |
+
+Unter Volllast hängt die Karte am Power-Limit: Die Kurve holt etwa 2 % mehr bei gleichem Strom, ein niedrigeres Power-Limit spart Strom — deshalb senkt *Effizienz* es jetzt auch. Stabilität geht vor: Dieselbe Karte ohne Härtetest sah auf dem Papier bis zu 2 % schneller aus, und eines dieser Profile ist beim Spielen mit Stream abgestürzt.
+
+<img src="docs/img/hardness-cost.de.svg" alt="Was der Härtetest kostet: 1 bis 2 % Leistung je Modus; Effizienz zahlt in Strom (215 W → 237 W)" width="760">
 
 Jede Karte ist anders — deine Werte zeigt der Profilvergleich in der App.
 
@@ -100,7 +106,7 @@ Windows 10 / 11 · Python 3.10+ · Admin-Rechte (der Launcher fragt per UAC) · 
 
 - 📖 [Alle Funktionen im Detail](docs/FEATURES.de.md) — samt Projektstruktur
 - 📜 [Changelog](CHANGELOG.md) (Englisch)
-- 🧪 1608 automatische Prüfungen in 43 Test-Suiten (`python tests\run_all_tests.py`), vor jedem Push
+- 🧪 1617 automatische Prüfungen in 44 Test-Suiten (`python tests\run_all_tests.py`), vor jedem Push
 - 🤝 Pull Requests sind willkommen — bei größeren Änderungen bitte zuerst ein Issue öffnen.
 
 <div align="center">
