@@ -13,7 +13,7 @@ from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
 
-from core import furmark, gpu_watchdog, threedmark
+from core import bench_compare, furmark, gpu_watchdog, threedmark
 from core.nvtune_core import GpuMonitor
 from ui.components import (Card, GaugeBar, LogView, NumberField, Page, ResponsiveGrid, WrapLabel, swap_button,
                            button, tile)
@@ -53,10 +53,15 @@ class StressTab(Page):
         self._alive = True
         self._furmark_path = self._detect_furmark()
         self._3dmark_path = threedmark.detect()
+        self._cmp = None                 # running 3DMark comparison (core/bench_compare.py)
+        self._cmp_vars: dict = {}
+        self._cmp_slots: dict = {}
         self._build()
 
     def on_show(self):
         self._visible = True
+        if self._cmp is None:
+            self._cmp_fill()
 
     def on_hide(self):
         self._visible = False
@@ -80,6 +85,16 @@ class StressTab(Page):
             self._run_gen += 1               # the running thread stops reporting
             gpu_watchdog.record_own_load(getattr(self, "_int_t0", time.time()), time.time())
             self._stop_internal_worker()
+        sess = self._cmp
+        if sess is not None:                 # the 3DMark comparison: the borrowed slot + the profile back
+            sess.abort()
+            job = getattr(sess, "_job", None)
+            if job is not None:
+                job.join(wait_s)
+            if sess.poll().phase == "restoring":     # it was still applying: now it restores — wait for that
+                job = getattr(sess, "_job", None)
+                if job is not None:
+                    job.join(wait_s)
 
     def _detect_furmark(self):
         # saved choice, a FurMark folder next to the app, install locations
@@ -186,6 +201,40 @@ class StressTab(Page):
         self.lbl_3dm_status = WrapLabel(tc.body, text=tr("Bereit", "Idle"), font=F_MONO, fg=DIM, bg=CARD_BG)
         self.lbl_3dm_status.pack(fill="x")
         self._show_3dmark()
+
+        # ── 3DMark comparison of the profiles (24.10.: what was done by hand, built in) ──
+        cc = Card(grid, tr("3DMark-Vergleich der Profile", "3DMark comparison of the profiles"), accent=PURPLE)
+        grid.add(cc)
+        WrapLabel(cc.body, text=tr(
+            "Die gewählten Profile werden nacheinander aktiviert, Standard zum Schluss. Du startest jeweils den "
+            "Test in 3DMark (z. B. Speed Way, Demo aus) — GameOptimizerPro wartet, bis die Karte abgekühlt ist, "
+            "liest das Ergebnis selbst ein, misst den Strom und trägt alles in den Profilvergleich ein. Danach "
+            "ist wieder das Profil von vorher aktiv.",
+            "The chosen profiles are applied one after the other, stock last. You start the test in 3DMark "
+            "each time (e.g. Speed Way, demo off) — GameOptimizerPro waits until the card has cooled down, "
+            "reads the result itself, measures the power and adds everything to the profile comparison. "
+            "Afterwards the profile from before is active again."), font=F_XS, fg=DIM, bg=CARD_BG).pack(fill="x")
+        self._cmp_box = tk.Frame(cc.body, bg=CARD_BG)
+        self._cmp_box.pack(fill="x", pady=(8, 4))
+        rr = tk.Frame(cc.body, bg=CARD_BG)
+        rr.pack(fill="x", pady=(2, 6))
+        tk.Label(rr, text=tr("Läufe je Profil", "Runs per profile"), font=F_XS, fg=TEXT2, bg=CARD_BG).pack(side="left")
+        self.v_cmp_runs = tk.StringVar(value="2")
+        ctk.CTkOptionMenu(rr, values=["1", "2", "3"], variable=self.v_cmp_runs, width=64, height=26).pack(
+            side="left", padx=(8, 0))
+        crow = tk.Frame(cc.body, bg=CARD_BG)
+        crow.pack(fill="x", pady=(6, 6))
+        self.btn_cmp_start = button(crow, tr("Vergleich starten", "Start the comparison"), self._cmp_start,
+                                    kind="primary", color=PURPLE, height=32,
+                                    image=icon_image("play", on_color(PURPLE), 14), compound="left")
+        self.btn_cmp_start.pack(side="left")
+        self.btn_cmp_stop = button(crow, tr("Abbrechen", "Abort"), self._cmp_abort, kind="ghost", height=32,
+                                   image=icon_image("stop", TEXT2, 14), compound="left")
+        self.lbl_cmp = WrapLabel(cc.body, text=tr("Bereit", "Idle"), font=F_S, fg=DIM, bg=CARD_BG)
+        self.lbl_cmp.pack(fill="x")
+        self.lbl_cmp_res = WrapLabel(cc.body, text="", font=F_MONO, fg=TEXT2, bg=CARD_BG)
+        self.lbl_cmp_res.pack(fill="x", pady=(6, 0))
+        self._cmp_fill()
 
         # ── Live values + recording ──────────────────────────────────────────
         lc = Card(b, tr("Live-GPU während des Tests", "Live GPU during the test"), accent=CYAN)
@@ -492,6 +541,9 @@ class StressTab(Page):
         if self.tuner is not None and getattr(self.tuner, "is_running", False):
             why = tr("Der GPU-Tuner läuft gerade — erst abwarten oder abbrechen.",
                      "The GPU tuner is running — wait for it or abort it first.")
+        elif self._cmp is not None:
+            why = tr("Der 3DMark-Vergleich läuft gerade — erst abwarten oder abbrechen.",
+                     "The 3DMark comparison is running — wait for it or abort it first.")
         elif self._hard is not None:
             why = tr("Der Härtetest läuft gerade — erst abwarten oder stoppen.",
                      "The hardness test is running — wait for it or stop it first.")
@@ -753,6 +805,167 @@ class StressTab(Page):
     def _open_3dmark_store(self):
         import webbrowser
         webbrowser.open(threedmark.STORE_URL)
+
+    # ── 3DMark comparison of the profiles ─────────────────────────────────────
+
+    def _cmp_profiles(self) -> list:
+        """[(profile, slot)] — the saved profiles that sit in an Afterburner slot (2-5) right now."""
+        if self.pm is None or self.ab is None or not getattr(self.ab, "available", False):
+            return []
+        out = []
+        for p in self.pm.list_all():
+            if p.name.startswith("__"):
+                continue
+            try:
+                slot = self.ab.slot_holding(p)
+            except Exception:
+                slot = None
+            if slot:
+                out.append((p, slot))
+        return sorted(out, key=lambda x: x[1])
+
+    def _cmp_fill(self):
+        for w in self._cmp_box.winfo_children():
+            w.destroy()
+        old = {n: v.get() for n, v in self._cmp_vars.items()}
+        self._cmp_vars, self._cmp_slots = {}, {}
+        found = self._cmp_profiles()
+        for p, slot in found:
+            v = tk.BooleanVar(value=old.get(p.name, True))
+            self._cmp_vars[p.name], self._cmp_slots[p.name] = v, slot
+            tk.Checkbutton(self._cmp_box, text=f"{p.name}  ({tr('Platz', 'slot')} {slot})", variable=v,
+                           font=F_XS, fg=TEXT, bg=CARD_BG, selectcolor=INPUT_BG, activebackground=CARD_BG,
+                           activeforeground=TEXT, anchor="w").pack(fill="x")
+        tk.Label(self._cmp_box, text=(tr("+ Standard (ab Werk) als Bezug — zum Schluss", "+ stock as the reference — last")
+                                      if found else tr("Kein gespeichertes Profil liegt in den Afterburner-Plätzen 2–5 — "
+                                                       "erst ein Profil anwenden.", "No saved profile sits in the "
+                                                       "Afterburner slots 2-5 — apply a profile first.")),
+                 font=F_XS, fg=DIM, bg=CARD_BG, anchor="w").pack(fill="x", pady=(2, 0))
+        self.btn_cmp_start.configure(state="normal" if found else "disabled")
+
+    def _cmp_start(self):
+        if self._cmp is not None or self._gpu_taken():
+            return
+        chosen = [n for n, v in self._cmp_vars.items() if v.get()]
+        if not chosen:
+            messagebox.showinfo("GameOptimizerPro", tr("Erst mindestens ein Profil wählen.",
+                                                      "Choose at least one profile first."), parent=self.winfo_toplevel())
+            return
+        from core.nvtune_core import TuneProfile
+        borrow = self._cmp_slots[chosen[-1]]           # stock runs in the last profile's slot, then it comes back
+        borrowed = self.pm.load(chosen[-1])
+        orig_slot = None
+        cr = getattr(self.tuner, "cr", None)
+        try:
+            last = cr.load_last_applied() if cr is not None else None
+            if last:
+                orig_slot = self.ab.slot_holding(TuneProfile.from_dict(last))
+        except Exception:
+            orig_slot = None
+        state = {"stock": False}
+
+        def apply(key):
+            if key == bench_compare.STOCK:
+                state["stock"] = True
+                return self.ab.reset_to_stock(borrow, startup=None)
+            return self.ab.load_profile_slot(self._cmp_slots[key])
+
+        def restore():
+            ok, err = True, ""
+            if state["stock"] and borrowed is not None:
+                ok, err = self.ab.write_and_apply(borrow, borrowed, startup=None)
+            if orig_slot:
+                ok2, err2 = self.ab.load_profile_slot(orig_slot)
+                ok, err = ok and ok2, err or err2
+            return ok, err
+
+        try:
+            runs = int(self.v_cmp_runs.get())
+        except ValueError:
+            runs = 2
+        self._cmp = bench_compare.CompareSession(chosen + [bench_compare.STOCK], runs, apply, restore,
+                                                 self.monitor.read, threedmark.results_since)
+        self._cmp.start()
+        swap_button(self.btn_cmp_stop, self.btn_cmp_start)
+        self.lbl_cmp_res.config(text="")
+        self.log.append(tr(f"3DMark-Vergleich gestartet: {', '.join(chosen)} + Standard, je {runs} Lauf/Läufe",
+                           f"3DMark comparison started: {', '.join(chosen)} + stock, {runs} run(s) each"), "info")
+        self.after(500, self._cmp_poll)
+
+    def _cmp_abort(self):
+        if self._cmp is not None:
+            self._cmp.abort()
+
+    def _cmp_name(self, key: str) -> str:
+        return tr("Standard", "Stock") if key == bench_compare.STOCK else key
+
+    def _cmp_poll(self):
+        sess = self._cmp
+        if sess is None or not self._alive:
+            return
+        st = sess.poll()
+        name = self._cmp_name(st.key)
+        last = ""
+        if st.last is not None:
+            last = tr(f"\nLetztes Ergebnis: {self._cmp_name(st.last.key)} — {st.last.test} {st.last.score}",
+                      f"\nLast result: {self._cmp_name(st.last.key)} — {st.last.test} {st.last.score}")
+        if st.phase == "applying":
+            self.lbl_cmp.config(text=tr(f"„{name}“ wird aktiviert … ({st.step}/{st.steps})",
+                                        f"Applying '{name}' … ({st.step}/{st.steps})") + last, fg=DIM)
+        elif st.phase == "cooling":
+            self.lbl_cmp.config(text=tr(f"„{name}“ aktiv — abkühlen lassen: {st.temp:.0f} °C (Start bei ≤ "
+                                        f"{sess.COOL_C:.0f} °C) …", f"'{name}' active — cooling down: {st.temp:.0f} °C "
+                                        f"(start at ≤ {sess.COOL_C:.0f} °C) …") + last, fg=AMBER)
+        elif st.phase == "ready":
+            self.lbl_cmp.config(text=tr(f"▶ Jetzt in 3DMark den Test starten — „{name}“, Lauf {st.run}/{st.runs} "
+                                        f"({st.step}/{st.steps})", f"▶ Start the test in 3DMark now — '{name}', run "
+                                        f"{st.run}/{st.runs} ({st.step}/{st.steps})") + last, fg=GREEN)
+        elif st.phase == "restoring":
+            self.lbl_cmp.config(text=tr("Fertig gemessen — die Afterburner-Plätze und das Profil von vorher kommen "
+                                        "zurück …", "Measured — the Afterburner slots and the profile from before are "
+                                        "restored …"), fg=DIM)
+        if st.phase in ("done", "aborted", "error"):
+            self._cmp_finish(sess, st)
+            return
+        self.after(1000, self._cmp_poll)
+
+    def _cmp_finish(self, sess, st):
+        self._cmp = None
+        swap_button(self.btn_cmp_start, self.btn_cmp_stop)
+        saved = []
+        for name, entries in sess.bench_entries().items():
+            p = self.pm.load(name) if self.pm is not None else None
+            if p is None:
+                continue
+            p.bench = dict(p.bench if isinstance(p.bench, dict) else {}, **entries)
+            self.pm.save(p)
+            saved.append(name)
+        lines = []
+        de = tr("de", "en") == "de"
+
+        def pc(v):
+            t = f"{v:+.1f} %".replace("-", "−")
+            return t.replace(".", ",") if de else t
+        for key, tests in sorted(sess.summary().items(), key=lambda kv: kv[0] != bench_compare.STOCK):
+            for test, d in tests.items():
+                rel = (f" ({pc(d['perf_pct'])})" if d["perf_pct"] is not None else "")
+                pw = (f" · {d['power_w']:.0f} W" + (f" ({pc(d['power_pct'])})" if d["power_pct"] is not None else "")
+                      if d["power_w"] else "")
+                lines.append(f"{self._cmp_name(key)[:22]:22} {test} {d['score']}{rel}{pw}")
+        self.lbl_cmp_res.config(text="\n".join(lines))
+        if st.phase == "error":
+            msg = tr(f"✗ Abgebrochen: {st.error}", f"✗ Stopped: {st.error}")
+            self.lbl_cmp.config(text=msg, fg=ERR)
+        elif st.phase == "aborted":
+            self.lbl_cmp.config(text=tr("Abgebrochen — das Profil von vorher ist wieder aktiv.",
+                                        "Aborted — the profile from before is active again."), fg=AMBER)
+        else:
+            self.lbl_cmp.config(text=tr("✓ Fertig — die Werte stehen im Profilvergleich; das Profil von vorher ist wieder aktiv.",
+                                        "✓ Done — the values are in the profile comparison; the profile from before is "
+                                        "active again."), fg=GREEN)
+        self.log.append(tr(f"3DMark-Vergleich: {len(sess.booked)} Ergebnis(se), gespeichert für {', '.join(saved) or '—'}",
+                           f"3DMark comparison: {len(sess.booked)} result(s), saved for {', '.join(saved) or '—'}"),
+                        "success" if st.phase == "done" else "warning")
 
     # ── Recording during an external test ─────────────────────────────────────
 

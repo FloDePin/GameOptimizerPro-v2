@@ -24,7 +24,7 @@
 |---|---|
 | 🎮 **GPU-Auto-Tuner** | Misst jeden Spannungspunkt einzeln und baut eine eigene V/F-Kurve — Ziele *Max. Leistung*, *Ausgewogen*, *Effizienz*. Dazu ein Schnell-Modus (Offset + Power-Limit). |
 | ✅ **Geprüft, nicht geraten** | Jeder Schritt läuft mit dem Video-Encoder daneben (wie beim Aufnehmen oder Streamen); gespeichert wird nur, was FurMark, eine Rechenprüfung, einen Spiel-Endtest mit Lastwechseln und einen Härtetest (3D + Video-Encoder + Rechnen gleichzeitig) bestanden hat. Ein Wächter zeichnet Takt und Spannung auf, solange die App läuft, erkennt einen GPU-Hänger im Spiel binnen Sekunden und entschärft nur die betroffenen Kurvenpunkte — der nächste Tune hält dort mehr Abstand. |
-| 📊 **Profilvergleich** | Jedes Profil gegen Standard im selben Benchmark: Punkte, Watt, Punkte pro Watt — und die V/F-Kurven im Diagramm. |
+| 📊 **Profilvergleich** | Jedes Profil gegen Standard im selben Benchmark: Punkte, Watt, Punkte pro Watt, Volllast am Power-Limit — die V/F-Kurven im Diagramm und ein geführter 3DMark-Vergleich auf der Stresstest-Seite. |
 | 🛠 **109 Windows-Tweaks** | Mit Live-Prüfung (● aktiv · ◑ angewendet · ○ inaktiv), Presets von *Minimal* bis *Hard*, Registry-Backup vor jeder Änderung, *Alles zurücksetzen*. |
 | 🎯 **Spiel-Profile** | Pro Spiel-`.exe`: höhere CPU- und Datenträger-Priorität, auf Wunsch ohne Vollbildoptimierungen — Windows setzt das bei jedem Start selbst, ohne Hintergrundprozess. Läuft das Spiel, zeigt der Status, welche Priorität es wirklich bekommen hat. |
 | 🖥 **BIOS-Guide** | 16 Plattformen (ab Intel 8. Gen / Ryzen 1000) mit Menüpfaden für ASUS, MSI, Gigabyte und ASRock; Live-Status nur dort, wo Windows ihn wirklich kennt. |
@@ -106,7 +106,7 @@ Windows 10 / 11 · Python 3.10+ · Admin-Rechte (der Launcher fragt per UAC) · 
 
 - 📖 [Alle Funktionen im Detail](docs/FEATURES.de.md) — samt Projektstruktur
 - 📜 [Changelog](CHANGELOG.md) (Englisch)
-- 🧪 1617 automatische Prüfungen in 44 Test-Suiten (`python tests\run_all_tests.py`), vor jedem Push
+- 🧪 1648 automatische Prüfungen in 45 Test-Suiten (`python tests\run_all_tests.py`), vor jedem Push
 - 🤝 Pull Requests sind willkommen — bei größeren Änderungen bitte zuerst ein Issue öffnen.
 
 <div align="center">

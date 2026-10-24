@@ -180,6 +180,10 @@ class TunerConfig:
     curve_prior_mhz:     int = 0       # start offset of the first point (e.g. last tune's core offset)
     curve_probe_s:       int = 20      # stock boost-load run: highest voltage the card reaches
     bench_s:             int = 60      # FurMark benchmark per candidate (and the stock run)
+    # 24.10.: the full-load comparison at the very end — the compute load runs into the power limit
+    # like 3DMark and heavy games (FurMark 2 at 1080p drew ~250 W there, 3DMark ~315 W); with the saved
+    # profile and at stock, each from the same temperature. 0 = off.
+    full_bench_s:        int = 45
     bench_cool_max_s:    int = 90      # before a comparison benchmark: cool down to the stock
     bench_cool_tol_c:    float = 2.0   # run's starting temperature (+ this), at most that long
     final_bench_s:       int = 300     # FurMark part of the final test (5 min)
@@ -1045,6 +1049,7 @@ class AutoTuner:
             s += cfg.game_cool_s + max(cfg.game_transient_s, cfg.game_boost_s) + 10
         elif crit == "bench":
             s += cfg.final_bench_s + 15
+        s += 2 * (cfg.full_bench_s + 40) if cfg.full_bench_s else 0     # the full-load comparison
         return s + cfg.bench_s + 60            # the after benchmark + its cool-down
 
     def _run_safe(self):
@@ -1148,6 +1153,48 @@ class AutoTuner:
         self._log(T(f"  → Power-Limit {best} %", f"  → power limit {best} %"))
         self._apply_curve(anchors, cap, mem, best)
         return best
+
+    def _full_load_pair(self, stress: "StressTester", apply_profile: Callable, apply_stock: Callable
+                        ) -> Optional[dict]:
+        """The full-load comparison at the very end (24.10., 3DMark): FurMark 2 at 1080p drew ~250 W,
+        3DMark and heavy games run into the power limit (~315 W) — there the curve profiles drew what
+        stock drew and only a lower power limit saved power. The compute load runs into the power limit
+        too: with the saved profile, then at stock, each from the same temperature, then the profile
+        again. -> TuneProfile.bench["full"] ({} = not measured), None = aborted."""
+        cfg = self.config
+        T = CT.T
+        if not cfg.full_bench_s:
+            return {}
+        runs = []
+        for label, apply in ((T("Volllast: Profil", "Full load: profile"), apply_profile),
+                             (T("Volllast: Standard", "Full load: stock"), apply_stock)):
+            self._cool_down(label, 99)
+            if self._stop.is_set():
+                return None
+            apply()
+            time.sleep(2)
+            r = stress.run(cfg.full_bench_s, cfg.max_temp_c, mode="gemm",
+                           on_tick=lambda e, d, s, lb=label: (
+                               self._progress(99, f"{lb}: {e}/{d}s | {s.gpu_power_w:.0f} W"), self._tick(s)))
+            if self._stop.is_set():
+                return None
+            runs.append(r)
+        apply_profile()
+        prof, stock = runs
+        if (not prof.passed or not stock.passed
+                or min(prof.avg_rate_tflops, stock.avg_rate_tflops, prof.avg_power_w, stock.avg_power_w) <= 0):
+            self._log(T("  Volllast-Vergleich nicht messbar (keine Rechenleistung oder kein Strom gemessen)",
+                        "  Full-load comparison not measurable (no compute rate or power measured)"), "warning")
+            return {}
+        perf = (prof.avg_rate_tflops / stock.avg_rate_tflops - 1) * 100
+        eff = ((prof.avg_rate_tflops / prof.avg_power_w) / (stock.avg_rate_tflops / stock.avg_power_w) - 1) * 100
+        self._log(T(f"Volllast (Rechenlast am Power-Limit, wie 3DMark und schwere Spiele): Leistung {perf:+.1f} %, "
+                    f"{stock.avg_power_w:.0f} → {prof.avg_power_w:.0f} W, Effizienz {eff:+.1f} %",
+                    f"Full load (compute load at the power limit, like 3DMark and heavy games): performance "
+                    f"{perf:+.1f} %, {stock.avg_power_w:.0f} → {prof.avg_power_w:.0f} W, efficiency {eff:+.1f} %"))
+        return {"name": "compute", "seconds": float(cfg.full_bench_s), "stock_seconds": float(cfg.full_bench_s),
+                "score": round(prof.avg_rate_tflops, 3), "power_w": round(prof.avg_power_w, 1),
+                "stock_score": round(stock.avg_rate_tflops, 3), "stock_power_w": round(stock.avg_power_w, 1)}
 
     @staticmethod
     def _learn_point(anchors: list, cap: int, fault_mv: float) -> tuple:
@@ -1724,6 +1771,17 @@ class AutoTuner:
                                   cool=True)
             if q_after is None:
                 return
+        q_full: dict = {}
+        if final.passed:
+            def _q_profile():
+                if quick_cap:
+                    return self._ab_write(TuneProfile(name="__quick_cap__", core_offset_mhz=best_core,
+                                                      mem_offset_mhz=best_mem_offset, power_limit_pct=best_pwr,
+                                                      curve_points=quick_cap[0], curve_cap_mv=quick_cap[1]))
+                return self._apply(best_core, best_mem_offset, best_pwr)
+            q_full = self._full_load_pair(stress, _q_profile, lambda: self._apply(0, 0, 100))
+            if q_full is None:
+                return
 
         # ── Save ───────────────────────────────────────────────────────────────
         self._set_state(TunerState.SAVING)
@@ -1775,6 +1833,8 @@ class AutoTuner:
             elif q_after is not None:
                 self._log(T(f"Nachher-Benchmark ✗ ({q_after.note}) — kein Vergleich mit Standard",
                             f"After benchmark ✗ ({q_after.note}) — no comparison with stock"), "warning")
+            if q_full:
+                profile.bench = dict(profile.bench or {}, full=q_full)
             self.best_profile = profile
             self.pm.save(profile)
             self._persist(profile)            # what the PC boots with (Afterburner [Startup])
@@ -3319,6 +3379,10 @@ class AutoTuner:
                             cool=True)
         if after is None:
             return
+        full = self._full_load_pair(stress, lambda: self._apply_curve(cur, cap, mem, pwr),
+                                    lambda: self._apply(0, 0, 100))
+        if full is None:
+            return
         if not after.passed:              # the profile passed the final test — keep it, say so
             notes.append(T(f"Nachher-Benchmark ✗ ({after.note}) — Vergleich vorher/nachher fehlt",
                            f"After benchmark ✗ ({after.note}) — no before/after comparison"))
@@ -3381,6 +3445,8 @@ class AutoTuner:
             from core import profile_score as PS
             profile.bench = PS.bench_record(bench_name, cfg.bench_s, after.score, after.power_w,
                                             stock.score, stock.power_w, at=profile.created_at)
+        if full:
+            profile.bench = dict(profile.bench or {}, full=full)
         profile.final_tests = self._passed_tests(curve=True)
         self.best_profile = profile
         self.pm.save(profile)

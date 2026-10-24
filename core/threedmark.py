@@ -134,3 +134,68 @@ def running_processes() -> list[str]:
         if n.startswith(PROCESS_PREFIXES):
             names.append(p.info["name"])
     return names
+
+
+
+# ── Results (24.10.: the 3DMark comparison of the profiles) ──────────────────
+# Every run leaves a .3dmark-result (a zip: Result.xml with the scores, Monitoring.csv). 3DMark saves it
+# to Documents\3DMark — or, when it can't move it there (live 24.10.), to ProgramData\UL\3DMark\Results.
+_SCORE_RE = re.compile(r"<([A-Za-z]+?)Performance(Graphics)?Score>(\d+(?:\.\d+)?)</")
+
+
+def result_dirs() -> list[str]:
+    home = os.environ.get("USERPROFILE") or os.path.expanduser("~")
+    prog = os.environ.get("ProgramData") or os.path.join("C:" + os.sep, "ProgramData")
+    return [os.path.join(home, "Documents", "3DMark"), os.path.join(prog, "UL", "3DMark", "Results")]
+
+
+def _test_name(tag: str) -> str:
+    """"SpeedWay" -> "Speed Way", "TimeSpyExtreme" -> "Time Spy Extreme"."""
+    return re.sub(r"(?<=[a-z])(?=[A-Z])", " ", tag)
+
+
+def parse_result(path: str) -> dict | None:
+    """{"test": "Speed Way", "score": 7613, "file": name, "t": mtime} — the graphics score (the GPU's
+    part; Time Spy's total also counts the CPU), None for a failed / unreadable result."""
+    import zipfile
+    name = os.path.basename(path)
+    if "FAILED" in name.upper():
+        return None
+    try:
+        with zipfile.ZipFile(path) as z:
+            xml = z.read("Result.xml").decode("utf-8", "replace")
+        t = os.path.getmtime(path)
+    except (OSError, KeyError, zipfile.BadZipFile):
+        return None
+    best = None
+    for tag, graphics, val in _SCORE_RE.findall(xml):
+        if tag.endswith("ForPass") or float(val) <= 0:
+            continue
+        if best is None or (graphics and not best[1]):
+            best = (tag, graphics, float(val))
+    if best is None:
+        return None
+    return {"test": _test_name(best[0]), "score": int(round(best[2])), "file": name, "t": t}
+
+
+def results_since(since: float, dirs: list | None = None) -> list[dict]:
+    """Every readable result written after `since` (epoch), oldest first."""
+    out = []
+    for d in dirs if dirs is not None else result_dirs():
+        try:
+            names = os.listdir(d)
+        except OSError:
+            continue
+        for n in names:
+            if not n.endswith(".3dmark-result"):
+                continue
+            p = os.path.join(d, n)
+            try:
+                if os.path.getmtime(p) <= since:
+                    continue
+            except OSError:
+                continue
+            r = parse_result(p)
+            if r:
+                out.append(r)
+    return sorted(out, key=lambda r: r["t"])

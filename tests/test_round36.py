@@ -111,7 +111,7 @@ print("remaining time")
 t = tuner(hard_test=True, game_test=True)
 c = t.config
 full = (c.final_test_s + 10 + c.hard_test_min * 60 + 70 + c.game_cool_s + c.game_transient_s + c.game_boost_s + 10
-        + c.final_bench_s + 15 + c.bench_s + 60)
+        + c.final_bench_s + 15 + c.bench_s + 60 + 2 * (c.full_bench_s + 40))
 check(t._final_est(True) == full and t._final_est(True, "hard:game_rec_compute") == full + 170
       and t._final_est(False) == full - c.final_bench_s - 15,
       f"final tests: every test + the after benchmark ({full / 60:.0f} min), +170 s for the load-change check, "

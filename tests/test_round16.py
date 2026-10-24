@@ -217,7 +217,8 @@ class AB:
 def quick(gpu, **kw):
     NT.StressTester.run = lambda self, d, m, on_tick=None, mode="gemm": gpu.run(d, m, on_tick, mode)
     tmp = tempfile.mkdtemp(prefix="q_", dir=TMP)
-    conf = dict(mode=TuneMode.OC_UV, core_step_mhz=15, core_max_mhz=300, power_min_pct=100, crash_pause_s=0)
+    conf = dict(mode=TuneMode.OC_UV, core_step_mhz=15, core_max_mhz=300, power_min_pct=100, crash_pause_s=0,
+                full_bench_s=0)    # round 42's full-load comparison: checked on its own below
     conf.update(kw)
     t = AutoTuner(Mon(), AB(gpu), NT.ProfileManager(os.path.join(tmp, "p")), TunerConfig(**conf),
                   log_dir=os.path.join(tmp, "l"))
@@ -247,6 +248,12 @@ check(t.state == TunerState.DONE and t.best_profile.core_offset_mhz == 67
 g = GPU()
 t, logs = quick(g, game_test=False)
 check([m for m, *_ in g.runs][-1] == "mixed", "game test off: the final test is the last load")
+g = GPU()
+t, logs = quick(g, full_bench_s=45)
+check(t.state == TunerState.DONE and [m for m, *_ in g.runs][-2:] == ["gemm", "gemm"]
+      and any("Volllast-Vergleich nicht messbar" in m for m in logs) and "full" not in (t.best_profile.bench or {}),
+      "round 42: Quick ends with the full-load pair too (profile, stock); this card reports no power: not "
+      "measured, the profile is saved all the same")
 
 g = GPU()
 t, logs = quick(g, core_max_mhz=0, mem_stage=True, mem_oc_max_mhz=1000, mem_curve_start_mhz=500)

@@ -1,6 +1,6 @@
 {
-  "build": 49,
+  "build": 50,
   "date": "2026-10-24",
-  "notes": "GPU-Tuner: Effizienz senkt jetzt auch das Power-Limit — so weit, wie die Kurve unter Volllast noch Standard-Leistung bringt (in 3DMark hing die Karte am Power-Limit, die Kurve allein sparte dort kaum Strom). README: die getesteten Ergebnisse und was der Härtetest kostet.",
-  "notes_en": "GPU tuner: Efficiency now also lowers the power limit — as far as the curve still does stock's work under full load (in 3DMark the card sat at its power limit, where the curve alone saved little power). README: the tested results and what the hardness test costs."
+  "notes": "3DMark-Vergleich der Profile auf der Stresstest-Seite: aktiviert jedes gewählte Profil, wartet aufs Abkühlen, liest jedes 3DMark-Ergebnis selbst ein, misst den Strom und trägt alles in den Profilvergleich ein. Jeder GPU-Tune endet mit einem Volllast-Vergleich am Power-Limit (wie 3DMark und schwere Spiele).",
+  "notes_en": "3DMark comparison of the profiles on the stress page: applies each chosen profile, waits for the cool-down, reads every 3DMark result itself, measures the power and adds everything to the profile comparison. Every GPU tune ends with a full-load comparison at the power limit (like 3DMark and heavy games)."
 }

@@ -118,7 +118,8 @@ def quick_tune(furmark_path):
     tmp = tempfile.mkdtemp(prefix="q_", dir=TMP)
     t = AutoTuner(Mon(card), AB(card), ProfileManager(os.path.join(tmp, "p")),
                   TunerConfig(mode=TuneMode.OC_UV, core_step_mhz=15, core_max_mhz=300, power_min_pct=100,
-                              crash_pause_s=0, furmark_path=furmark_path), log_dir=os.path.join(tmp, "l"))
+                              crash_pause_s=0, furmark_path=furmark_path, full_bench_s=0),
+                  log_dir=os.path.join(tmp, "l"))
     logs = []
     t.on_log(lambda m, l: logs.append(m))
     t._run_safe()

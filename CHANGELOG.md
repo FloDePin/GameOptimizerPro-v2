@@ -61,8 +61,10 @@ named by version only.
 - **3DMark comparison 2026-10-24** — under full load the card sits at its power limit, where the curve
   profiles drew what stock drew; *Efficiency* now also lowers the power limit as far as the curve still
   does stock's work under the compute load. The README shows the tested results and what the hardness
-  test costs.
-- 1617 checks in 44 suites, all green.
+  test costs. Every tune ends with a full-load comparison (the compute load at the power limit, profile
+  and stock); the stress page runs the 3DMark comparison of the profiles itself (apply, cool down, read
+  each result, measure the power, stock last) and adds it to the profile comparison.
+- 1648 checks in 45 suites, all green.
 
 <details>
 <summary><b>Development log — rounds 8–33</b> (one or two lines per round)</summary>

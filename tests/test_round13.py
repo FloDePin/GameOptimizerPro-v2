@@ -749,7 +749,8 @@ def tune(gpu_kw=None, furmark=True, on_run=None, lang="de", **cfg):
                 # 45 / 60 / +30 are checked in test_round16
                 curve_safety_mhz=30, curve_safety_top_mhz=30, curve_reset_extra_mhz=30,
                 game_test=False,               # round 16's game test: test_round16
-                mem_safety_mhz=0)              # round 13's memory rule (round 16: −200, EDC)
+                mem_safety_mhz=0,              # round 13's memory rule (round 16: −200, EDC)
+                full_bench_s=0)                # round 42's full-load comparison: E31 on its own
     conf.update(cfg)
     t = AutoTuner(SimMon(gpu), ab, ProfileManager(os.path.join(folder, "profiles")),
                   TunerConfig(**conf), log_dir=os.path.join(folder, "logs"))
@@ -1251,6 +1252,15 @@ try:
           and "Endtest ✗" not in L and len(FakeHard.calls) == 2,
           f"E29: learned before -> 1000 mV starts at 2802, the load-change check and the whole set pass the "
           f"first time: {bp and bp.curve_points}")
+
+    # E31 round 42: the full-load comparison at the very end — the compute load with the saved
+    # curve and at stock, kept in the profile and read by the comparison
+    t, gpu, ab, logs, folder = tune(full_bench_s=45)
+    bp = t.best_profile
+    full = PS.extra_of(bp, "full") if bp else None
+    check(t.state == TunerState.DONE and full is not None and full["score"] > 0
+          and any(m.startswith("Volllast (Rechenlast am Power-Limit") for m in logs),
+          f"E31: the tune ends with the full-load comparison, kept in the profile: {full}")
 
     # E30 the remaining time: set before the points, after each point, before every final try
     etas = []

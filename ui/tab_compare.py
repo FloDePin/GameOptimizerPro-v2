@@ -19,7 +19,7 @@ import customtkinter as ctk
 from core.nvtune_core import ProfileManager, TuneProfile
 from core.profile_curves import flat_from, measured_points, profile_line, stock_line
 from core.i18n import current_lang
-from core.profile_score import best_allround, dominated_by, score_of, stock_of, tests_label
+from core.profile_score import best_allround, dominated_by, extra_of, score_of, stock_of, tests_label
 from ui.components import Card, GaugeBar, Page, ResponsiveGrid, Table, button
 from ui.theme import (ACC, AMBER, CARD_BG, DIM, F_BB, F_S, F_SB, F_XS, GREEN, SLATE, TEXT2, VIOLET,
                       icon_image, mix, tr)
@@ -331,6 +331,19 @@ class CompareTab(Page):
             s = scores.get(i)
             return s["label"] if s else "—"
 
+        def cell_extra(key):
+            def cell(i, p):
+                x = extra_of(p, key)
+                if not x:
+                    return unmeasured
+                w = (tr(f" · {x['power_w']} W (Standard {x['stock_power_w']} W)",
+                        f" · {x['power_w']} W (stock {x['stock_power_w']} W)") if x["power_w"] else "")
+                return _pct_mark(x["perf_pct"]) + w
+            return cell
+        # 3DMark tests measured for any chosen profile (the 3DMark comparison on the stress page)
+        tdm = sorted({k for _i, p in active for k in ((p.bench or {}) if isinstance(p.bench, dict) else {})
+                      if str(k).startswith("3dmark:")})
+
         if stock:
             measured = (tr("vor jedem Tune", "before every tune") +
                         (tr(f" (Ø aus {stock['n']})", f" (mean of {stock['n']})") if stock["n"] > 1 else ""))
@@ -350,6 +363,11 @@ class CompareTab(Page):
             (tr("In beidem besser:", "Better in both:"), "—", cell_beaten),
             (tr("Leistungsaufnahme", "Power draw"), f"{stock['power_w']} W" if stock else "—", cell_watt),
             (tr("Gemessen mit", "Measured with"), measured if stock else "—", cell_bench),
+            (tr("Volllast ggü. Standard (Rechenlast am Power-Limit)", "Full load vs stock (compute at the power limit)"),
+             BASE, cell_extra("full")),
+        ] + [
+            (f"3DMark {k.split(':', 1)[1]} " + tr("ggü. Standard", "vs stock"), BASE, cell_extra(k)) for k in tdm
+        ] + [
             (tr("Stabilitätstests", "Stability tests"), "—",
              lambda i, p: tests_label(p, current_lang() == "de")),
             (tr("Erstellt", "Created"), "—", lambda i, p: _created(p)),

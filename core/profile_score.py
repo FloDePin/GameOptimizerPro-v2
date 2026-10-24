@@ -71,6 +71,25 @@ def score_of(profile) -> Optional[dict]:
             "label": f"{b['name']} {length}", "source": b["source"]}
 
 
+def extra_of(profile, key: str) -> Optional[dict]:
+    """A second comparison against stock stored in TuneProfile.bench[key] — "full" (the compute load
+    at the power limit, the end of every tune since 24.10.) or "3dmark:<test>" (the 3DMark
+    comparison on the stress page). -> {perf_pct, eff_pct, score, stock_score, power_w,
+    stock_power_w, name}, None when not measured. eff_pct is None without power readings."""
+    b = (getattr(profile, "bench", None) or {})
+    d = b.get(key) if isinstance(b, dict) else None
+    if not isinstance(d, dict):
+        return None
+    s, s0 = _num(d.get("score")), _num(d.get("stock_score"))
+    w, w0 = _num(d.get("power_w")), _num(d.get("stock_power_w"))
+    if s <= 0 or s0 <= 0:
+        return None
+    eff = round(((s / w) / (s0 / w0) - 1.0) * 100.0, 1) if w > 0 and w0 > 0 else None
+    return {"perf_pct": round((s / s0 - 1.0) * 100.0, 1), "eff_pct": eff, "score": s, "stock_score": s0,
+            "power_w": round(w) if w else 0, "stock_power_w": round(w0) if w0 else 0,
+            "name": str(d.get("name") or key)}
+
+
 def stock_of(scores) -> Optional[dict]:
     """Stock as one column next to the profiles: the mean of the stock measurements the
     given scores were compared with (every tune measures stock itself, right before)
