@@ -120,6 +120,15 @@ def apply(anchors: list, learned: dict, step: int = STEP_MHZ) -> tuple:
     return [(mv, new[mv]) for mv, _f in anchors], changed
 
 
+def search_caps(mvs, learned: dict, step: int = STEP_MHZ) -> dict:
+    """Before the point search (24.10.): the clock apply() will cap each planned point to anyway —
+    also the points BELOW a learned one (the curve is never faster below). Searching above it only
+    risks driver resets: all four of 23.10. happened there. -> {mv: cap}, uncapped points left out."""
+    big = 10 ** 6
+    anchors, _ = apply([(int(mv), big) for mv in mvs], learned, step)
+    return {mv: f for mv, f in anchors if f < big}
+
+
 def summary(learned: dict, de: bool = True) -> str:
     """"1000 mV ≤ 2727 MHz (23.10.)" — what the next tune will use."""
     parts = []

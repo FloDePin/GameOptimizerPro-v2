@@ -78,6 +78,7 @@ class StressResult:
     fault_mv:       float = 0.0    # hardness test: the recorded voltage just before the fault, 0 = unknown
     mem_fault:      bool  = False  # hardness test: the memory load failed (the step back takes memory)
     stage:          str   = ""     # final tests: the test this result is from (AutoTuner._stage_name)
+    fail_at_s:      float = 0.0    # final tests: seconds into the test when it failed (the cross-check's length)
     invalid:        bool  = False  # final FurMark run: implausible (driver not clean) — the run ends
 
     def perf(self, ref: "StressResult") -> float:
@@ -940,6 +941,13 @@ class AutoTuner:
     # them in one go is ever saved. Round 33: up to 12 tries (was 5) — the user's rule: go on
     # until everything holds, no shortcut.
     FINAL_RETRIES = 11
+    CROSS_MAX_S = 600       # the memory cross-check: twice as long as the failure took, at most this
+
+    @staticmethod
+    def _phase_s() -> float:
+        """One hardness phase on its own (the load-change check, a failed phase again)."""
+        from core.hardness_test import PHASE_S
+        return float(PHASE_S)
 
     # Stage 2: a step that lost more than allowed, but at most this many times the
     # allowed loss, gets a cross-check — the 100 % reference measured again.
@@ -1036,6 +1044,7 @@ class AutoTuner:
     def _run_safe(self):
         self._boot_profile = None             # the known-good profile is looked up per run
         self.eta_end = 0.0
+        self.restart_hint = 0                 # driver faults of this run (_restart_hint)
         self._open_run_log()
         # The whole run is own GPU load for the watchdog — recorded in its session list, not
         # only through the tune log's name (an archived log took the run's driver events with
@@ -1068,7 +1077,49 @@ class AutoTuner:
             live_done.set()
             keep_awake(False)
             WD.record_own_load(t_run, time.time())
+            try:
+                self._restart_hint(t_run)
+            except Exception:
+                pass
             self._close_run_log()
+
+    def _driver_faults_since(self, t0: float) -> int:
+        """Driver resets / GPU errors in the System log since t0 — one fault often logs several
+        entries (153 twice, 13 per SM): entries within GROUP_S of the previous one count once."""
+        from core import gpu_flight
+        try:
+            ev = gpu_flight.events_since(t0)
+        except Exception:
+            return 0
+        n, last = 0, None
+        for t, _src, _eid in ev:
+            if last is None or t - last > gpu_flight.GROUP_S:
+                n += 1
+            last = t
+        return n
+
+    def _restart_hint(self, t0: float):
+        """After a run with driver resets / GPU errors (any outcome, also an abort): restart before
+        playing. Live 23.10.: short FPS drops every ~20 s on a tested profile until the PC was
+        restarted after a day of tunes with driver resets. -> sets self.restart_hint (count)."""
+        n = self._driver_faults_since(t0)
+        self.restart_hint = n
+        if not n:
+            return
+        T = CT.T
+        self._log(T(f"Hinweis: Während des Tunes gab es {n}× einen Treiber-Fehler/-Reset (das gehört zur Suche "
+                    f"nach den Grenzen). Vor dem Spielen den PC einmal neu starten — danach läuft der Treiber "
+                    f"manchmal nicht mehr ganz rund (z. B. kurze FPS-Einbrüche).",
+                    f"Note: the tune caused {n} driver error(s)/reset(s) (part of finding the limits). Restart "
+                    f"the PC before playing — afterwards the driver sometimes doesn't run quite smoothly "
+                    f"(e.g. short FPS drops)."), "warning")
+        try:
+            from core import notify
+            notify.show("GameOptimizerPro",
+                        T(f"Tune vorbei — {n}× Treiber-Reset/-Fehler. Vor dem Spielen den PC neu starten.",
+                          f"Tune finished — {n} driver reset(s)/error(s). Restart the PC before playing."))
+        except Exception:
+            pass
 
     # Minimum average GPU load during the baseline for a meaningful test.
     MIN_GPU_LOAD_PCT = 70.0
@@ -1199,13 +1250,33 @@ class AutoTuner:
         step_n    = 0
         # Estimate total steps for progress (assumes ~4 halvings)
         est_steps = max(cfg.core_max_mhz // cfg.core_step_mhz, 1) + 8
+        try:
+            q_gpu0 = self.monitor.read().name or ""
+        except Exception:
+            q_gpu0 = ""
+        top_core = self._quick_search_max(q_gpu0, cfg.core_max_mhz)
+        if top_core < cfg.core_max_mhz:
+            self._log(T(f"  gelernte Grenze: Suche nur bis +{top_core} MHz — darüber wird der Offset "
+                        f"ohnehin gekappt (Sicherheitsabzug eingerechnet)",
+                        f"  learned limit: searching only up to +{top_core} MHz — above it the offset "
+                        f"is capped anyway (safety margin included)"))
 
+        top_capped, top_tried = top_core < cfg.core_max_mhz, False
         while not self._stop.is_set():
             candidate = cur_core + cur_step
-            if candidate > cfg.core_max_mhz:
-                self._log(T(f"Stufe 1: Obergrenze +{cfg.core_max_mhz}MHz erreicht",
-                            f"Stage 1: Hard limit +{cfg.core_max_mhz}MHz reached"))
+            if top_capped and candidate > top_core and cur_core < top_core and not top_tried:
+                candidate = top_core            # the learned limit itself is still tested, once
+            if candidate > cfg.core_max_mhz or (top_capped and (candidate > top_core
+                                                                or (candidate == top_core and top_tried))):
+                if top_capped:
+                    self._log(T(f"Stufe 1: bis zur gelernten Grenze +{top_core}MHz gesucht",
+                                f"Stage 1: searched up to the learned limit +{top_core}MHz"))
+                else:
+                    self._log(T(f"Stufe 1: Obergrenze +{cfg.core_max_mhz}MHz erreicht",
+                                f"Stage 1: Hard limit +{cfg.core_max_mhz}MHz reached"))
                 break
+            if top_capped and candidate == top_core:
+                top_tried = True
 
             self._apply(candidate, cfg.mem_offset_mhz, 100)
             time.sleep(2)
@@ -2283,7 +2354,7 @@ class AutoTuner:
                       "warning")
         return r
 
-    def _hard_test(self, prog: int, profile: dict, only: str = "") -> Optional[StressResult]:
+    def _hard_test(self, prog: int, profile: dict, only: str = "", min_s: float = 0) -> Optional[StressResult]:
         """Round 33 — the hardness test on the settings to be saved (applied now): 3D, the
         video encoder, compute and memory at once (core/hardness_test.py). only: one phase on its
         own (its key). -> a StressResult the final test's step back understands (the failure's
@@ -2291,7 +2362,7 @@ class AutoTuner:
         from core.hardness_test import PHASE_S, HardnessTest
         cfg = self.config
         T = CT.T
-        minutes = PHASE_S / 60 if only else cfg.hard_test_min
+        minutes = max(PHASE_S, float(min_s or 0)) / 60 if only else cfg.hard_test_min
         if not only:
             self._log(T(f"Härtetest: {cfg.hard_test_min:.0f} min mehrere Lasten zugleich — 3D, Video-Encoder "
                         f"(wie Aufnahme / Stream), Rechnen, Speicher",
@@ -2322,13 +2393,14 @@ class AutoTuner:
                         "FurMark windows open."), "warning")
             self._hard_retry = True
             try:
-                return self._hard_test(prog, profile, only)
+                return self._hard_test(prog, profile, only, min_s)
             finally:
                 self._hard_retry = False
         key = getattr(r, "phase_key", "") or only
         res = StressResult(passed=r.passed, max_temp=r.peak_temp, max_core_mhz=r.max_mhz,
                            steady_voltage_mv=r.max_mv, abort_reason=r.reason,
-                           stage=f"hard:{key}" if key else "hard")
+                           stage=f"hard:{key}" if key else "hard",
+                           fail_at_s=0.0 if r.passed else float(getattr(r, "at_s", 0) or 0))
         if r.aborted:                            # FurMark closed by hand: no verdict either way
             self._log(T("  Härtetest nicht abgeschlossen — das Profil wird ohne ihn gespeichert",
                         "  Hardness test not finished — the profile is saved without it"), "warning")
@@ -2364,10 +2436,19 @@ class AutoTuner:
                 return T(f"Härtetest-Phase „{de}“", f"hardness test phase '{en}'")
         return T("Härtetest", "hardness test") if key.startswith("hard") else key
 
-    def _run_stage(self, stress: "StressTester", key: str, prog: int, profile: dict
+    def _run_stage(self, stress: "StressTester", key: str, prog: int, profile: dict, min_s: float = 0
                    ) -> Optional[StressResult]:
-        """One final test on its own, on what is applied now. -> its result (.stage = key),
-        None = aborted. key: bench | verify | game:transient | game:boost | hard | hard:<phase>."""
+        """One final test on its own, on what is applied now. -> its result (.stage = key, a
+        failure's .fail_at_s), None = aborted. key: bench | verify | game:transient | game:boost |
+        hard | hard:<phase>. min_s: the compute check / a hardness phase runs at least this long."""
+        t0 = time.time()
+        r = self._run_stage_once(stress, key, prog, profile, min_s)
+        if r is not None and not r.passed and not r.fail_at_s:
+            r.fail_at_s = round(time.time() - t0, 1)
+        return r
+
+    def _run_stage_once(self, stress: "StressTester", key: str, prog: int, profile: dict, min_s: float
+                        ) -> Optional[StressResult]:
         cfg = self.config
         T = CT.T
         if key == "bench":
@@ -2387,7 +2468,8 @@ class AutoTuner:
                                T(f"Rechen-Prüfung: {e}/{d}s | {s.temp}°C | {s.core_mhz:.0f} MHz",
                                  f"Compute check: {e}/{d}s | {s.temp}°C | {s.core_mhz:.0f} MHz"))
                 self._tick(s)
-            r = self._srun(stress, cfg.final_test_s, cfg.max_temp_c, on_tick=_tick_v, mode="mixed")
+            r = self._srun(stress, max(int(cfg.final_test_s), int(min_s or 0)), cfg.max_temp_c,
+                           on_tick=_tick_v, mode="mixed")
             if self._stop.is_set():
                 return None
             r.stage = "verify"
@@ -2395,7 +2477,7 @@ class AutoTuner:
         if key.startswith("game"):
             return self._game_test(stress, prog, (key[5:],) if ":" in key else ("transient", "boost"))
         if key.startswith("hard"):
-            return self._hard_test(prog, profile, key[5:] if ":" in key else "")
+            return self._hard_test(prog, profile, key[5:] if ":" in key else "", min_s)
         raise ValueError(key)
 
     def _final_set(self, stress: "StressTester", with_bench: bool, prog: int, profile: dict):
@@ -2442,12 +2524,21 @@ class AutoTuner:
         if mem <= 0 or not cfg.final_cross_check or not res.stage:
             return "core", mv
         name = self._stage_name(res.stage)
-        self._log(T(f"  Ursache prüfen: {name} noch einmal mit Speicher +0 MHz (Kern-Einstellung gleich)",
-                    f"  Finding the cause: {name} once more with memory at +0 MHz (same core setting)"))
+        # Live 24.10.: failures after 130-150 s, the cross-check ran 150 s and "passed" — twice in a
+        # row the memory was blamed, then +400 failed the same way. A pass only means something
+        # when it ran clearly longer than the failure took: twice that, at most 10 min.
+        min_s = 0.0
+        if res.stage == "verify" or res.stage.startswith("hard:"):
+            min_s = min(self.CROSS_MAX_S, 2 * float(res.fail_at_s or 0))
+        longer = min_s > (cfg.final_test_s if res.stage == "verify" else self._phase_s())
+        self._log(T(f"  Ursache prüfen: {name} noch einmal mit Speicher +0 MHz (Kern-Einstellung gleich)"
+                    + (f", {min_s / 60:.1f} min — doppelt so lange wie bis zum Fehler" if longer else ""),
+                    f"  Finding the cause: {name} once more with memory at +0 MHz (same core setting)"
+                    + (f", {min_s / 60:.1f} min — twice as long as the failure took" if longer else "")))
         self._crash_pause()
         apply_mem0()
         time.sleep(2)
-        d = self._run_stage(stress, res.stage, prog, dict(profile, mem_offset_mhz=0))
+        d = self._run_stage(stress, res.stage, prog, dict(profile, mem_offset_mhz=0), min_s if longer else 0)
         if d is None:
             return None
         if d.passed:
@@ -2486,7 +2577,7 @@ class AutoTuner:
                      f"{perf - 100:+.1f} %, efficiency {eff - 100:+.1f} %).")
         return ""
 
-    def _learned_quick(self, core: int, gpu: str) -> int:
+    def _learned_quick(self, core: int, gpu: str, log: bool = True) -> int:
         """Quick mode: the offset no point that failed a final test before can reach (learned limits)."""
         from core import learned_limits as LL
         learned = LL.load(self._log_dir, gpu) if gpu else {}
@@ -2503,11 +2594,47 @@ class AutoTuner:
         if allowed >= core:
             return core
         new = max(0, allowed)
+        if not log:
+            return new
         self._log(CT.T(f"  Gelernt aus früheren Endtests: {mv} mV scheiterte schon einmal einen Schritt höher — "
                        f"Takt-Offset +{core} → +{new} MHz",
                        f"  Learned from earlier final tests: {mv} mV failed one step higher before — clock "
                        f"offset +{core} → +{new} MHz"))
         return new
+
+    def _learned_search_limits(self, gpu: str, mvs: list) -> dict:
+        """All-round point search (24.10.): the highest clock worth testing per point — the learned
+        cap plus the margin apply_margins() will take off there. Testing above it cannot change the
+        curve (the point ends at the cap either way) and only risks driver resets: all four of the
+        23.10. tunes happened there. {mv: mhz}, points without a learned cap left out."""
+        from core import learned_limits as LL
+        learned = LL.load(self._log_dir, gpu) if gpu else {}
+        caps = LL.search_caps(mvs, learned) if learned else {}
+        if not caps:
+            return {}
+        cfg = self.config
+        try:
+            from core import gpu_watchdog as WD
+            field_mv = WD.field_voltages(self._log_dir, gpu)
+        except Exception:
+            field_mv = []
+        top = max(mvs)
+        out = {}
+        for mv, cap in caps.items():
+            m = cfg.curve_safety_top_mhz if mv >= top - CT.TOP_BAND_MV else cfg.curve_safety_mhz
+            if any(abs(mv - f) <= CT.FIELD_BAND_MV for f in field_mv):
+                m += cfg.curve_reset_extra_mhz
+            out[mv] = int(cap + m)
+        return out
+
+    def _quick_search_max(self, gpu: str, max_core: int) -> int:
+        """Quick mode (24.10.): the highest offset worth testing — the learned cap plus the safety
+        margin taken off after the search (live 24.10.: the search went to +186, then +179 → +134
+        → +87; every step above +132 was useless)."""
+        capped = self._learned_quick(10 ** 4, gpu, log=False)
+        if capped >= 10 ** 4:
+            return max_core
+        return min(max_core, capped + max(0, int(self.config.core_safety_mhz)))
 
     def _learned_book_quick(self, gpu: str, core: int, fault_mv: float, test: str):
         """Quick mode: a core failure of a final test booked on the curve point it ran at."""
@@ -2704,6 +2831,8 @@ class AutoTuner:
         prior, known = int(cfg.curve_prior_mhz), bool(cfg.curve_prior_mhz)
         n = len(anchors_mv)
         floor_mv = 0.0          # the card ran ABOVE a point: its minimum voltage under this load
+        search_limit = self._learned_search_limits(gpu_key, anchors_mv)
+        self._at_limit_mvs = set()      # points whose search stopped at the learned limit (the log after)
         for i, mv in enumerate(anchors_mv, 1):
             if i > 1:                           # the points so far tell the time per point
                 per_pt = (time.time() - t_pts) / (i - 1)
@@ -2717,26 +2846,43 @@ class AutoTuner:
                             f"  Point {i}/{n}: {mv} mV — skipped: below the card's minimum voltage "
                             f"under load ({floor_mv:.0f} mV)"))
                 continue
-            start = int(round(base_mhz + prior))
+            max_mhz = int(base_mhz + cfg.core_max_mhz)
+            lim = search_limit.get(mv, 0)
+            if lim and lim < max_mhz:
+                max_mhz = lim
+            else:
+                lim = 0
+            start = min(int(round(base_mhz + prior)), max_mhz)
             step = cfg.curve_step_mhz if known else cfg.curve_coarse_step_mhz
             self._log(T(f"  Punkt {i}/{n}: {mv} mV (Stock {base_mhz:.0f} MHz) — Start bei "
-                        f"{start} MHz ({prior:+d})",
+                        f"{start} MHz ({start - base_mhz:+.0f})",
                         f"  Point {i}/{n}: {mv} mV (stock {base_mhz:.0f} MHz) — starting at "
-                        f"{start} MHz ({prior:+d})"))
+                        f"{start} MHz ({start - base_mhz:+.0f})"))
+            if lim:
+                self._log(T(f"    gelernte Grenze: Suche nur bis {lim} MHz — darüber wird der Punkt "
+                            f"ohnehin gekappt (Sicherheitsabzug eingerechnet)",
+                            f"    learned limit: searching only up to {lim} MHz — above it the point "
+                            f"is capped anyway (safety margin included)"))
             prog = 20 + int((i - 1) / n * 40)
             label = T(f"Punkt {i}/{n}", f"Point {i}/{n}")
             r = CT.search_anchor(
                 lambda v, f, b=base_mhz, lb=label, pg=prog: self._test_point(stress, v, f, b, lb, pg),
                 mv, base_mhz, start, step=step, min_step=cfg.curve_min_step_mhz,
-                down_step=cfg.curve_down_mhz, max_mhz=int(base_mhz + cfg.core_max_mhz),
+                down_step=cfg.curve_down_mhz, max_mhz=max_mhz,
                 stop=self._stop.is_set)
             if self._stop.is_set():
                 return
             results.append(r)
             if r.best_mhz:
-                prior, known = r.offset, True
-                self._log(T(f"  → {mv} mV: {r.best_mhz} MHz stabil ({r.offset:+d})",
-                            f"  → {mv} mV: {r.best_mhz} MHz stable ({r.offset:+d})"))
+                at_lim = bool(lim) and r.best_mhz >= lim
+                if at_lim:
+                    self._at_limit_mvs.add(mv)
+                # at the limit the point held at least this much: the next one starts no lower
+                prior, known = (max(prior, r.offset) if at_lim else r.offset), True
+                self._log(T(f"  → {mv} mV: {r.best_mhz} MHz stabil ({r.offset:+d})"
+                            + (" — an der gelernten Grenze" if at_lim else ""),
+                            f"  → {mv} mV: {r.best_mhz} MHz stable ({r.offset:+d})"
+                            + (" — at the learned limit" if at_lim else "")))
             elif not r.reachable:
                 self._log(T(f"  → {mv} mV: unter Last nicht erreichbar",
                             f"  → {mv} mV: not reachable under load"), "warning")
@@ -2785,8 +2931,13 @@ class AutoTuner:
         learned = LL.load(self._log_dir, gpu_key) if gpu_key else {}
         if learned:
             anchors, capped = LL.apply(anchors, learned)
+            # points whose search already stopped at the learned limit end exactly at the cap: say so too
+            done = {mv for mv, _a, _b in capped}
+            stopped = getattr(self, "_at_limit_mvs", set())
+            capped = sorted(capped + [(mv, f, f) for mv, f in anchors if mv in stopped and mv not in done],
+                            reverse=True)
             if capped:
-                what = ", ".join(f"{mv} mV {a}→{b} MHz" for mv, a, b in capped)
+                what = ", ".join(f"{mv} mV {a}→{b} MHz" if a != b else f"{mv} mV ≤ {b} MHz" for mv, a, b in capped)
                 self._log(T(f"  Gelernt aus früheren Endtests (gemischte Last): {what} — dort scheiterte die Karte "
                             f"schon einmal einen Schritt höher",
                             f"  Learned from earlier final tests (mixed load): {what} — the card failed there "

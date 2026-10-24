@@ -50,7 +50,13 @@ named by version only.
   good step on the driver's short "SW thermal" signal around load changes (52–58 °C, far below the limit;
   hardware slowdowns still count); the comparison names the best all-rounder; Afterburner rewriting its
   boot entry in its own format is no longer reported as "boots another profile".
-- 1562 checks in 41 suites, all green.
+- **Update 2026-10-24** — the point search and the Quick offset search stop at the learned limit (plus
+  the margin taken off afterwards): the curve ends the same, minus the steps above it, where every
+  driver reset of the tune series happened; the memory cross-check runs at least twice as long as the
+  failure took (a 150-s pass after a failure at 140 s blamed the memory twice); after a tune with driver
+  resets the app says to restart before playing (they left the driver with short FPS drops until a
+  restart).
+- 1588 checks in 42 suites, all green.
 
 <details>
 <summary><b>Development log — rounds 8–33</b> (one or two lines per round)</summary>

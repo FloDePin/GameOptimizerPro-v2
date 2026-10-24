@@ -1,6 +1,6 @@
 {
-  "build": 46,
-  "date": "2026-10-23",
-  "notes": "GPU-Tuner: Die Punktsuche wertet das kurze „SW-Thermal“-Signal des Treibers bei Lastwechseln weit unter der Temperaturgrenze nicht mehr als Drosselung (Hardware-Drosselung zählt weiter). Profilvergleich: „Bester Allrounder“ — keine Leistung verloren und dabei am sparsamsten. Boot-Eintrag: Afterburners eigenes Format gilt nicht mehr als anderes Profil.",
-  "notes_en": "GPU tuner: the point search no longer counts the driver's short 'SW thermal' signal around load changes far below the temperature limit as a slowdown (hardware slowdowns still count). Profile comparison: 'best all-rounder' — no performance lost and the most frugal. Boot entry: Afterburner's own format no longer counts as another profile."
+  "build": 47,
+  "date": "2026-10-24",
+  "notes": "GPU-Tuner: Die Suche steigt nicht mehr über die gelernten Grenzen (dort kamen die Treiber-Resets, das Ergebnis bleibt gleich, der Tune wird kürzer). Der Speicher-Gegencheck läuft mindestens doppelt so lange, wie es bis zum Fehler dauerte. Nach einem Tune mit Treiber-Resets empfiehlt die App einen Neustart vor dem Spielen.",
+  "notes_en": "GPU tuner: the search no longer climbs above the learned limits (that is where the driver resets happened; the result stays the same, the tune gets shorter). The memory cross-check runs at least twice as long as the failure took. After a tune with driver resets the app recommends a restart before playing."
 }

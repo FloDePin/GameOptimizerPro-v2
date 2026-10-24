@@ -1246,7 +1246,8 @@ try:
     L = "\n".join(logs)
     bp = t.best_profile
     check(t.state == TunerState.DONE and bp is not None and dict(bp.curve_points)[1000] == 2802
-          and "Gelernt aus früheren Endtests (gemischte Last): 1000 mV 2832→2802 MHz" in L
+          and "Gelernt aus früheren Endtests (gemischte Last): 1000 mV ≤ 2802 MHz" in L
+          and "    gelernte Grenze: Suche nur bis" in L
           and "Endtest ✗" not in L and len(FakeHard.calls) == 2,
           f"E29: learned before -> 1000 mV starts at 2802, the load-change check and the whole set pass the "
           f"first time: {bp and bp.curve_points}")
