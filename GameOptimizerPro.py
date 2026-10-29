@@ -19,6 +19,13 @@ from typing import Optional
 BASE = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE))
 
+if __name__ == "__main__":
+    # A fresh Windows / new Python has none of the packages: set them up before anything below
+    # imports them (with a progress window) — otherwise the app started half-working
+    from core import deps
+    if not deps.ensure():
+        sys.exit(1)
+
 from core.hardware       import detect as detect_hw
 from core.nvtune_core    import GpuMonitor, AfterburnerController, ProfileManager
 from core.nvtune_tuner   import AutoTuner, TunerConfig

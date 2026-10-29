@@ -20,7 +20,7 @@ from core.tweak_i18n     import preset_name, tweak_desc, tweak_name
 from core.tweak_presets  import TweakPreset, get_all_presets
 from core.tweak_runner   import TweakRunner
 from core.tweak_verifier import TweakVerifier, VERIFY_MAP
-from core.tweaks         import ALL_TWEAKS, Tweak, get_by_id, get_groups
+from core.tweaks         import ALL_TWEAKS, RETIRED_TWEAKS, Tweak, get_by_id, get_groups
 from ui.components import (Card, CheckBox, LogView, Page, ProgressLine, ResponsiveGrid, Table, WrapLabel,
                            badge, button, scroll_area, section_title)
 from ui.theme import (ACC, AMBER, APP_BG, BORDER, CARD_BG, CARD_BG2, CYAN, DIM, ERR, F_BB,
@@ -355,7 +355,7 @@ class OptimizerTab(Page):
                                   text=tr("Name des Presets (enthält alle gerade aktiven Tweaks):",
                                           "Preset name (holds all currently active tweaks):")).get_input()
         if not name: return
-        applied_ids = list(self.runner._applied.keys())
+        applied_ids = self.runner.known_applied()     # not the ids of retired tweaks
         if not applied_ids:
             messagebox.showinfo("Preset", tr("Keine aktiven Tweaks — wende zuerst welche an.", "No active tweaks — apply some first."))
             return
@@ -1345,11 +1345,15 @@ class OptimizerTab(Page):
         if self._batch_busy():
             return
         applied = [t for t in ALL_TWEAKS if self.runner.is_applied(t.id) and t.revert_cmd]
+        retired = self.runner.retired_applied()     # tweaks a newer version took out: clean up what they left
         games = game_profiles.list_profiles()
-        if not applied and not games:
+        if not applied and not games and not retired:
             messagebox.showinfo(tr("Nichts", "Nothing"), tr("Keine aktiven Tweaks mit Revert-Befehl.", "No active tweaks with a revert command."))
             return
         msg = tr(f"{len(applied)} Tweak(s) zurücksetzen?", f"Revert {len(applied)} tweak(s)?")
+        if retired:
+            msg += tr(f"\n\nDazu werden Reste von {len(retired)} entfallenen Tweak(s) entfernt.",
+                      f"\n\nLeftovers of {len(retired)} retired tweak(s) are removed as well.")
         if games:
             msg += tr(f"\n\nDazu werden {len(games)} Spiel-Profil(e) entfernt.",
                       f"\n\n{len(games)} game profile(s) are removed as well.")
@@ -1361,6 +1365,11 @@ class OptimizerTab(Page):
             for t in applied:
                 ok, out = self.runner.revert(t)
                 self.log.append(f"  ↩ {tweak_name(t, current_lang())}: {'OK' if ok else out[:80]}",
+                                "success" if ok else "error")
+            for tid in retired:
+                ok, out = self.runner.clean_retired(tid)
+                de, en, _cmd = RETIRED_TWEAKS[tid]
+                self.log.append(f"  ↩ {tr(de, en)} ({tr('entfallen', 'retired')}): {'OK' if ok else out[:80]}",
                                 "success" if ok else "error")
             for g in games:
                 try:

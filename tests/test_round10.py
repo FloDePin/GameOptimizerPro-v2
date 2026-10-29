@@ -377,7 +377,7 @@ def s4():
         row = opt._name_labels[tid].master.master
         return [w.cget("text") for f in row.winfo_children() if isinstance(f, tk.Frame)
                 for w in f.winfo_children() if isinstance(w, tk.Label)]
-    check("🗑 entfernt Apps" in badges("remove_cortana") and "⟳ einmalig" not in badges("remove_cortana"),
+    check("🗑 entfernt Apps" in badges("remove_bloatware") and "⟳ einmalig" not in badges("remove_bloatware"),
           "an app removal says so (v1: 'removes app')")
     check("⟳ einmalig" in badges("flush_dns"), "'einmalig' on a one-way action")
     check("⟳ einmalig" not in badges("disable_telemetry"), "no 'einmalig' on a revertible tweak")

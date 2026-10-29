@@ -112,6 +112,28 @@ class TweakRunner:
     def is_applied(self, tweak_id: str) -> bool:
         return tweak_id in self._applied
 
+    def known_applied(self) -> list[str]:
+        """Applied ids that are still tweaks (not retired / unknown to this version)."""
+        with self._lock:
+            return [tid for tid in self._applied if get_by_id(tid)]
+
+    def retired_applied(self) -> list[str]:
+        """Applied ids of tweaks this version took out (core.tweaks.RETIRED_TWEAKS)."""
+        from core.tweaks import RETIRED_TWEAKS
+        with self._lock:
+            return [tid for tid in self._applied if tid in RETIRED_TWEAKS]
+
+    def clean_retired(self, tweak_id: str) -> tuple[bool, str]:
+        """'Revert all' for a tweak that no longer exists: remove only the value the old
+        tweak set (if it is still that value) and stop tracking it."""
+        from core.tweaks import RETIRED_TWEAKS
+        cmd = RETIRED_TWEAKS.get(tweak_id, ("", "", ""))[2]
+        ok, out = self._run_ps(cmd) if cmd else (True, "")
+        self.logger.info(f"RETIRED {tweak_id}: {'OK' if ok else 'FAIL'} | {out[:200]}")
+        if ok:
+            self.forget([tweak_id])
+        return ok, out
+
     def apply(
         self,
         tweak: Tweak,
@@ -201,6 +223,8 @@ class TweakRunner:
                 ok, out = self.revert(tweak)
                 results[tid] = (ok, out)
                 if on_each: on_each(tweak, ok, out)
+        for tid in self.retired_applied():
+            results[tid] = self.clean_retired(tid)
         return results
 
     @staticmethod

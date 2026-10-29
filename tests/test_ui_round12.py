@@ -473,7 +473,9 @@ def s_history():
     g = w._tab_frames["gpu"]
     check(list(g._view_keys.values()) == ["auto", "profiles", "manual", "history"], "GPU tuner views")
     check(not g.history._loaded, "the logs are read only when the view is opened")
+    w._show_tab("gpu")      # the right click below needs the row on screen (it relied on an earlier page)
     g._show_view("history")
+    w.update()
     rows = g.history.tree.get_children()
     check(g._views["history"].winfo_manager() and rows == ("tune_20261001_114809.log",), f"one run listed: {rows}")
     vals = g.history.tree.item(rows[0], "values")

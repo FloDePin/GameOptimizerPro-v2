@@ -22,7 +22,7 @@ named by version only.
   efficiency against stock and the V/F curves.
 - **GPU watchdog** — a flight recorder, in-game hang detection within seconds, a targeted make-safer
   for the curve points involved; the app's own tests are never taken for a game's crash.
-- **Windows** — 109 tweaks reviewed for Windows 11 26H2, game profiles (CPU / disk priority per game),
+- **Windows** — 106 tweaks reviewed for Windows 11 26H2, game profiles (CPU / disk priority per game),
   adapter tweaks, an interrupt view, the BIOS guide for 16 platforms.
 - **App** — new interface with a sidebar, English throughout (German included), no console window,
   updates from GitHub, tray, stress tests (FurMark 1/2, 3DMark, hardness test).
@@ -72,7 +72,17 @@ named by version only.
   comparison: a run started during the cool-down is shown instead of lost, *Launch 3DMark* works during it,
   the other GPU tests wait for it, the way back without a known profile is the boot slot; results with only a
   total score are read. The comparison table shows every row; remaining German texts translated.
-- 1677 checks in 46 suites, all green.
+- **Update 2026-10-29** — a first start without errors: the launcher finds Python (also the new Python install
+  manager) and offers to install it when there is none; missing or too old packages are installed at the start
+  with a progress window instead of a half-working app on a fresh Windows. Windows 11 24H2+: tweaks for things
+  Windows no longer has are taken out (Cortana, Teams personal — its registry key is protected, the old tweak
+  changed nothing — and the taskbar Chat button; *Revert all* removes what they left); the telemetry tasks
+  include the newer appraiser task, skip missing ones and can be reverted; the audio checks look at the devices
+  the tweaks change and no longer count a device with enhancements still on as done. Ready for the November
+  update (KB5127936): memory integrity in the health report, the "no longer active" dialog names a Windows
+  update, *Remove Xbox apps* warns about the Xbox sign-in of Game Pass games (now in *Hard*), a note on the new
+  context menu.
+- 1731 checks in 47 suites, all green.
 
 <details>
 <summary><b>Development log — rounds 8–33</b> (one or two lines per round)</summary>

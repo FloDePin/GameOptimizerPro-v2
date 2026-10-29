@@ -191,7 +191,12 @@ def _check_images(root: tk.Misc, size: int, accent: str, bg: str, border: str):
     cache = root.__dict__.setdefault("_gop_check_images", {})
     key = (size, accent, bg, border)
     if key not in cache:
-        from PIL import Image, ImageDraw, ImageTk
+        try:
+            from PIL import Image, ImageDraw, ImageTk
+        except ImportError:
+            # Pillow missing (a fresh Python before the setup ran): a plain checkbox —
+            # a page or dialog must not die half-built (seen: no buttons in the drift dialog)
+            return None, None
         sc = 4
         s = size * sc
         imgs = []
@@ -218,6 +223,12 @@ class CheckBox(tk.Checkbutton):
     def __init__(self, parent, variable: tk.Variable, accent: str = RED, bg: str = CARD_BG,
                  size: int = 18, text: str = "", fg: str = TEXT, font=F_B, command=None, **kw):
         off, on = _check_images(parent._root(), size, accent, bg, MUTED)
+        if off is None:
+            super().__init__(parent, variable=variable, text=(" " + text) if text else "", fg=fg, font=font,
+                             bd=0, bg=bg, activebackground=bg, activeforeground=fg, selectcolor=bg,
+                             highlightthickness=0, cursor="hand2", command=command, anchor="w", **kw)
+            self._gop_imgs = ()
+            return
         super().__init__(parent, variable=variable, image=off, selectimage=on, indicatoron=False,
                          compound="left", text=(" " + text) if text else "", fg=fg, font=font,
                          bd=0, bg=bg, activebackground=bg, activeforeground=fg, selectcolor=bg,

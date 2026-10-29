@@ -1,6 +1,6 @@
 {
-  "build": 51,
-  "date": "2026-10-24",
-  "notes": "Letztes Audit: Effizienz senkt das Power-Limit erst nach bestandenen Endtests, der 3DMark-Vergleich verliert keinen zu früh gestarteten Lauf mehr und kommt ohne bekanntes Profil auf das Boot-Profil zurück, restliche Texte übersetzt.",
-  "notes_en": "Last audit: Efficiency lowers the power limit only after the final tests passed, the 3DMark comparison no longer loses a run started too early and falls back to the boot profile, remaining texts translated."
+  "build": 52,
+  "date": "2026-10-29",
+  "notes": "Erster Start ohne Fehler: fehlende Pakete werden beim Start mit Fortschrittsfenster installiert, der Launcher bietet Python an. Windows 11 24H2+: Tweaks für Cortana, Teams und das Chat-Symbol entfernt, Telemetrie-Aufgaben und Audio-Prüfungen korrigiert. Bereit für KB5127936: Speicherintegrität im Health-Report, Hinweis auf Windows-Updates bei zurückgesetzten Tweaks.",
+  "notes_en": "A first start without errors: missing packages are installed at the start with a progress window, the launcher offers to install Python. Windows 11 24H2+: tweaks for Cortana, Teams and the Chat icon taken out, telemetry tasks and audio checks fixed. Ready for KB5127936: memory integrity in the health report, Windows updates named when tweaks were reset."
 }

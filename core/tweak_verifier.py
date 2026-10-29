@@ -13,7 +13,8 @@ from dataclasses import dataclass
 from typing import Optional
 
 from core.tweaks import (_AMD_KEYS_PS,   # same AMD-only adapter filter as the tweaks
-                         NIC_EEE_KEYWORDS, NIC_IM_KEYWORDS, _nic_ps)
+                         NIC_EEE_KEYWORDS, NIC_IM_KEYWORDS, _nic_ps,
+                         _TELEMETRY_TASKS_PS)   # the same task list the tweak works on
 
 
 @dataclass
@@ -31,17 +32,8 @@ class VerifyResult:
 VERIFY_MAP: dict[str, str] = {
 
     # ── Bloatware (AppxPackage checks) ────────────────────────────────────────
-    "remove_cortana": (
-        'if(Get-AppxPackage -AllUsers "*Microsoft.549981C3F5F10*" -EA SilentlyContinue){"0"}else{"1"}'
-    ),
     "remove_xbox": (
         'if(Get-AppxPackage -AllUsers "*XboxGamingOverlay*" -EA SilentlyContinue){"0"}else{"1"}'
-    ),
-    "remove_teams": (
-        '$app=Get-AppxPackage -AllUsers "*MicrosoftTeams*" -EA SilentlyContinue; '
-        '$reg=(Get-ItemProperty "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Communications" '
-        '-Name ConfigureChatAutoInstall -EA SilentlyContinue).ConfigureChatAutoInstall; '
-        'if($app -eq $null -or $reg -eq 0){"1"}else{"0"}'
     ),
     "remove_copilot": (
         '$v=(Get-ItemProperty "HKCU:\\Software\\Policies\\Microsoft\\Windows\\WindowsCopilot" '
@@ -87,10 +79,10 @@ VERIFY_MAP: dict[str, str] = {
         '$h=Get-Content "$env:SystemRoot\\System32\\drivers\\etc\\hosts" -EA SilentlyContinue; '
         'if($h -match "telemetry.microsoft.com"){"1"}else{"0"}'
     ),
+    # every task of the list this Windows has must be disabled (24H2+ lacks some — skipped)
     "disable_telemetry_tasks": (
-        '$t=Get-ScheduledTask -TaskPath "\\Microsoft\\Windows\\Customer Experience Improvement Program\\" '
-        '-TaskName "Consolidator" -EA SilentlyContinue; '
-        'if($t -and $t.State -eq "Disabled"){"1"}else{"0"}'
+        _TELEMETRY_TASKS_PS +
+        'if($found.Count -gt 0 -and -not ($found | Where-Object { "$($_.State)" -ne "Disabled" })){"1"}else{"0"}'
     ),
 
     # ── Performance ───────────────────────────────────────────────────────────
@@ -317,13 +309,15 @@ VERIFY_MAP: dict[str, str] = {
         ' -Name "UserDuckingPreference" -EA SilentlyContinue).UserDuckingPreference;'
         'if($v -eq 3){"1"}else{"0"}'
     ),
-    # active playback devices: FX store value 1 (written by the audio service)
+    # active + unplugged playback devices (state & 0xF = 1 or 8, the set audio_policy writes;
+    # active endpoints often carry extra flags, e.g. 0x10000001): FX store value 1. Counted, not
+    # -not (...): a mismatching 0 / missing value is falsy and passed as "all set" before.
     "disable_audio_enhancements": (
-        "$r=@(); foreach($k in Get-ChildItem 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Render' -EA SilentlyContinue){ if((Get-ItemProperty $k.PSPath -Name DeviceState -EA SilentlyContinue).DeviceState -ne 1){ continue }; $r += (Get-ItemProperty -LiteralPath (Join-Path $k.PSPath 'FxProperties') -EA SilentlyContinue).'{1da5d803-d492-4edd-8c23-e0c0ffee7f0e},5' }; if($r.Count -gt 0 -and -not ($r | Where-Object { $_ -ne 1 })){'1'}else{'0'}"
+        "$r=@(); foreach($k in Get-ChildItem 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Render' -EA SilentlyContinue){ $st=(Get-ItemProperty $k.PSPath -Name DeviceState -EA SilentlyContinue).DeviceState -band 0xF; if($st -ne 1 -and $st -ne 8){ continue }; $r += (Get-ItemProperty -LiteralPath (Join-Path $k.PSPath 'FxProperties') -EA SilentlyContinue).'{1da5d803-d492-4edd-8c23-e0c0ffee7f0e},5' }; if($r.Count -gt 0 -and @($r | Where-Object { $_ -ne 1 }).Count -eq 0){'1'}else{'0'}"
     ),
     # active playback devices: exclusive mode 0 / priority 0
     "disable_audio_exclusive_lock": (
-        "$r=@(); foreach($k in Get-ChildItem 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Render' -EA SilentlyContinue){ if((Get-ItemProperty $k.PSPath -Name DeviceState -EA SilentlyContinue).DeviceState -ne 1){ continue }; $p=Get-ItemProperty -LiteralPath (Join-Path $k.PSPath 'Properties') -EA SilentlyContinue; $r += $p.'{b3f8fa53-0004-438e-9003-51a46e139bfc},3'; $r += $p.'{b3f8fa53-0004-438e-9003-51a46e139bfc},4' }; if($r.Count -gt 0 -and -not ($r | Where-Object { $_ -ne 0 })){'1'}else{'0'}"
+        "$r=@(); foreach($k in Get-ChildItem 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Render' -EA SilentlyContinue){ $st=(Get-ItemProperty $k.PSPath -Name DeviceState -EA SilentlyContinue).DeviceState -band 0xF; if($st -ne 1 -and $st -ne 8){ continue }; $p=Get-ItemProperty -LiteralPath (Join-Path $k.PSPath 'Properties') -EA SilentlyContinue; $r += $p.'{b3f8fa53-0004-438e-9003-51a46e139bfc},3'; $r += $p.'{b3f8fa53-0004-438e-9003-51a46e139bfc},4' }; if($r.Count -gt 0 -and @($r | Where-Object { $_ -ne 0 }).Count -eq 0){'1'}else{'0'}"
     ),
 
     # ── Windows 11 ────────────────────────────────────────────────────────────────
@@ -538,9 +532,6 @@ VERIFY_MAP: dict[str, str] = {
     'disable_write_cache_flush': (
         '$d=@(Get-CimInstance Win32_DiskDrive -EA SilentlyContinue | Where-Object { $_.PNPDeviceID -and $_.MediaType -match \'Fixed hard disk\' })[0]; $v=$null; if($d){ $v=(Get-ItemProperty (\'HKLM:\\SYSTEM\\CurrentControlSet\\Enum\\\'+$d.PNPDeviceID+\'\\Device Parameters\\Disk\') -Name CacheIsPowerProtected -EA SilentlyContinue).CacheIsPowerProtected }; if($v -eq 1){"1"}else{"0"}'
     ),
-    'w11_remove_chat_icon': (
-        '$v=(Get-ItemProperty \'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\' -Name \'TaskbarMn\' -EA SilentlyContinue).\'TaskbarMn\'; if($v -eq 0){"1"}else{"0"}'
-    ),
     'w11_hide_recommended': (
         '$v=(Get-ItemProperty \'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Explorer\' -Name \'HideRecommendedSection\' -EA SilentlyContinue).\'HideRecommendedSection\'; if($v -eq 1){"1"}else{"0"}'
     ),
@@ -576,7 +567,7 @@ VERIFY_MAP: dict[str, str] = {
 
 
 # Slow checks that use AppxPackage or long-running cmdlets
-SLOW_CHECKS = {"remove_cortana", "remove_xbox", "remove_bloatware",
+SLOW_CHECKS = {"remove_xbox", "remove_bloatware",
                # WMI / storage / Appx queries take seconds each
                "remove_m365_copilot_devhome", "disable_reserved_storage",
                "pagefile_system_managed", "disable_memory_compression",

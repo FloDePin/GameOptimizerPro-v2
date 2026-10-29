@@ -33,6 +33,10 @@ def run_worker(mode, extra=None, seconds=3.5):
     t.join(2)
     return p.returncode, lines, p.stderr.read()
 
+# A freshly installed Python compiles numpy on its first import (seconds, more at the battery's idle
+# priority) — the first worker then printed nothing in its 3.5-s window. Warm it up once.
+subprocess.run([sys.executable, "-c", "import numpy, cupy"], env=BASE_ENV, capture_output=True, timeout=180)
+
 print("worker: gemm mode")
 rc, lines, err = run_worker("gemm")
 rates = [float(l.split()[1]) for l in lines if l.startswith("RATE")]

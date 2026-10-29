@@ -493,6 +493,17 @@ class GameOptimizerWindow(ctk.CTk):
                 return
         except Exception:
             return
+        # Windows updated since the last (elevated) start? The dialog names it — the most likely
+        # reason when tweaks are suddenly off.
+        build_change = None
+        try:
+            from core import app_settings
+            from core.hardware import windows_build
+            now, last = windows_build(), app_settings.get("last_windows_build", "")
+            if now and now != last and app_settings.set("last_windows_build", now) and last:
+                build_change = (last, now)
+        except Exception:
+            pass
         applied = list(self.runner._applied.keys())
         if not applied:
             return
@@ -507,7 +518,7 @@ class GameOptimizerWindow(ctk.CTk):
                 if switched:
                     self.after(0, lambda: self._adopt_switched(switched))
                 if drifted:
-                    self.after(0, lambda: self._ask_drift(drifted))
+                    self.after(0, lambda: self._ask_drift(drifted, build_change))
             except Exception:
                 pass
         threading.Thread(target=work, daemon=True).start()
@@ -537,8 +548,9 @@ class GameOptimizerWindow(ctk.CTk):
             names.append(tweak_name(t, current_lang()) if t else new)
         self.set_status(tr("Übernommen (aktuell aktive Wahl): ", "Taken over (the choice active now): ") + ", ".join(names))
 
-    def _ask_drift(self, drifted: list):
-        """One decision per tweak (ticked = apply again, unticked = stop asking)."""
+    def _ask_drift(self, drifted: list, build_change=None):
+        """One decision per tweak (ticked = apply again, unticked = stop asking).
+        build_change: (old, new) Windows build when Windows was updated since the last start."""
         from core.tweaks import get_by_id
         from core.tweak_i18n import tweak_name
         from core.i18n import current_lang
@@ -546,7 +558,8 @@ class GameOptimizerWindow(ctk.CTk):
         items = [(t.id, tweak_name(t, current_lang()))
                  for t in (get_by_id(i) for i in drifted) if t]
         if items:
-            self._drift_dialog = DriftDialog(self, items, on_done=self._handle_drift)
+            self._drift_dialog = DriftDialog(self, items, on_done=self._handle_drift,
+                                             build_change=build_change)
 
     def _handle_drift(self, reapply: list, drop: list):
         from core.tweaks import get_by_id

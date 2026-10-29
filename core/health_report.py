@@ -50,6 +50,8 @@ $d.kpower41   = Q @{LogName='System'; Id=41; StartTime=$since}
 $d.tdr        = Q @{LogName='System'; Id=4101,4109; StartTime=$since}
 $d.disk       = Q @{LogName='System'; ProviderName='disk'; Id=7,11,51; StartTime=$since}
 $d.appcrash   = Q @{LogName='Application'; Id=1000; StartTime=$since}
+$dg=Get-CimInstance -Namespace root\Microsoft\Windows\DeviceGuard -ClassName Win32_DeviceGuard -EA SilentlyContinue
+$d.hvci       = @{ known=[bool]$dg; running=[bool]($dg -and (@($dg.SecurityServicesRunning) -contains 2)) }
 $d | ConvertTo-Json -Compress
 """
 
@@ -65,11 +67,42 @@ class HealthItem:
 
 
 @dataclass
+class StatusLine:
+    """A state worth knowing, not an event count (e.g. memory integrity on/off)."""
+    key:      str
+    label:    str
+    value:    str
+    severity: str
+    note:     str
+
+
+@dataclass
 class HealthReport:
     ok:    bool = False
     items: list = None
     error: str = ""
     summary: str = ""
+    status: list = None
+
+
+def _hvci_line(data) -> Optional[StatusLine]:
+    """Memory integrity (HVCI). Windows updates from November 2026 (KB5127936) may switch it on
+    on supported PCs — a state the user should see after an update, not something this app changes."""
+    h = (data or {}).get("hvci") or {}
+    if not h.get("known"):
+        return None
+    label = _tr("Speicherintegrität (Kernisolierung)", "Memory integrity (core isolation)")
+    if h.get("running"):
+        return StatusLine("hvci", label, _tr("an", "on"), OK, _tr(
+            "Sicherheitsfunktion von Windows; kann in manchen Spielen ein paar Prozent Leistung kosten. "
+            "Kann MSI Afterburner danach Takt oder Spannung nicht mehr setzen: aktuelle Afterburner-Version installieren.",
+            "A Windows security feature; can cost a few percent of performance in some games. If MSI Afterburner "
+            "can no longer set clocks or voltage afterwards: install the current Afterburner version."))
+    return StatusLine("hvci", label, _tr("aus", "off"), OK, _tr(
+        "Windows-Updates ab November 2026 (KB5127936) können sie auf unterstützten PCs einschalten — "
+        "dieser Report zeigt es dann an.",
+        "Windows updates from November 2026 (KB5127936) may switch it on on supported PCs — this report "
+        "shows it then."))
 
 
 def _gather() -> Optional[dict]:
@@ -139,6 +172,7 @@ def generate() -> HealthReport:
             _tr("Häufige App-Abstürze — meist unkritisch, aber auffällig.", "Frequent app crashes — usually harmless, but notable.")),
     ]
     rep.items = items
+    rep.status = [s for s in (_hvci_line(data),) if s]
 
     crit = sum(1 for i in items if i.severity == CRITICAL)
     warn = sum(1 for i in items if i.severity == WARN)
@@ -158,3 +192,5 @@ if __name__ == "__main__":
     print("summary:", r.summary)
     for it in (r.items or []):
         print(f"  [{it.severity:8}] {it.label}: count={it.count} last={it.last!r}")
+    for s in (r.status or []):
+        print(f"  [{s.severity:8}] {s.label}: {s.value} — {s.note}")

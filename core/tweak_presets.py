@@ -39,16 +39,17 @@ _MEDIUM_EXTRA = [
     "ultimate_performance", "visual_effects_perf", "timer_resolution", "disable_transparency",
     "cpu_priority_games", "mmcss_gaming", "disable_bg_throttle", "enable_hags",
     "dx12_optimization", "nvidia_low_latency", "enable_msi_mode", "windowed_game_optimizations",
-    "remove_bloatware", "remove_xbox",
+    "remove_bloatware",
     "disable_nagle", "disable_network_throttle", "enable_rss", "disable_delivery_optimization",
     "disable_hibernation", "disable_storage_sense", "end_task_right_click",
     "disable_click_to_do", "disable_paint_ai", "disable_notepad_ai",
-    "tcp_optimize", "mmcss_audio_profile", "w11_remove_chat_icon", "disable_eee",
+    "tcp_optimize", "mmcss_audio_profile", "disable_eee",
 ]
 
 _HARD_EXTRA = [
     # + aggressiver Debloat + volle Performance/Netzwerk/Audio + W11-Classic + moderate Tweaks
-    "remove_cortana", "remove_copilot", "remove_recall", "remove_teams", "remove_onedrive",
+    # (Xbox apps here, not in Mittel: removing them ends the Xbox sign-in of Game Pass / Store games)
+    "remove_xbox", "remove_copilot", "remove_recall", "remove_onedrive",
     "block_telemetry_hosts", "disable_wpbt", "disable_ai_text_image_gen",
     "disable_prefetch", "disable_search_indexing", "disable_usb_suspend", "disable_hpet",
     "disable_power_throttling", "disable_wu_gaming", "reduce_process_count",
@@ -84,7 +85,7 @@ BUILTIN_PRESETS: list[TweakPreset] = [
         name="Mittel",
         icon="🟡",
         desc="Ausgewogen: Minimal + Performance-Plan, Gaming-/Netzwerk-Tweaks, "
-             "leichter Debloat (Candy Crush & Xbox-Apps). Guter Allround-Kompromiss.",
+             "leichter Debloat (Candy Crush & Co.). Guter Allround-Kompromiss.",
         color="#f59e0b",
         tweak_ids=list(_TIER_MEDIUM),
     ),
@@ -92,7 +93,7 @@ BUILTIN_PRESETS: list[TweakPreset] = [
         id="tier_hard",
         name="Hart — Debloat",
         icon="🔴",
-        desc="Maximal: Mittel + aggressiver Debloat (Cortana, Copilot, Recall, Teams, OneDrive), "
+        desc="Maximal: Mittel + aggressiver Debloat (Xbox-Apps, Copilot, Recall, OneDrive), "
              "volle Performance/Netzwerk/Audio-Tweaks, W11-Classic-UI. Für erfahrene Nutzer — "
              "vorher am besten einen Wiederherstellungspunkt erstellen (Settings).",
         color="#ef4444",
@@ -152,13 +153,11 @@ BUILTIN_PRESETS: list[TweakPreset] = [
         id="debloat",
         name="Debloat Windows",
         icon="🧹",
-        desc="Entfernt alle vorinstallierten Apps (Candy Crush, TikTok, Xbox Apps, Teams Consumer, OneDrive). Kein Datenverlust, Apps können neu installiert werden.",
+        desc="Entfernt alle vorinstallierten Apps (Candy Crush, TikTok, Xbox Apps, Microsoft 365 Copilot, OneDrive). Kein Datenverlust, Apps können neu installiert werden.",
         color="#22c55e",
         tweak_ids=[
             "remove_bloatware",
             "remove_xbox",
-            "remove_cortana",
-            "remove_teams",
             "remove_copilot",
             "remove_onedrive",
             "w11_disable_widgets",
@@ -221,7 +220,6 @@ BUILTIN_PRESETS: list[TweakPreset] = [
             "w11_disable_snap_suggest",
             "enable_dark_mode",
             "disable_transparency",
-            "w11_remove_chat_icon",
             "w11_hide_recommended",
         ],
     ),

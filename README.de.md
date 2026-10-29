@@ -2,7 +2,7 @@
 
 # ⚡ GameOptimizerPro v2.1
 
-**Windows-Gaming-Optimierer mit einem GPU-Auto-Tuner, der die V/F-Kurve deiner Grafikkarte Punkt für Punkt vermisst — dazu 109 umkehrbare Windows-Tweaks, Spiel-Profile, ein BIOS-Guide und Stresstests.**
+**Windows-Gaming-Optimierer mit einem GPU-Auto-Tuner, der die V/F-Kurve deiner Grafikkarte Punkt für Punkt vermisst — dazu 106 umkehrbare Windows-Tweaks, Spiel-Profile, ein BIOS-Guide und Stresstests.**
 
 [![Version](https://img.shields.io/badge/version-2.1-d9480f?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
 [![CI](https://github.com/FloDePin/GameOptimizerPro-v2/actions/workflows/ci.yml/badge.svg)](https://github.com/FloDePin/GameOptimizerPro-v2/actions/workflows/ci.yml)
@@ -25,20 +25,19 @@
 | 🎮 **GPU-Auto-Tuner** | Misst jeden Spannungspunkt einzeln und baut eine eigene V/F-Kurve — Ziele *Max. Leistung*, *Ausgewogen*, *Effizienz*. Dazu ein Schnell-Modus (Offset + Power-Limit). |
 | ✅ **Geprüft, nicht geraten** | Jeder Schritt läuft mit dem Video-Encoder daneben (wie beim Aufnehmen oder Streamen); gespeichert wird nur, was FurMark, eine Rechenprüfung, einen Spiel-Endtest mit Lastwechseln und einen Härtetest (3D + Video-Encoder + Rechnen gleichzeitig) bestanden hat. Ein Wächter zeichnet Takt und Spannung auf, solange die App läuft, erkennt einen GPU-Hänger im Spiel binnen Sekunden und entschärft nur die betroffenen Kurvenpunkte — der nächste Tune hält dort mehr Abstand. |
 | 📊 **Profilvergleich** | Jedes Profil gegen Standard im selben Benchmark: Punkte, Watt, Punkte pro Watt, Volllast am Power-Limit — die V/F-Kurven im Diagramm und ein geführter 3DMark-Vergleich auf der Stresstest-Seite. |
-| 🛠 **109 Windows-Tweaks** | Mit Live-Prüfung (● aktiv · ◑ angewendet · ○ inaktiv), Presets von *Minimal* bis *Hard*, Registry-Backup vor jeder Änderung, *Alles zurücksetzen*. |
+| 🛠 **106 Windows-Tweaks** | Mit Live-Prüfung (● aktiv · ◑ angewendet · ○ inaktiv), Presets von *Minimal* bis *Hard*, Registry-Backup vor jeder Änderung, *Alles zurücksetzen*. |
 | 🎯 **Spiel-Profile** | Pro Spiel-`.exe`: höhere CPU- und Datenträger-Priorität, auf Wunsch ohne Vollbildoptimierungen — Windows setzt das bei jedem Start selbst, ohne Hintergrundprozess. Läuft das Spiel, zeigt der Status, welche Priorität es wirklich bekommen hat. |
 | 🖥 **BIOS-Guide** | 16 Plattformen (ab Intel 8. Gen / Ryzen 1000) mit Menüpfaden für ASUS, MSI, Gigabyte und ASRock; Live-Status nur dort, wo Windows ihn wirklich kennt. |
 | 🩺 **Stresstest & Diagnose** | Ein Härtetest wie Spielen mit Aufnahme / Stream (3D, NVENC-Encoder, Rechnen und Speicher gleichzeitig), interner Stresstest, FurMark 1/2 und 3DMark mit Aufzeichnung, Gesundheitsbericht der letzten 30 Tage, Interrupt-Ansicht (MSI oder Leitungs-Interrupt je Gerät), Dienste- und Autostart-Manager, Bereinigung, Dashboard. |
 
 <p align="center"><img src="docs/img/gpu-tuner.png" alt="GPU-Tuner: Rundum-Modus mit Ziel und Parametern" width="49%"> <img src="docs/img/optimizer.png" alt="Optimierer-Presets von Minimal bis Hard" width="49%"></p>
 
-## Installation in 5 Schritten
+## Installation in 4 Schritten
 
-1. **Python 3.10+** von [python.org](https://python.org/downloads) installieren und dabei **„Add Python to PATH“** anhaken.
-2. Oben **Code → Download ZIP** klicken und in einen eigenen Ordner entpacken, z. B. `C:\Tools\GameOptimizerPro`.
-3. **`install.bat`** doppelklicken und bei der GPU-Last-Frage **J** wählen (`cupy`, ca. 1–2 GB, kein CUDA-Toolkit nötig).
+1. Oben **Code → Download ZIP** klicken und in einen eigenen Ordner entpacken, z. B. `C:\Tools\GameOptimizerPro`.
+2. **`GameOptimizerPro.bat`** doppelklicken und die Windows-Abfrage bestätigen. Der erste Start richtet sich selbst ein: ohne Python bietet er die Installation von Python 3.12 an (fragt vorher), danach lädt er die benötigten Pakete (einmalig, ca. eine Minute). Danach aktualisiert sich die App selbst (*Einstellungen → Nach Updates suchen*).
+3. Für die GPU-Last des Tuners: **`install.bat`** doppelklicken und bei der GPU-Last-Frage **J** wählen (`cupy`, ca. 1–2 GB, kein CUDA-Toolkit nötig).
 4. Für den GPU-Tuner: [MSI Afterburner](https://www.msi.com/Landing/afterburner/graphics-cards) installieren und einrichten (unten). Empfohlen: [FurMark 2](https://geeks3d.com/furmark/) in einen Ordner `FurMark_win64` neben der App legen — der Tuner vergleicht mit dessen Benchmark.
-5. **`GameOptimizerPro.bat`** starten und die Windows-Abfrage bestätigen. Danach aktualisiert sich die App selbst (*Einstellungen → Nach Updates suchen*).
 
 <details>
 <summary><b>MSI Afterburner einrichten</b> (einmalig, ca. 2 Minuten)</summary>
@@ -100,7 +99,7 @@ Die App greift nie in Dateien oder Speicher eines Spiels ein; sie ändert nur Wi
 
 ## Voraussetzungen
 
-Windows 10 / 11 · Python 3.10+ · Admin-Rechte (der Launcher fragt per UAC) · für den GPU-Tuner: eine NVIDIA-Karte, MSI Afterburner und `cupy` (`install.bat` bietet es an); FurMark 2 empfohlen.
+Windows 10 / 11 · Python 3.10+ (der Launcher bietet Python 3.12 an) · Admin-Rechte (der Launcher fragt per UAC) · für den GPU-Tuner: eine NVIDIA-Karte, MSI Afterburner und `cupy` (`install.bat` bietet es an); FurMark 2 empfohlen.
 
 ## Mehr
 

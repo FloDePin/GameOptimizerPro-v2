@@ -27,6 +27,7 @@ class Tweak:
 
 
 from core import audio_policy   # noqa: E402 — audio tweaks use the API
+from core.i18n import tr as _tr  # noqa: E402
 
 
 def _power_all(sub: str, setting: str, ac: int, dc: int) -> str:
@@ -275,6 +276,22 @@ _DISK_CLEANUP_PS = (
     r"exit 0"
 )
 
+# Telemetry tasks (v1's list + the newer appraiser). Windows 11 24H2+ no longer has "Microsoft
+# Compatibility Appraiser" and "ProgramDataUpdater" (26H2 runs "...Appraiser Exp" instead): tasks a build
+# does not have are skipped — apply, revert and the status check work on the ones that exist ($found).
+_TELEMETRY_TASKS_PS = (
+    "$tasks=@('\\Microsoft\\Windows\\Application Experience\\Microsoft Compatibility Appraiser',"
+    "'\\Microsoft\\Windows\\Application Experience\\Microsoft Compatibility Appraiser Exp',"
+    "'\\Microsoft\\Windows\\Application Experience\\ProgramDataUpdater',"
+    "'\\Microsoft\\Windows\\Autochk\\Proxy',"
+    "'\\Microsoft\\Windows\\Customer Experience Improvement Program\\Consolidator',"
+    "'\\Microsoft\\Windows\\Customer Experience Improvement Program\\UsbCeip',"
+    "'\\Microsoft\\Windows\\DiskDiagnostic\\Microsoft-Windows-DiskDiagnosticDataCollector'); "
+    "$found=@(foreach($t in $tasks){ $i=$t.LastIndexOf('\\'); "
+    "Get-ScheduledTask -TaskPath $t.Substring(0,$i+1) -TaskName $t.Substring($i+1) -EA SilentlyContinue }); "
+)
+
+
 ALL_TWEAKS: list[Tweak] = [
 
     # ══════════════════════════════════════════════════════════════
@@ -282,40 +299,17 @@ ALL_TWEAKS: list[Tweak] = [
     # ══════════════════════════════════════════════════════════════
 
     Tweak(
-        id="remove_cortana",
-        name="Remove Cortana",
-        desc="Deinstalliert Cortana. Cortana sendet Daten an Microsoft und wird von den meisten Nutzern nicht verwendet.",
-        category="Windows", group="Bloatware",
-        ps_command='Get-AppxPackage -AllUsers "*Microsoft.549981C3F5F10*" | Remove-AppxPackage -ErrorAction SilentlyContinue',
-        revert_cmd="",
-    ),
-    Tweak(
         id="remove_xbox",
         name="Remove Xbox Apps",
-        desc="Entfernt Xbox Game Bar, Xbox Identity Provider und Xbox TCUI. Laufen im Hintergrund auch ohne Xbox.",
+        desc="Entfernt Xbox Game Bar, Xbox Identity Provider und Xbox TCUI. Laufen im Hintergrund auch ohne Xbox. "
+             "Nicht anwenden, wenn du Spiele mit Xbox-Anmeldung (Game Pass, Microsoft Store), den Xbox-Modus "
+             "oder Game-Bar-Aufnahmen nutzt — die fehlen danach, bis die Apps aus dem Store neu installiert sind.",
         category="Windows", group="Bloatware",
         ps_command='''
 $apps=@("*XboxApp*","*XboxGameOverlay*","*XboxGamingOverlay*","*XboxIdentityProvider*","*XboxSpeechToTextOverlay*","*XboxTCUI*")
 foreach($a in $apps){Get-AppxPackage -AllUsers $a|Remove-AppxPackage -ErrorAction SilentlyContinue}
 ''',
-    ),
-    Tweak(
-        id="remove_teams",
-        name="Remove Microsoft Teams (Personal)",
-        desc="Entfernt Teams Consumer. Blockiert automatische Neuinstallation via Registry.",
-        category="Windows", group="Bloatware",
-        ps_command='''
-Get-AppxPackage -AllUsers "*MicrosoftTeams*" -EA SilentlyContinue | Remove-AppxPackage -EA SilentlyContinue
-Get-AppxPackage -AllUsers "*Teams*" -EA SilentlyContinue | Remove-AppxPackage -EA SilentlyContinue
-$key = "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Communications"
-try {
-    if (-not (Test-Path $key)) { New-Item -Path $key -Force -EA SilentlyContinue | Out-Null }
-    Set-ItemProperty -Path $key -Name ConfigureChatAutoInstall -Value 0 -Type DWord -EA SilentlyContinue
-} catch { }
-Write-Output "Teams removal completed"
-exit 0
-''',
-        revert_cmd='reg delete "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Communications" /v ConfigureChatAutoInstall /f 2>$null',
+        risk="moderate",
     ),
     Tweak(
         id="remove_copilot",
@@ -530,15 +524,16 @@ Set-Content -Path $hostsFile -Value $filtered
         name="Disable Scheduled Telemetry Tasks",
         desc="Deaktiviert alle geplanten Windows-Aufgaben die Telemetriedaten sammeln.",
         category="Windows", group="Privacy",
-        ps_command='''
-$tasks=@("\\Microsoft\\Windows\\Application Experience\\Microsoft Compatibility Appraiser",
-"\\Microsoft\\Windows\\Application Experience\\ProgramDataUpdater",
-"\\Microsoft\\Windows\\Autochk\\Proxy",
-"\\Microsoft\\Windows\\Customer Experience Improvement Program\\Consolidator",
-"\\Microsoft\\Windows\\Customer Experience Improvement Program\\UsbCeip",
-"\\Microsoft\\Windows\\DiskDiagnostic\\Microsoft-Windows-DiskDiagnosticDataCollector")
-foreach($t in $tasks){schtasks /Change /TN $t /Disable 2>$null}
-''',
+        ps_command=_TELEMETRY_TASKS_PS + (
+            "$bad=@(); foreach($x in $found){ if(\"$($x.State)\" -ne 'Disabled'){ "
+            "try { $x | Disable-ScheduledTask -EA Stop | Out-Null } catch { $bad += $x.TaskName } } }; "
+            f"if($found.Count -eq 0){{ Write-Output '{_tr('Keine der Aufgaben gibt es auf diesem Windows', 'None of the tasks exists on this Windows')}'; exit 1 }}; "
+            f"if($bad.Count){{ Write-Output ('{_tr('Nicht deaktiviert', 'Not disabled')}: ' + ($bad -join ', ')); exit 1 }}; "
+            f"Write-Output \"$($found.Count) {_tr('Aufgaben deaktiviert', 'tasks disabled')}\"; exit 0"
+        ),
+        revert_cmd=_TELEMETRY_TASKS_PS + (
+            "foreach($x in $found){ if(\"$($x.State)\" -eq 'Disabled'){ $x | Enable-ScheduledTask | Out-Null } }; exit 0"
+        ),
     ),
     Tweak(
         id="disable_wpbt",
@@ -1191,7 +1186,9 @@ exit 0
     Tweak(
         id="w11_classic_context_menu",
         name="Win11: Classic Right-Click Menu",
-        desc="Stellt das klassische Rechtsklick-Kontextmenü in Windows 11 wieder her. Kein 'Weitere Optionen anzeigen' mehr.",
+        desc="Stellt das klassische Rechtsklick-Kontextmenü in Windows 11 wieder her. Kein 'Weitere Optionen anzeigen' mehr. "
+             "Hinweis: Mit dem Windows-Update KB5127936 (Okt. 2026) wird das neue Menü schrittweise selbst anpassbar "
+             "(Rechtsklick → 'Menü anpassen'). Wirkt der Tweak danach nicht mehr, einfach zurücksetzen.",
         category="Windows", group="Windows 11",
         ps_command='reg add "HKCU\\Software\\Classes\\CLSID\\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\\InprocServer32" /ve /t REG_SZ /d "" /f',
         revert_cmd='reg delete "HKCU\\Software\\Classes\\CLSID\\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}" /f 2>$null',
@@ -1760,16 +1757,6 @@ exit 0
 
     # ── Windows 11 ────────────────────────────────────────────────────
     Tweak(
-        id="w11_remove_chat_icon",
-        name="Win11: Chat-Symbol aus der Taskleiste",
-        desc="Entfernt das Teams-Chat-Symbol aus der Taskleiste (verhindert ungewollte Teams-Installation). "
-             "Aktuelle Builds haben das Symbol meist nicht mehr — dann ändert der Tweak nichts.",
-        category="Windows", group="Windows 11",
-        ps_command=r'reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v TaskbarMn /t REG_DWORD /d 0 /f',
-        revert_cmd=r'reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v TaskbarMn /t REG_DWORD /d 1 /f',
-        risk="safe",
-    ),
-    Tweak(
         id="w11_hide_recommended",
         name="Win11: 'Empfohlen' im Startmenü ausblenden",
         desc="Blendet den Bereich 'Empfohlen' (zuletzt geöffnete Dateien/Apps) im Startmenü per "
@@ -1975,10 +1962,31 @@ def get_groups(category: str) -> list[str]:
 # only in Windows 11 — on Windows 10 they write values nothing reads. Hidden there like the
 # tweaks for another GPU.
 WIN11_ONLY = {"w11_classic_context_menu", "w11_taskbar_left", "w11_disable_widgets", "w11_disable_snap_suggest",
-              "w11_remove_chat_icon", "w11_hide_recommended", "end_task_right_click"}
+              "w11_hide_recommended", "end_task_right_click"}
 for _t in ALL_TWEAKS:
     if _t.id in WIN11_ONLY:
         _t.requires_win11 = True
+
+
+# Tweaks taken out because Windows 11 24H2+ no longer has what they changed: Cortana is gone, Teams
+# (personal) is no longer preinstalled and its registry key belongs to TrustedInstaller (administrators
+# may only read it — the old tweak wrote nothing and still reported success), the taskbar Chat button
+# does not exist any more. An applied-state entry of one of them is ignored everywhere (no Tweak for the
+# id); "Revert all" removes what the old tweak left behind — only the value it set — and forgets it.
+# id -> (name DE, name EN, PowerShell cleanup or "" when nothing is left)
+RETIRED_TWEAKS: dict[str, tuple[str, str, str]] = {
+    "remove_cortana": ("Cortana entfernen", "Remove Cortana", ""),        # an app removal: nothing to undo
+    "remove_teams": (
+        "Microsoft Teams (privat) entfernen", "Remove Microsoft Teams (Personal)",
+        "$k='HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Communications'; "
+        "if((Get-ItemProperty $k -Name ConfigureChatAutoInstall -EA SilentlyContinue).ConfigureChatAutoInstall -eq 0)"
+        "{ Remove-ItemProperty $k -Name ConfigureChatAutoInstall -EA SilentlyContinue }; exit 0"),
+    "w11_remove_chat_icon": (
+        "Win11: Chat-Symbol aus der Taskleiste", "Win11: Chat icon off the taskbar",
+        "$k='HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced'; "
+        "if((Get-ItemProperty $k -Name TaskbarMn -EA SilentlyContinue).TaskbarMn -eq 0)"
+        "{ Remove-ItemProperty $k -Name TaskbarMn -EA SilentlyContinue }; exit 0"),
+}
 
 
 def get_categories() -> list[str]:

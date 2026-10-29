@@ -15,6 +15,10 @@ for t in ALL_TWEAKS:
 for tid, cmd in VERIFY_MAP.items():
     snips[f"{tid}:verify"] = (f'try {{ $__r=$({cmd.strip()}); Write-Output "{tid}|$__r" }}'
                               f' catch {{ Write-Output "{tid}|0" }}')
+from core.tweaks import RETIRED_TWEAKS    # "Revert all" cleans up after tweaks that were taken out
+for tid, (_de, _en, cmd) in RETIRED_TWEAKS.items():
+    if cmd.strip():
+        snips[f"{tid}:retired-cleanup"] = cmd.strip()
 
 tmp = tempfile.mkdtemp(prefix="gop_psparse_")
 f = os.path.join(tmp, "snips.json")

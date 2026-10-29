@@ -17,8 +17,9 @@ from ui.theme import tr
 
 
 class DriftDialog(ctk.CTkToplevel):
-    def __init__(self, parent, items, on_done):
-        """items: [(tweak_id, display name)]; on_done(reapply_ids, drop_ids)."""
+    def __init__(self, parent, items, on_done, build_change=None):
+        """items: [(tweak_id, display name)]; on_done(reapply_ids, drop_ids);
+        build_change: (old, new) Windows build when Windows was updated since the last start."""
         super().__init__(parent)
         self.title(tr("GameOptimizerPro — Tweaks nicht mehr aktiv", "GameOptimizerPro — tweaks no longer active"))
         icon = theme.app_icon_path()
@@ -42,6 +43,13 @@ class DriftDialog(ctk.CTkToplevel):
                                   "inzwischen mehr.", "You applied them, but they are not (fully) active any more — e.g. reset by a Windows update, changed by you, or the tweak is newer and sets more by now."),
                        font=F_S, fg=TEXT2, bg=APP_BG, justify="left", wraplength=500)
         msg.pack(anchor="w", pady=(4, 10))
+        if build_change:
+            old, new = build_change
+            tk.Label(body, text=tr(f"Windows wurde seit dem letzten Start aktualisiert (Build {old} → {new}) — "
+                                   "Updates setzen Einstellungen oft zurück.",
+                                   f"Windows was updated since the last start (build {old} → {new}) — "
+                                   "updates often reset settings."),
+                     font=F_S, fg=ACC, bg=APP_BG, justify="left", wraplength=500).pack(anchor="w", pady=(0, 10))
         tk.Label(body, text=tr("Mit Haken: jetzt erneut anwenden (vorher Registry-Backup).\n"
                             "Ohne Haken: als „nicht angewendet“ markieren — keine erneute Nachfrage.", "Ticked: apply again now (registry backup first).\nUnticked: mark as 'not applied' — not asked again."),
                  font=F_SB, fg=AMBER, bg=APP_BG, justify="left").pack(anchor="w", pady=(0, 10))

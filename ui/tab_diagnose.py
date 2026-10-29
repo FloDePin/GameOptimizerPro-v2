@@ -114,10 +114,11 @@ class DiagnoseTab(Page):
         self._head(p, tr("PC-Health-Report — letzte 30 Tage", "PC health report — last 30 days"),
                    HEALTH_COLOR, tr(
             "Liest nur, was Windows ohnehin protokolliert hat: Hardwarefehler (WHEA), Bluescreens, "
-            "unerwartete Neustarts, GPU-Timeouts, Datenträgerfehler und App-Abstürze. Es wird nichts "
-            "geändert.",
+            "unerwartete Neustarts, GPU-Timeouts, Datenträgerfehler und App-Abstürze — dazu, ob die "
+            "Speicherintegrität an ist. Es wird nichts geändert.",
             "Reads only what Windows recorded anyway: hardware errors (WHEA), blue screens, unexpected "
-            "restarts, GPU timeouts, disk errors and app crashes. Nothing is changed."))
+            "restarts, GPU timeouts, disk errors and app crashes — plus whether memory integrity is on. "
+            "Nothing is changed."))
         self.btn_health = button(p, tr("Report erstellen", "Create report"), self._run_health,
                                  kind="primary", color=HEALTH_COLOR, height=32,
                                  image=icon_image("diagnose", on_color(HEALTH_COLOR), 14), compound="left")
@@ -142,6 +143,10 @@ class DiagnoseTab(Page):
                     self.health_log.append(f"{it.label}: {it.count}{when}", lvl)
                     if it.count > 0:
                         self.health_log.append(f"    → {it.note}", lvl)
+                for s in (rep.status or []):
+                    lvl = {"ok": "info", "warn": "warning", "critical": "error"}[s.severity]
+                    self.health_log.append(f"{s.label}: {s.value}", lvl)
+                    self.health_log.append(f"    → {s.note}", lvl)
             self._on_main(lambda: self.btn_health.configure(state="normal"))
         threading.Thread(target=work, daemon=True).start()
 

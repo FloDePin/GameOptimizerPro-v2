@@ -1,35 +1,18 @@
 @echo off
 :: GameOptimizerPro v2.1 - Launcher
-:: Nutzt gezielt die klassische Python-Installation (nicht Store-App)
+:: Nutzt gezielt die klassische Python-Installation (nicht Store-App) - tools\find_python.cmd.
+:: Erster Start / neues Python: fehlt Python, wird die Installation angeboten; fehlende Pakete
+:: installiert core\deps.py hier im Fenster (einmalig, mit Fortschritt), dann startet die App.
 cd /d "%~dp0"
 
-:: Reihenfolge wichtig: Zuerst klassische Python-Installationen, DANN erst PATH.
-:: WindowsApps-Version (Store) wird ignoriert, weil UAC dort python.exe statt pythonw.exe startet.
-set "PYW="
-if exist "C:\Python314\pythonw.exe"      set "PYW=C:\Python314\pythonw.exe"
-if not defined PYW if exist "C:\Python313\pythonw.exe"      set "PYW=C:\Python313\pythonw.exe"
-if not defined PYW if exist "C:\Python312\pythonw.exe"      set "PYW=C:\Python312\pythonw.exe"
-if not defined PYW if exist "C:\Program Files\Python314\pythonw.exe" set "PYW=C:\Program Files\Python314\pythonw.exe"
-if not defined PYW if exist "C:\Program Files\Python313\pythonw.exe" set "PYW=C:\Program Files\Python313\pythonw.exe"
-if not defined PYW if exist "C:\Program Files\Python312\pythonw.exe" set "PYW=C:\Program Files\Python312\pythonw.exe"
-if not defined PYW if exist "%LOCALAPPDATA%\Programs\Python\Python314\pythonw.exe" set "PYW=%LOCALAPPDATA%\Programs\Python\Python314\pythonw.exe"
-if not defined PYW if exist "%LOCALAPPDATA%\Programs\Python\Python313\pythonw.exe" set "PYW=%LOCALAPPDATA%\Programs\Python\Python313\pythonw.exe"
-if not defined PYW if exist "%LOCALAPPDATA%\Programs\Python\Python312\pythonw.exe" set "PYW=%LOCALAPPDATA%\Programs\Python\Python312\pythonw.exe"
-
-:: Letzter Fallback: PATH-Suche, aber Store-Variante ausschliessen
+call "%~dp0tools\find_python.cmd" offer
 if not defined PYW (
-    for /f "delims=" %%i in ('where pythonw.exe 2^>nul') do (
-        set "CANDIDATE=%%i"
-        echo %%i | findstr /I "WindowsApps" >nul
-        if errorlevel 1 (
-            if not defined PYW set "PYW=%%i"
-        )
-    )
+    pause
+    exit /b 1
 )
 
-if not defined PYW (
-    echo No classic pythonw.exe found - install Python from python.org, not from the Microsoft Store.
-    echo Keine klassische pythonw.exe gefunden - Python von python.org installieren, nicht aus dem Microsoft Store.
+"%PY%" -m core.deps
+if errorlevel 1 (
     pause
     exit /b 1
 )

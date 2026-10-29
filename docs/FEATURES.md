@@ -83,7 +83,7 @@ Everything the app does, in detail. Results quoted from live runs are from one t
 - **The app's own state is crash-safe:** settings, the tweaks it applied (what *revert* relies on), the services it changed, profiles and the watchdog's lists are written atomically with the last good copy kept (`.bak`); a file that can't be read for a moment (a virus scanner at boot) is never overwritten, a broken one is restored from that copy. Unexpected errors go to `logs/app_errors.log` (the app has no console). The app's stress loads (workers, FurMark of a tune / hardness test) sit in a Windows job: they end with the app, also after a crash
 
 ### 🛠 Windows Optimizer
-- **109 Tweaks** across Windows, Gaming, Network, Audio categories (incl. AMD GPU tweaks)
+- **106 Tweaks** across Windows, Gaming, Network, Audio categories (incl. AMD GPU tweaks)
 - **Network adapter settings:** Energy-Efficient Ethernet off and Interrupt Moderation off — only on physical wired adapters and only with the keywords the driver itself offers (vendors name them differently); the value found before is kept and put back on revert. No connection drop when applied, effective after a restart
 - **Honest timer tweak:** *Let timer requests apply system-wide* (`GlobalTimerResolutionRequests`) brings back the system-wide effect of a program's timer request on Windows 11 — it sets no resolution itself (that needs a running program), and it says so
 - **Windows 11 24H2/26H2 AI & bloat:** Recall (policy + component removal), Click to Do, Paint AI (Cocreator, Image Creator, generative fill/erase), Notepad AI, on-device text/image generation, the AI host service (`WSAIFabricSvc`), and removal of the Microsoft 365 Copilot app / Dev Home that feature updates re-install — using Microsoft's documented policies where they exist
@@ -162,9 +162,10 @@ Everything the app does, in detail. Results quoted from live runs are from one t
 GameOptimizerPro/
 ├── GameOptimizerPro.py       ← Main entry point
 ├── GameOptimizerPro.bat      ← Launcher (PowerShell Start-Process, hidden, UAC)
-├── install.bat               ← Dependency installer
+├── install.bat               ← Dependency installer (incl. the optional cupy)
 ├── _stress_worker.py         ← GPU stress test subprocess
-├── requirements.txt          ← Python dependencies
+├── requirements.txt          ← Python dependencies (core/deps.py installs missing ones at start)
+├── tools/find_python.cmd     ← Finds the python.org Python (never the Store one); offers to install 3.12
 ├── .github/
 │   └── workflows/
 │       └── ci.yml            ← GitHub Actions CI (syntax & registry checks)
@@ -173,13 +174,14 @@ GameOptimizerPro/
 │   ├── nvtune_tuner.py       ← Auto-tuner: All-round (own V/F curve) + Quick (OC + UV), memory; TDR + error detection
 │   ├── curve_tune.py         ← All-round tuner logic: point search, margins, goals, report
 │   ├── hardware.py           ← WMI hardware detection
-│   ├── tweaks.py             ← 109 tweaks database (Windows, Gaming, Network, Audio)
+│   ├── tweaks.py             ← 106 tweaks database (Windows, Gaming, Network, Audio)
 │   ├── network_test.py       ← Gateway/DNS ping latency test
 │   ├── system_cleaner.py     ← Safe temp/junk cleaner + opt-in Deep Clean
 │   ├── services.py           ← Services Manager logic (remembers original start types)
 │   ├── optimization_score.py ← Optimization Score + drift check
 │   ├── display_info.py       ← Monitor refresh-rate advisor
 │   ├── app_launch.py         ← Start without a console window (pythonw)
+│   ├── deps.py               ← First-start setup: missing / too old packages installed with a progress window
 │   ├── power_state.py        ← Keep the PC awake during tune / stress test
 │   ├── registry_backup.py    ← Exports affected registry branches as .reg
 │   ├── startup_control.py    ← Autostart list + enable/disable (StartupApproved flags)

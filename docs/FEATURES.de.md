@@ -82,7 +82,7 @@ Alles, was die App macht, im Detail. Zitierte Ergebnisse aus Live-Läufen stamme
 - **Der eigene Zustand der App ist absturzsicher:** Einstellungen, die angewendeten Tweaks (darauf baut *Zurücksetzen* auf), die geänderten Dienste, Profile und die Listen des Wächters werden atomar mit letzter guter Kopie (`.bak`) geschrieben; eine Datei, die kurz nicht lesbar ist (Virenscanner beim Start), wird nie überschrieben, eine kaputte aus der Kopie wiederhergestellt. Unerwartete Fehler landen in `logs/app_errors.log` (die App hat keine Konsole). Die Stresslasten der App (Worker, FurMark eines Tunes / Härtetests) laufen in einem Windows-Job: Sie enden mit der App, auch nach einem Absturz
 
 ### 🛠 Windows Optimizer
-- **109 Tweaks** in den Kategorien Windows, Gaming, Network, Audio (inkl. AMD-GPU-Tweaks)
+- **106 Tweaks** in den Kategorien Windows, Gaming, Network, Audio (inkl. AMD-GPU-Tweaks)
 - **Netzwerkadapter-Einstellungen:** Energy-Efficient Ethernet aus und Interrupt Moderation aus — nur an physischen LAN-Adaptern und nur mit den Schlüsselwörtern, die der Treiber selbst anbietet (jeder Hersteller nennt sie anders); der vorherige Wert wird gemerkt und beim Revert zurückgeschrieben. Kein Verbindungsabbruch beim Anwenden, wirkt nach einem Neustart
 - **Ehrlicher Timer-Tweak:** *Timer-Anfragen systemweit gelten lassen* (`GlobalTimerResolutionRequests`) stellt unter Windows 11 die systemweite Wirkung der Timer-Anfrage eines Programms wieder her — er setzt selbst keine Auflösung (das braucht ein laufendes Programm) und sagt das auch
 - **Windows 11 24H2/26H2 — KI & Bloat:** Recall (Richtlinie + Entfernen der Komponente), Click to Do, Paint-KI (Cocreator, Image Creator, generatives Füllen/Löschen), Notepad-KI, geräteinterne Text-/Bildgenerierung, der KI-Hostdienst (`WSAIFabricSvc`) und das Entfernen der Microsoft-365-Copilot-App / Dev Home, die Funktionsupdates wieder installieren — über Microsofts dokumentierte Richtlinien, wo es sie gibt
@@ -161,20 +161,22 @@ Alles, was die App macht, im Detail. Zitierte Ergebnisse aus Live-Läufen stamme
 GameOptimizerPro/
 ├── GameOptimizerPro.py       ← Haupteinstiegspunkt
 ├── GameOptimizerPro.bat      ← Launcher (PowerShell Start-Process, versteckt, UAC)
-├── install.bat               ← Abhängigkeits-Installer
+├── install.bat               ← Abhängigkeits-Installer (inkl. optionalem cupy)
 ├── _stress_worker.py         ← GPU-Stresstest-Subprozess
+├── tools/find_python.cmd     ← Findet das python.org-Python (nie das aus dem Store); bietet 3.12 an
 ├── core/
 │   ├── nvtune_core.py        ← GPU-Monitor (NVML + MAHM), Afterburner-Controller
 │   ├── nvtune_tuner.py       ← Auto-Tuner: Rundum (eigene V/F-Kurve) + Schnell (OC + UV), Speicher; TDR- + Fehlererkennung
 │   ├── curve_tune.py         ← Rundum-Logik: Punktsuche, Sicherheitsabzug, Ziele, Bericht
 │   ├── hardware.py           ← WMI-Hardware-Erkennung
-│   ├── tweaks.py             ← 109-Tweaks-Datenbank (Windows, Gaming, Network, Audio)
+│   ├── tweaks.py             ← 106-Tweaks-Datenbank (Windows, Gaming, Network, Audio)
 │   ├── network_test.py       ← Gateway/DNS-Ping-Latenztest
 │   ├── system_cleaner.py     ← Sicherer Temp-/Junk-Cleaner + freiwilliger Deep Clean
 │   ├── services.py           ← Services-Manager-Logik (merkt sich Original-Starttypen)
 │   ├── optimization_score.py ← Optimierungs-Score + Drift-Prüfung
 │   ├── display_info.py       ← Monitor-Berater (Bildwiederholrate)
 │   ├── app_launch.py         ← Start ohne Konsolenfenster (pythonw)
+│   ├── deps.py               ← Einrichtung beim ersten Start: fehlende / zu alte Pakete mit Fortschrittsfenster
 │   ├── power_state.py        ← PC während Tune/Stresstest wach halten
 │   ├── registry_backup.py    ← Exportiert betroffene Registry-Zweige als .reg
 │   ├── startup_control.py    ← Autostart-Liste + an/aus (StartupApproved-Flags)

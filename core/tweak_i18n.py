@@ -6,12 +6,10 @@ Lookup by tweak id. If an id is missing here, the German default is used.
 
 # English descriptions, keyed by tweak id.
 TWEAK_DESC_EN: dict[str, str] = {
-    "remove_cortana":
-        "Uninstalls Cortana. Cortana sends data to Microsoft and is unused by most people.",
     "remove_xbox":
-        "Removes Xbox Game Bar, Xbox Identity Provider and Xbox TCUI. They run in the background even without Xbox.",
-    "remove_teams":
-        "Removes Teams Consumer and blocks automatic reinstallation via the registry.",
+        "Removes Xbox Game Bar, Xbox Identity Provider and Xbox TCUI. They run in the background even without Xbox. "
+        "Don't apply it if you play games with an Xbox sign-in (Game Pass, Microsoft Store), use Xbox mode or "
+        "Game Bar recordings — those are gone until the apps are reinstalled from the Store.",
     "remove_copilot":
         "Disables Windows Copilot and stops it from sending data in the background.",
     "remove_onedrive":
@@ -104,7 +102,9 @@ TWEAK_DESC_EN: dict[str, str] = {
     "enable_rss":
         "Enables Receive-Side Scaling on every adapter that offers it. Spreads network processing across CPU cores. Better on fast connections. (Says so honestly when the driver doesn't expose RSS to Windows.)",
     "w11_classic_context_menu":
-        "Restores the classic right-click context menu in Windows 11. No more Show more options.",
+        "Restores the classic right-click context menu in Windows 11. No more Show more options. "
+        "Note: with the Windows update KB5127936 (Oct 2026) the new menu gradually becomes customizable "
+        "itself (right-click → 'Customize menu'). If the tweak stops working after it, just revert it.",
     "w11_taskbar_left":
         "Moves taskbar icons to the left (classic Windows 10 layout).",
     "w11_disable_widgets":
@@ -210,8 +210,6 @@ TWEAK_DESC_EN: dict[str, str] = {
         "Sets a StorPort queue depth of 32 and a higher interrupt priority for NVMe SSDs and turns off the NVMe driver's idle power saving (lower latency, slightly more power). Honest note: the effect depends on the driver and is usually only measurable in benchmarks. Greyed out without an NVMe drive.",
     'disable_write_cache_flush':
         "Same as 'Turn off Windows write-cache buffer flushing' in Device Manager: faster writes, but a power loss or crash can cause data loss and file-system errors. Desktop PCs with a stable power supply only (ideally a UPS). (v1 set the wrong registry value here.)",
-    'w11_remove_chat_icon':
-        'Removes the Teams Chat icon from the taskbar (prevents an unwanted Teams install). Current builds usually no longer have the icon — then this changes nothing.',
     'w11_hide_recommended':
         "Hides the 'Recommended' section (recent files/apps) in the Start menu via policy. Honest note: not guaranteed on every edition/build.",
     'disable_click_to_do':
@@ -285,8 +283,6 @@ TWEAK_NAME_EN: dict[str, str] = {
         'NVMe: Queue Depth & Idle Power Saving',
     'disable_write_cache_flush':
         'Disable Write-Cache Buffer Flushing (desktop + UPS only)',
-    'w11_remove_chat_icon':
-        'Win11: Remove Chat Icon from Taskbar',
     'w11_hide_recommended':
         "Win11: Hide 'Recommended' in Start",
     'disable_click_to_do':
@@ -315,15 +311,15 @@ PRESET_DESC_EN: dict[str, str] = {
     "tier_minimal":
         "Gentle baseline: only rock-solid safe tweaks with no loss of function — basic privacy, gaming basics and a few comfort fixes. A good starting point.",
     "tier_medium":
-        "Balanced: Minimal + performance plan, gaming/network tweaks, light debloat (Candy Crush & Xbox apps). A solid all-round compromise.",
+        "Balanced: Minimal + performance plan, gaming/network tweaks, light debloat (Candy Crush & co.). A solid all-round compromise.",
     "tier_hard":
-        "Maximum: Medium + aggressive debloat (Cortana, Copilot, Recall, Teams, OneDrive), full performance/network/audio tweaks, Win11 classic UI. For advanced users — best to create a restore point first (Settings).",
+        "Maximum: Medium + aggressive debloat (Xbox apps, Copilot, Recall, OneDrive), full performance/network/audio tweaks, Win11 classic UI. For advanced users — best to create a restore point first (Settings).",
     "gaming":
         "Optimises for maximum FPS and minimal input lag. Disables Xbox Game Bar, enables Ultimate Performance plan, HAGS, CPU priority, mouse accel off.",
     "privacy":
         "Disables all Microsoft telemetry services, tracking, advertising ID, activity history, Copilot and Recall. Blocks telemetry servers in the hosts file.",
     "debloat":
-        "Removes all preinstalled apps (Candy Crush, TikTok, Xbox apps, Teams Consumer, OneDrive). No data loss, apps can be reinstalled.",
+        "Removes all preinstalled apps (Candy Crush, TikTok, Xbox apps, Microsoft 365 Copilot, OneDrive). No data loss, apps can be reinstalled.",
     "network":
         "Optimises network latency: disable Nagle, DNS to Cloudflare, network throttling off, enable RSS. A noticeable difference in online games.",
     "performance":

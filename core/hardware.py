@@ -13,6 +13,19 @@ except ImportError:
 _DISPLAY_CLASS = r"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}"
 
 
+def windows_build() -> str:
+    """'26300.9711' (build.UBR — the UBR changes with every cumulative update); '' if unknown."""
+    if not winreg:
+        return ""
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows NT\CurrentVersion") as k:
+            build = str(winreg.QueryValueEx(k, "CurrentBuild")[0]).strip()
+            ubr = int(winreg.QueryValueEx(k, "UBR")[0])
+        return f"{build}.{ubr}" if build else ""
+    except (OSError, ValueError):
+        return ""
+
+
 def _vram_mb_from_registry(gpu_name: str) -> int:
     """Real VRAM from the display driver's own registry key. Win32_VideoController
     .AdapterRAM is a 32-bit field: every card above 4 GB reads as 4095 MB (an RTX

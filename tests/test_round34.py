@@ -216,8 +216,8 @@ from core.tweaks import WIN11_ONLY  # noqa: E402
 w10 = HardwareInfo(os_name="Windows 10 Pro", os_build=19045, is_win10=True)
 w11 = HardwareInfo(os_name="Windows 11 Pro", os_build=26300, is_win11=True)
 unknown_os = HardwareInfo()
-check(len(WIN11_ONLY) == 7 and all(get_by_id(i).requires_win11 for i in WIN11_ONLY),
-      "the 7 taskbar / Start / Explorer tweaks of Windows 11 are marked")
+check(len(WIN11_ONLY) == 6 and all(get_by_id(i).requires_win11 for i in WIN11_ONLY),
+      "the 6 taskbar / Start / Explorer tweaks of Windows 11 are marked (round 44: the Chat button is gone)")
 check(not any(applicable(get_by_id(i), w10) for i in WIN11_ONLY)
       and all(applicable(get_by_id(i), w11) and applicable(get_by_id(i), unknown_os) for i in WIN11_ONLY)
       and applicable(get_by_id("disable_telemetry"), w10),

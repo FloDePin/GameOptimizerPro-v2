@@ -1,11 +1,12 @@
-# Untergrenzen bewusst moderat gewählt, damit die App auch in Environments mit
-# älteren, bereits installierten Paketen läuft (numpy 2.0 bricht z.B. manche
-# andere Pakete durch die geänderte C-API — 1.26 ist der sichere Kompromiss).
+# Lower bounds kept moderate so the app also runs where older packages are already
+# installed (numpy 2.0 changed the C API and breaks some other packages - 1.26 is the
+# safe compromise). ASCII only: pip reads this file with the system code page.
+# core/deps.py checks these at every start and installs what is missing.
 nvidia-ml-py>=11.5
 pystray>=0.19
 Pillow>=9.5
 numpy>=1.26
 WMI>=1.5
 psutil>=5.9
-# Oberfläche (seit v2.0 Runde 12)
+# user interface (since v2.0 round 12)
 customtkinter>=5.2
