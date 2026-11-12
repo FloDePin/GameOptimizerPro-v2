@@ -219,17 +219,19 @@ _WCACHE_REVERT = _FIXED_DISKS_PS + (
     r"/v CacheIsPowerProtected /f 2>$null | Out-Null }; exit 0"
 )
 
-# Paint AI policies (Windows Components > Paint): the three documented in the
-# WindowsAI Policy CSP plus Generative Erase / Remove Background.
+# Paint AI policies (Windows Components > Paint): the three the WindowsAI Policy CSP documents —
+# the status check reads the same list. Generative Erase / Remove Background have no policy: the
+# two values set for them up to build 53 were in no Windows file and no documentation (nothing
+# reads them); the revert still deletes them.
 _PAINT_AI_KEY = r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint"
-_PAINT_AI_VALUES = ("DisableCocreator", "DisableGenerativeFill", "DisableImageCreator",
-                    "DisableGenerativeErase", "DisableRemoveBackground")
+_PAINT_AI_VALUES = ("DisableCocreator", "DisableGenerativeFill", "DisableImageCreator")
+_PAINT_AI_OLD = ("DisableGenerativeErase", "DisableRemoveBackground")
 _PAINT_AI_APPLY = "\n".join(
     f'reg add "{_PAINT_AI_KEY}" /v {v} /t REG_DWORD /d 1 /f'
     + (" | Out-Null" if i < len(_PAINT_AI_VALUES) - 1 else "")
     for i, v in enumerate(_PAINT_AI_VALUES))
 _PAINT_AI_REVERT = "\n".join(
-    f'reg delete "{_PAINT_AI_KEY}" /v {v} /f 2>$null' for v in _PAINT_AI_VALUES) + "\nexit 0"
+    f'reg delete "{_PAINT_AI_KEY}" /v {v} /f 2>$null' for v in _PAINT_AI_VALUES + _PAINT_AI_OLD) + "\nexit 0"
 
 # SystemResponsiveness is shared by 'Network Throttling Index' and 'Audio-Priorität'.
 # Each revert only restores the Windows default (20) if the OTHER tweak isn't
@@ -1988,8 +1990,8 @@ exit 0
     Tweak(
         id="disable_paint_ai",
         name="Paint-KI deaktivieren",
-        desc="Schaltet die KI-Funktionen in Paint per offizieller Richtlinie ab: Cocreator, Image Creator, "
-             "generatives Füllen — dazu generatives Löschen und Hintergrund entfernen.",
+        desc="Schaltet die KI-Funktionen in Paint per offizieller Richtlinie ab: Cocreator, Image Creator und "
+             "generatives Füllen. Für generatives Löschen und Hintergrund entfernen gibt es keine Richtlinie.",
         category="Windows", group="Privacy",
         ps_command=_PAINT_AI_APPLY,
         revert_cmd=_PAINT_AI_REVERT,

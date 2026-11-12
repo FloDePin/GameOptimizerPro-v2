@@ -17,7 +17,8 @@ from core.tweaks import (_AMD_KEYS_PS,   # same AMD-only adapter filter as the t
                          _TELEMETRY_TASKS_PS,   # the same task list the tweak works on
                          # round 45: the same value lists / power settings the tweaks write
                          _reg_saved_ps, _power_saved_ps, TIPS_ITEMS, TIPS_CHECK, INPUT_ITEMS,
-                         _USB_SUB, _USB3_LPM, _SLEEP_SUB, _RTC_WAKE)
+                         _USB_SUB, _USB3_LPM, _SLEEP_SUB, _RTC_WAKE,
+                         _PAINT_AI_VALUES)      # the Paint values the tweak sets — one list for both
 
 
 @dataclass
@@ -539,7 +540,8 @@ VERIFY_MAP: dict[str, str] = {
         '$v=(Get-ItemProperty \'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsAI\' -Name \'DisableClickToDo\' -EA SilentlyContinue).\'DisableClickToDo\'; if($v -eq 1){"1"}else{"0"}'
     ),
     'disable_paint_ai': (
-        '$k=Get-ItemProperty \'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Paint\' -EA SilentlyContinue; if($k -and $k.DisableCocreator -eq 1 -and $k.DisableGenerativeFill -eq 1 -and $k.DisableImageCreator -eq 1){"1"}else{"0"}'
+        '$k=Get-ItemProperty \'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Paint\' -EA SilentlyContinue; if($k'
+        + "".join(f' -and $k.{v} -eq 1' for v in _PAINT_AI_VALUES) + '){"1"}else{"0"}'
     ),
     'disable_notepad_ai': (
         '$v=(Get-ItemProperty \'HKLM:\\SOFTWARE\\Policies\\WindowsNotepad\' -Name \'DisableAIFeatures\' -EA SilentlyContinue).\'DisableAIFeatures\'; if($v -eq 1){"1"}else{"0"}'

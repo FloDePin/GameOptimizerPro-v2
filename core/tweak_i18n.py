@@ -224,7 +224,7 @@ TWEAK_DESC_EN: dict[str, str] = {
     'disable_click_to_do':
         "Turns off 'Click to Do', which takes a screenshot on a key press and has an AI analyze it to suggest actions. Official Windows AI policy (documented for Pro too), for computer and user.",
     'disable_paint_ai':
-        'Turns off the AI features in Paint via the official policies: Cocreator, Image Creator, generative fill — plus generative erase and remove background.',
+        'Turns off the AI features in Paint via the official policies: Cocreator, Image Creator and generative fill. Generative erase and remove background have no policy.',
     'disable_notepad_ai':
         'Turns off the Copilot features in Notepad (rewrite, summarize, write) via the official policy.',
     'disable_ai_fabric_service':
@@ -428,6 +428,9 @@ PRESET_NAME_EN: dict[str, str] = {
 
 def preset_desc(preset, lang: str) -> str:
     """Return the preset description in the requested language."""
+    if not getattr(preset, "builtin", True):     # the user's own: its saved text is German only
+        n = len(preset.tweak_ids)
+        return f"Custom preset: {n} tweaks" if lang == "en" else f"Eigenes Preset: {n} Tweaks"
     if lang == "en":
         return PRESET_DESC_EN.get(preset.id, preset.desc)
     return preset.desc

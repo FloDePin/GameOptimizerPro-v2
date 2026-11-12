@@ -104,7 +104,15 @@ named by version only.
   *SystemResponsiveness* is 10 — Microsoft: values below 10 count as the default 20, so the 0 used before did
   nothing; *Remove Bloatware* keeps Media Player (Windows 11's default player) and Get Help (the troubleshooters).
   118 tweaks.
-- 1895 checks in 48 suites, all green.
+- **Review 2026-11-12** — the program installer's time limit works while a setup hangs (the output is read in a
+  thread of its own; a time-out ends winget and everything it started) and winget gets no input; the update
+  installer types its process handles and no longer runs pip without any window (the next start installs new
+  packages with a progress window); the Apps page reads a list once at a time, removes or installs nothing while a
+  list is read and frees *Install* again once winget is there; your own presets are kept after a restart; after the
+  "no longer active" dialog the optimizer checks the state again; *Disable Paint AI* sets only the three policies
+  Microsoft documents (the two others it set were read by nothing — *Revert* still removes them); a critical finding
+  makes the health report's summary red; FurMark 2 and Chrome are found in more install folders.
+- 1954 checks in 49 suites, all green.
 
 <details>
 <summary><b>Development log — rounds 8–33</b> (one or two lines per round)</summary>
@@ -509,4 +517,5 @@ above, the live verifier shows a tweak that didn't take effect. From the round-3
 graphics tag holds for Speed Way and Time Spy (the reader now also takes a total score, for other tests);
 a "clock stretching" rule (effective below requested clock) has no basis in the measured data; the
 tie-break for equal scores and the FurMark / 3DMark separation already existed. Not taken from the proposals: a cache for the GPU readings (NVML is thread-safe, a read costs milliseconds) and one stress worker for all steps (a fresh process per step keeps a broken CUDA context from carrying a fault into the next step).
+From the 2026-11-12 reviews: a failed pip run in the updater lost no update — the start after it checks every package and installs what is missing (the hidden pip run is gone now anyway), so neither a rollback nor keeping the download is needed; the package check in the launcher and again in the app costs about 0.1 s and catches an administrator account other than the user's and every start without the launcher — kept; the preset counts were refreshed after apply / revert by the status check that follows (only the "no longer active" dialog missed it — fixed); the process handle could not be cut off (Windows handles are small numbers) and a failed wait already stopped the update — typed anyway; the suggested Paint fix (check all five values) would have flagged working PCs: two of the five were in no documentation and no Windows file, so the tweak sets only the documented three. Not taken: reading the remaining text comparisons without PowerShell (the PowerShell checks run in one batch anyway — no measurable gain); the test battery in GitHub's CI (the suites need Windows, a desktop and the registry; they run before every push).
 </details>

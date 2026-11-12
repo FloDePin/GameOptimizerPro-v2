@@ -571,6 +571,16 @@ class GameOptimizerWindow(ctk.CTk):
         from core.tweak_i18n import tweak_name
         from core.i18n import current_lang
         opt = self._tab_frames.get("optimizer")
+
+        def recheck():
+            # the optimizer's status dots and preset counts from the state now (they showed the
+            # check made before the dialog)
+            fn = getattr(opt, "_live_verify", None)
+            if callable(fn):
+                try:
+                    fn()
+                except Exception:
+                    pass
         if drop:
             self.runner.forget(drop)
             for tid in drop:
@@ -580,6 +590,8 @@ class GameOptimizerWindow(ctk.CTk):
             self.set_status(tr(f"{len(drop)} Tweak(s) als nicht angewendet markiert.", f"{len(drop)} tweak(s) marked as not applied."))
         tweaks = [t for t in (get_by_id(i) for i in reapply) if t]
         if not tweaks:
+            if drop:
+                recheck()
             return
         self.set_status(tr(f"Wende {len(tweaks)} Tweak(s) erneut an …", f"Applying {len(tweaks)} tweak(s) again …"))
 
@@ -610,6 +622,7 @@ class GameOptimizerWindow(ctk.CTk):
                         var = getattr(opt, "_vars", {}).get(tid)
                         if var is not None:
                             var.set(False)
+                recheck()
                 (messagebox.showwarning if failed else messagebox.showinfo)(
                     "GameOptimizerPro", msg, parent=self)
             try:

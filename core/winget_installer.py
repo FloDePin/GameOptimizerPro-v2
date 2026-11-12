@@ -21,6 +21,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
 from dataclasses import dataclass, field
 
 from core.i18n import tr as _tr
@@ -84,7 +85,7 @@ CATALOG: list[Program] = [
     Program("Geeks3D.FurMark.2", "FurMark 2", "tuning",
             ("GPU-Belastungstest; der Stresstest von GameOptimizerPro findet es.",
              "GPU stress test; GameOptimizerPro's stress test finds it."),
-            paths=(rf"{_PF}\Geeks3D\FurMark2_x64\furmark.exe",)),
+            paths=(rf"{_PF}\Geeks3D\FurMark2_x64\furmark.exe", rf"{_PF}\Geeks3D\FurMark2\furmark.exe")),
     Program("REALiX.HWiNFO", "HWiNFO", "tuning",
             ("Alle Sensoren (Temperaturen, Spannungen).", "Every sensor (temperatures, voltages)."),
             paths=(rf"{_PF}\HWiNFO64\HWiNFO64.exe",)),
@@ -106,7 +107,10 @@ CATALOG: list[Program] = [
     Program("7zip.7zip", "7-Zip", "tools", paths=(rf"{_PF}\7-Zip\7zFM.exe",)),
     Program("VideoLAN.VLC", "VLC media player", "tools", paths=(rf"{_PF}\VideoLAN\VLC\vlc.exe",)),
     Program("Mozilla.Firefox", "Firefox", "tools", paths=(rf"{_PF}\Mozilla Firefox\firefox.exe",)),
-    Program("Google.Chrome", "Google Chrome", "tools", paths=(rf"{_PF}\Google\Chrome\Application\chrome.exe",)),
+    # older installs stay in the 32-bit folder; without admin rights Chrome installs for the user only
+    Program("Google.Chrome", "Google Chrome", "tools",
+            paths=(rf"{_PF}\Google\Chrome\Application\chrome.exe", rf"{_PF86}\Google\Chrome\Application\chrome.exe",
+                   rf"{_LAD}\Google\Chrome\Application\chrome.exe")),
     Program("Brave.Brave", "Brave", "tools"),
     Program("Notepad++.Notepad++", "Notepad++", "tools", paths=(rf"{_PF}\Notepad++\notepad++.exe",)),
     Program("Microsoft.PowerToys", "PowerToys", "tools"),
@@ -130,31 +134,69 @@ def winget_exe() -> str | None:
     return cand if cand and os.path.exists(cand) else None
 
 
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+TAIL_S = 10.0       # after winget ended: how long the rest of its output may take
+
+
+def _kill_tree(p: subprocess.Popen):
+    """winget AND what it started: a hanging setup under it keeps the output pipe open, so
+    killing winget alone would not end the read."""
+    try:
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(p.pid)], capture_output=True, timeout=30,
+                       creationflags=_NO_WINDOW)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    try:
+        p.kill()
+    except OSError:
+        pass
+
+
 def _run(args: list[str], timeout: int = 900, on_line=None) -> tuple[int, str]:
-    """(exit code as an unsigned 32-bit number, output) — replaced by the tests."""
+    """(exit code as an unsigned 32-bit number, output) — replaced by the tests.
+    The output is read in a thread of its own and the time limit watched here: reading in this
+    thread waited for the end of the output, so a setup that hung (and kept the output open) was
+    never timed out. on_line is called from that reader thread."""
     exe = winget_exe()
     if not exe:
         return -1, _tr("winget nicht gefunden (App-Installer aus dem Microsoft Store)",
                        "winget not found (App Installer from the Microsoft Store)")
-    p = subprocess.Popen([exe] + args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                         encoding="utf-8", errors="replace",
-                         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-    lines = []
     try:
-        for raw in p.stdout:
-            for line in raw.replace("\r", "\n").split("\n"):
-                line = line.strip()
-                # winget draws progress bars and spinners: only text lines are kept
-                if not line or set(line) <= set("-\\|/ █▒░") or re.fullmatch(r"[█▒░\s]+.*\d+(\.\d+)?\s*(%|[KMG]B.*)", line):
-                    continue
-                lines.append(line)
-                if on_line:
-                    on_line(line)
+        p = subprocess.Popen([exe] + list(args), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                             stdin=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace",
+                             creationflags=_NO_WINDOW)
+    except OSError as e:
+        return -1, str(e)
+    lines: list[str] = []
+
+    def read():
+        try:
+            for raw in p.stdout:
+                for line in raw.replace("\r", "\n").split("\n"):
+                    line = line.strip()
+                    # winget draws progress bars and spinners: only text lines are kept
+                    if not line or set(line) <= set("-\\|/ █▒░") or re.fullmatch(r"[█▒░\s]+.*\d+(\.\d+)?\s*(%|[KMG]B.*)", line):
+                        continue
+                    lines.append(line)
+                    if on_line:
+                        try:
+                            on_line(line)
+                        except Exception:
+                            pass
+        except (OSError, ValueError):
+            pass
+
+    reader = threading.Thread(target=read, daemon=True)
+    reader.start()
+    try:
         p.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
-        p.kill()
-        return -2, "\n".join(lines + [_tr("Zeitüberschreitung", "Timed out")])
-    return (p.returncode or 0) & 0xFFFFFFFF, "\n".join(lines)
+        _kill_tree(p)
+        reader.join(5)
+        return -2, "\n".join(list(lines) + [_tr("Zeitüberschreitung", "Timed out")])
+    # a program the setup started may still hold the output: never wait for it
+    reader.join(TAIL_S)
+    return (p.returncode or 0) & 0xFFFFFFFF, "\n".join(list(lines))
 
 
 def installed_ids(programs=None) -> set[str]:

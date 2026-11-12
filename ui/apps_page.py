@@ -39,14 +39,19 @@ class AppsPage(Page):
         self._apps: dict[str, app_removal.AppInfo] = {}
         self._installed: set[str] = set()
         self._loaded = {"apps": False, "install": False}
+        # a list being read: no second read (a double click on Refresh started two, and winget runs
+        # side by side can fail), no removing / installing on a list that is about to change
+        self._loading = {"apps": False, "install": False}
+        self._winget = True                 # checked again whenever the install view is read
         self._view = "apps"
         self._build()
 
     # ── Build ─────────────────────────────────────────────────────────────────
 
     def _build(self):
-        button(self.actions, tr("Aktualisieren", "Refresh"), self._refresh, kind="ghost", height=30,
-               image=icon_image("refresh", TEXT2, 14), compound="left").pack(side="right")
+        self.btn_refresh = button(self.actions, tr("Aktualisieren", "Refresh"), self._refresh, kind="ghost",
+                                  height=30, image=icon_image("refresh", TEXT2, 14), compound="left")
+        self.btn_refresh.pack(side="right")
         self.lbl_count = tk.Label(self.actions, text="", font=F_S, fg=DIM, bg=APP_BG)
         self.lbl_count.pack(side="right", padx=10)
 
@@ -160,18 +165,34 @@ class AppsPage(Page):
         self._views[key].pack(fill="both", expand=True)
         self.seg.set(next(lbl for lbl, k in self._view_keys.items() if k == key))
         self._update_count()
+        self._update_buttons()
         if load and not self._loaded[key]:
             self._refresh()
 
     def _refresh(self):
-        if self._busy:
+        if self._busy or self._loading[self._view]:
             return
         if self._view == "apps":
             self._load_apps()
         else:
             self._load_installed()
 
+    def _update_buttons(self):
+        """Remove / install: admin rights, nothing else running, the list read; install also needs
+        winget — installed later, 'Refresh' finds it and frees the button again."""
+        def state(ok):
+            return "normal" if ok else "disabled"
+        free = self._admin and not self._busy
+        self.btn_remove.configure(state=state(free and not self._loading["apps"]))
+        self.btn_install.configure(state=state(free and not self._loading["install"] and self._winget))
+        self.btn_refresh.configure(state=state(not self._busy and not self._loading[self._view]))
+
     def _update_count(self):
+        if self._loading[self._view]:
+            self.lbl_count.config(text=tr("Lese installierte Apps …", "Reading installed apps …")
+                                  if self._view == "apps" else
+                                  tr("Prüfe installierte Programme …", "Checking installed programs …"))
+            return
         if self._view == "apps":
             n = len(self._apps)
             green = sum(1 for a in self._apps.values() if a.category == app_removal.BLOAT)
@@ -186,15 +207,19 @@ class AppsPage(Page):
     # ── Store apps ───────────────────────────────────────────────────────────
 
     def _load_apps(self):
-        self.lbl_count.config(text=tr("Lese installierte Apps …", "Reading installed apps …"))
+        self._loading["apps"] = True
+        self._update_count()
+        self._update_buttons()
 
         def done(res):
+            self._loading["apps"] = False
             if not self.winfo_exists():
                 return
             if isinstance(res, Exception):
                 self.log_apps.append(tr(f"Fehler beim Lesen: {res}", f"Error reading: {res}"), "error")
                 res = []
             self._fill_apps(res)
+            self._update_buttons()
         run_async(self, app_removal.list_apps, done)
 
     def _fill_apps(self, apps):
@@ -228,7 +253,7 @@ class AppsPage(Page):
             self.lbl_apps.config(text=tr(f"{len(sel)} ausgewählt.", f"{len(sel)} selected."), fg=TEXT)
 
     def _remove(self):
-        if self._busy:
+        if self._busy or self._loading["apps"]:
             return
         sel = [self._apps[i] for i in self.tree_apps.selection() if i in self._apps]
         if not sel:
@@ -282,9 +307,18 @@ class AppsPage(Page):
     # ── Install programs ────────────────────────────────────────────────────
 
     def _load_installed(self):
-        self.lbl_count.config(text=tr("Prüfe installierte Programme …", "Checking installed programs …"))
+        self._loading["install"] = True
+        self._winget = winget_installer.winget_exe() is not None
+        if not self._winget:
+            self.log_install.append(tr("winget wurde nicht gefunden — installiere 'App-Installer' aus dem Microsoft "
+                                       "Store, dann 'Aktualisieren'.",
+                                       "winget was not found — install 'App Installer' from the Microsoft Store, then "
+                                       "'Refresh'."), "warning")
+        self._update_count()
+        self._update_buttons()
 
         def done(res):
+            self._loading["install"] = False
             if not self.winfo_exists():
                 return
             if isinstance(res, Exception):
@@ -292,12 +326,7 @@ class AppsPage(Page):
                 res = set()
             self._installed = set(res)
             self._fill_install()
-        if winget_installer.winget_exe() is None:
-            self.log_install.append(tr("winget wurde nicht gefunden — installiere 'App-Installer' aus dem Microsoft "
-                                       "Store, dann 'Aktualisieren'.",
-                                       "winget was not found — install 'App Installer' from the Microsoft Store, then "
-                                       "'Refresh'."), "warning")
-            self.btn_install.configure(state="disabled")
+            self._update_buttons()
         run_async(self, winget_installer.installed_ids, done)
 
     def _fill_install(self):
@@ -317,7 +346,7 @@ class AppsPage(Page):
         self._update_count()
 
     def _install(self):
-        if self._busy:
+        if self._busy or self._loading["install"] or not self._winget:
             return
         ids = list(self.tree_inst.selection())
         names = {p.id: p.name for p in winget_installer.CATALOG}
@@ -369,6 +398,4 @@ class AppsPage(Page):
 
     def _set_busy(self, busy: bool):
         self._busy = busy
-        state = "disabled" if busy or not self._admin else "normal"
-        self.btn_remove.configure(state=state)
-        self.btn_install.configure(state=state)
+        self._update_buttons()

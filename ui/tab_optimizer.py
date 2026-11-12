@@ -12,7 +12,7 @@ from typing import Optional
 
 import customtkinter as ctk
 
-from core                import game_profiles
+from core                import game_profiles, user_presets
 from core.export_import  import ExportImport
 from core.hardware       import HardwareInfo
 from core.i18n           import current_lang
@@ -81,7 +81,9 @@ class OptimizerTab(Page):
         self.exim         = ExportImport(profiles_dir, logs_dir)
         self._logs_dir    = logs_dir
         self._vars:         dict[str, tk.BooleanVar] = {}
-        self._user_presets: list[TweakPreset]         = []
+        # the user's own presets, kept after a restart (profiles/user_presets.json)
+        self._user_presets: list[TweakPreset]
+        self._user_presets, self._presets_ok = user_presets.load(ACC3)
         self._section_frames: dict[str, tk.Widget]    = {}
         self._lists:        dict[str, ctk.CTkScrollableFrame] = {}
         self._rows:         dict[str, list] = {}       # section -> [(kind, widget, tweak|None)]
@@ -92,6 +94,7 @@ class OptimizerTab(Page):
         self._name_labels:   dict[str, tk.Label] = {} # tweak_id -> name Label widget
         self._active_badges: dict[str, tk.Label] = {}
         self._verifying = False
+        self._verify_again = False         # asked for during a check: one more check after it
         self._bulk = False                 # "select all": no either-or reactions
         self._batch_running = False        # one apply/revert batch at a time
         self._action_btns: list = []
@@ -355,21 +358,46 @@ class OptimizerTab(Page):
                                   text=tr("Name des Presets (enthält alle gerade aktiven Tweaks):",
                                           "Preset name (holds all currently active tweaks):")).get_input()
         if not name: return
+        name = name.strip()
         applied_ids = self.runner.known_applied()     # not the ids of retired tweaks
+        if not name:
+            return
         if not applied_ids:
             messagebox.showinfo("Preset", tr("Keine aktiven Tweaks — wende zuerst welche an.", "No active tweaks — apply some first."))
             return
-        self._user_presets.append(TweakPreset(
-            id=f"user_{name.lower().replace(' ','_')}",
-            name=name, icon="⭐",
+        pid = user_presets.make_id(name)
+        if any(p.id == pid for p in self._user_presets) and not messagebox.askyesno(
+                "Preset", tr(f"Ein Preset '{name}' gibt es schon — durch die gerade aktiven Tweaks ersetzen?",
+                             f"A preset '{name}' already exists — replace it with the tweaks active now?")):
+            return
+        self._user_presets = user_presets.merge(self._user_presets, [TweakPreset(
+            id=pid, name=name, icon="⭐",
             desc=f"Eigenes Preset: {len(applied_ids)} aktive Tweaks",
-            tweak_ids=applied_ids, color=ACC3, builtin=False))
+            tweak_ids=applied_ids, color=ACC3, builtin=False)])
+        self._save_user_presets()
         self._refresh_presets()
 
     def _delete_user_preset(self, preset):
         if messagebox.askyesno(tr("Löschen", "Delete"), tr(f"Preset '{preset_name(preset, current_lang())}' löschen?", f"Delete preset '{preset_name(preset, current_lang())}'?")):
             self._user_presets = [p for p in self._user_presets if p.id != preset.id]
+            self._save_user_presets()
             self._refresh_presets()
+
+    def _save_user_presets(self) -> bool:
+        """Kept after a restart. A file that could not be read at the start is read again first:
+        never written over with only this session's presets."""
+        if not self._presets_ok:
+            disk, ok = user_presets.load(ACC3)
+            if ok:
+                self._user_presets = user_presets.merge(disk, self._user_presets)
+                self._presets_ok = True
+        if self._presets_ok and user_presets.save(self._user_presets):
+            return True
+        messagebox.showwarning("Preset", tr("Die eigenen Presets konnten nicht gespeichert werden — sie gelten bis "
+                                            "zum Neustart (Export sichert sie).",
+                                            "Your own presets could not be saved — they last until the app is "
+                                            "restarted (an export keeps them)."))
+        return False
 
     # ── Tweak lists (Windows / Gaming / Network / Audio) ─────────────────────
 
@@ -630,6 +658,9 @@ class OptimizerTab(Page):
     def _live_verify(self):
         """Run registry checks for ALL verifiable tweaks, update dots live."""
         if self._verifying:
+            # a change came in during a check (apply, revert, the drift dialog): the running check
+            # may have read the state before it — check once more afterwards
+            self._verify_again = True
             return
         self._verifying = True
         self.btn_live_verify.configure(state="disabled", text=tr("Prüfe …", "Checking …"))
@@ -663,6 +694,9 @@ class OptimizerTab(Page):
             self._verified_at = datetime.now().strftime("%H:%M")
             self._verifying = False
             self.after(0, lambda: self._update_dots(checked=True))
+            if self._verify_again:
+                self._verify_again = False
+                self.after(50, self._live_verify)
 
         threading.Thread(target=_do, daemon=True).start()
 
@@ -1159,9 +1193,8 @@ class OptimizerTab(Page):
             title="Export speichern", defaultextension=".nextune",
             filetypes=[("GameOptimizerPro Export", "*.nextune"), ("JSON", "*.json")])
         if not path: return
-        user_pd = [{"id": p.id, "name": p.name, "icon": p.icon,
-                    "desc": p.desc, "tweak_ids": p.tweak_ids, "color": p.color}
-                   for p in self._user_presets] if self.v_exp_presets.get() else None
+        user_pd = ([user_presets.to_dict(p) for p in self._user_presets]
+                   if self.v_exp_presets.get() else None)
         ok, msg = self.exim.export(
             path,
             include_tweaks=self.v_exp_tweaks.get(),
@@ -1208,13 +1241,11 @@ class OptimizerTab(Page):
             n_ok, _ = self.exim.apply_imported_profiles(data["gpu_profiles"])
             msgs.append(f"{n_ok} Profile")
         if self.v_imp_presets.get() and data.get("user_presets"):
-            for pd in data["user_presets"]:
-                self._user_presets.append(TweakPreset(
-                    id=pd.get("id",""), name=pd.get("name",""),
-                    icon=pd.get("icon","⭐"), desc=pd.get("desc",""),
-                    tweak_ids=pd.get("tweak_ids",[]),
-                    color=pd.get("color", ACC3), builtin=False))
-            msgs.append(f"{len(data['user_presets'])} Presets")
+            # one with the same name replaces the existing one (importing twice: no duplicates)
+            new = [p for p in (user_presets.from_dict(pd, ACC3) for pd in data["user_presets"]) if p]
+            self._user_presets = user_presets.merge(self._user_presets, new)
+            self._save_user_presets()
+            msgs.append(f"{len(new)} Presets")
             self._refresh_presets()
         self.lbl_imp_result.config(text="✓ " + ", ".join(msgs), fg=GREEN)
         messagebox.showinfo("Import", tr("Import erfolgreich:\n", "Import successful:\n") + "\n".join(f"  • {m}" for m in msgs))

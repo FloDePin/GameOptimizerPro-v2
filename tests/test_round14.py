@@ -275,11 +275,15 @@ src4 = dst / "logs" / "update" / "new" / "pkg4"
 tree(src4, {"GameOptimizerPro.py": "newest", "tools/apply_update.py": "#", "requirements.txt": "same\n"})
 (dst / "requirements.txt").write_bytes(b"same  \r\n")
 AU.main(["--src", str(src4), "--dst", str(dst), "--pid", "0", "--build", "18"])
-check(not pips, "requirements.txt differing only in line endings: no pip run")
+log = (dst / "logs" / "update.log").read_text(encoding="utf-8")
+check(not pips and "requirements.txt geändert" not in log,
+      "requirements.txt differing only in line endings: not a change")
 src5 = dst / "logs" / "update" / "new" / "pkg5"
 tree(src5, {"GameOptimizerPro.py": "newest2", "tools/apply_update.py": "#", "requirements.txt": "same\nnewpkg\n"})
 AU.main(["--src", str(src5), "--dst", str(dst), "--pid", "0", "--build", "19"])
-check(len(pips) == 1 and "-r" in pips[0], "a new requirement: pip install -r requirements.txt")
+log = (dst / "logs" / "update.log").read_text(encoding="utf-8")
+check(not pips and log.count("requirements.txt geändert") == 1 and "core/deps.py" in log,
+      "a new requirement: no hidden pip run in the updater — the next start installs it with a window (logged)")
 AU.subprocess.run = real_run
 
 # ── E: update flow (dialogs) ─────────────────────────────────────────────────

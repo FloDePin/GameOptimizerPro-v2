@@ -103,7 +103,7 @@ Windows 10 / 11 · Python 3.10+ (the launcher offers to install 3.12) · admin r
 
 - 📖 [All features in detail](docs/FEATURES.md) — including the project structure
 - 📜 [Changelog](CHANGELOG.md)
-- 🧪 1677 automated checks in 46 test suites (`python tests\run_all_tests.py`), run before every push
+- 🧪 1954 automated checks in 49 test suites (`python tests\run_all_tests.py`), run before every push
 - 🤝 Pull requests are welcome — for bigger changes please open an issue first.
 
 <div align="center">

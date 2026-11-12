@@ -9,9 +9,13 @@ the NEW version's folder, standard library only).
 2. backs up every file it will replace or remove to logs/update_backup_<build>/
 3. copies the new files; app code (.py in core/ ui/ tools/ tests/) that the new
    version no longer has is removed (stale modules could be imported otherwise)
-4. requirements.txt changed: pip install -r requirements.txt
-5. a failed copy puts the backed-up files back; everything goes to logs/update.log
-6. --relaunch: starts the app again
+4. a failed copy puts the backed-up files back; everything goes to logs/update.log
+5. --relaunch: starts the app again
+
+New Python packages (requirements.txt changed) are NOT installed here: the app's start checks
+every package (core/deps.py) and installs what is missing with a progress window and a clear
+message when it fails — here pip ran without any window, up to 10 minutes between the app
+closing and starting again, and a failure only went to the log.
 
 logs/, profiles/, .git/ and third-party folders next to the app are never touched.
 """
@@ -51,13 +55,23 @@ def wait_for_exit(pid: int, timeout: float = 90.0) -> bool:
                 return True
             time.sleep(0.3)
         return False
-    SYNCHRONIZE = 0x00100000
+    from ctypes import wintypes
+    SYNCHRONIZE, WAIT_OBJECT_0, ERROR_INVALID_PARAMETER = 0x00100000, 0, 87
+    # a handle is pointer-sized: without these types ctypes takes a 32-bit int
     k = ctypes.WinDLL("kernel32", use_last_error=True)
+    k.OpenProcess.restype = wintypes.HANDLE
+    k.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    k.WaitForSingleObject.restype = wintypes.DWORD
+    k.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    k.CloseHandle.restype = wintypes.BOOL
+    k.CloseHandle.argtypes = [wintypes.HANDLE]
     h = k.OpenProcess(SYNCHRONIZE, False, pid)
     if not h:
-        return True                      # already gone
+        # only "no such process" means it has ended — a process that can't be watched
+        # (access denied) must not get its files replaced under it
+        return ctypes.get_last_error() == ERROR_INVALID_PARAMETER
     try:
-        return k.WaitForSingleObject(h, int(timeout * 1000)) == 0
+        return k.WaitForSingleObject(h, int(timeout * 1000)) == WAIT_OBJECT_0    # not WAIT_FAILED / timeout
     finally:
         k.CloseHandle(h)
 
@@ -145,14 +159,8 @@ def main(argv=None):
     ok, msg = apply(src, dst, a.build)
     log(dst, f"Update auf Build {a.build}: {'OK' if ok else 'FEHLER'} — {msg}")
     if ok and (dst / "requirements.txt").exists() and _req(dst / "requirements.txt") != old_req:
-        py = Path(sys.executable).with_name("python.exe")
-        try:
-            r = subprocess.run([str(py if py.exists() else sys.executable), "-m", "pip", "install", "-r",
-                                str(dst / "requirements.txt")], capture_output=True, text=True,
-                               timeout=600, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-            log(dst, f"pip install -r requirements.txt: Exit {r.returncode}")
-        except (OSError, subprocess.SubprocessError) as e:
-            log(dst, f"pip install fehlgeschlagen: {e}")
+        log(dst, "requirements.txt geändert — fehlende Pakete installiert der nächste Start (core/deps.py, "
+                 "mit Fortschrittsfenster)")
     if ok:
         shutil.rmtree(dst / "logs" / "update", ignore_errors=True)   # staging + pending marker
     else:

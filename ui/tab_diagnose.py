@@ -135,8 +135,9 @@ class DiagnoseTab(Page):
             if not rep.ok:
                 self.health_log.append(f"✗ {rep.error}", "error")
             else:
+                crit = any(getattr(i, "severity", "") == health_report.CRITICAL for i in (rep.items or []))
                 self.health_log.append(rep.summary,
-                                       "success" if "✓" in rep.summary else "warning")
+                                       "error" if crit else "success" if "✓" in rep.summary else "warning")
                 for it in rep.items:
                     lvl = {"ok": "info", "warn": "warning", "critical": "error"}[it.severity]
                     when = tr(f"  (zuletzt: {it.last})", f"  (last: {it.last})") if it.last else ""
