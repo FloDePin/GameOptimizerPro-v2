@@ -524,6 +524,8 @@ class OptimizerTab(Page):
             return False
         if getattr(tweak, "requires_win11", False) and getattr(self.hw, "is_win10", False):
             return False                # v1: greyed out on Windows 10
+        if getattr(tweak, "requires_pro", False) and getattr(self.hw, "is_home", False):
+            return False                # a Pro/Enterprise/Education policy: Home ignores it
         return True
 
     def _build_tweak_row(self, parent, tweak: Tweak, color: str = ACC):

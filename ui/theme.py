@@ -85,6 +85,7 @@ ICONS = {
     "network": "\uE839", "audio": "\uE767", "windows": "\uE7F4", "link": "\uE71B",
     "download": "\uE896", "upload": "\uE898", "flame": "\uECAD", "chip": "\uEEA1",
     "copy": "\uE8C8", "back": "\uE72B", "undo": "\uE7A7", "shield": "\uEA18",
+    "apps": "\uE71D",
 }
 
 

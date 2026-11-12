@@ -11,6 +11,7 @@ import tkinter as tk
 
 import customtkinter as ctk
 
+from core import health_report
 from core.bios_detector import BiosDetector
 from core.bios_guide    import (BiosSetting, detect_profile, get_impact_color, get_profile,
                                 get_risk_color, profiles, vendor_of, vendors)
@@ -49,6 +50,7 @@ class BiosGuideTab(Page):
         self._profile = get_profile(self._detected_id)
         self._vendor = self._detected_vendor
         self._detect_results: dict = {}
+        self._bitlocker = None              # BitLocker state of C: (read with the system state)
         self._detecting = False
         self._build()
         self._refresh_view()
@@ -170,6 +172,10 @@ class BiosGuideTab(Page):
                 box["r"] = self.detector.detect_all()
             except Exception:
                 box["r"] = {}
+            try:
+                box["bl"] = health_report.bitlocker_state()
+            except Exception:
+                box["bl"] = None
 
         th = threading.Thread(target=work, daemon=True)
         th.start()
@@ -179,6 +185,7 @@ class BiosGuideTab(Page):
                 self.after(100, poll)
                 return
             self._detect_results = box.get("r") or {}
+            self._bitlocker = box.get("bl")
             self._detecting = False
             self._on_detect_done()
         self.after(100, poll)
@@ -215,6 +222,20 @@ class BiosGuideTab(Page):
                 self._detect_summary()
             else:
                 self.lbl_detect_status.config(text="", fg=DIM)
+
+        if health_report.bitlocker_protected(self._bitlocker):
+            # a BIOS update or switching fTPM / Secure Boot makes Windows ask for the recovery key
+            bf = tk.Frame(self._inner, bg=tint(ERR, APP_BG, 0.10), highlightthickness=1,
+                          highlightbackground=tint(ERR, APP_BG, 0.40))
+            bf.pack(fill="x", pady=(0, 10))
+            WrapLabel(bf, text="🔒  " + tr(
+                "BitLocker ist auf C: aktiv. Sichere vor BIOS-Änderungen, einem BIOS-Update oder dem Umstellen "
+                f"von fTPM/Secure Boot den Wiederherstellungsschlüssel ({health_report.RECOVERY_KEY_URL}) — "
+                "sonst fragt Windows beim nächsten Start danach.",
+                "BitLocker is active on C:. Before changing BIOS settings, updating the BIOS or switching "
+                f"fTPM / Secure Boot, save the recovery key ({health_report.RECOVERY_KEY_URL}) — otherwise "
+                "Windows asks for it at the next start."),
+                font=F_S, fg=ERR, bg=tint(ERR, APP_BG, 0.10)).pack(fill="x", padx=12, pady=8)
 
         if p.notes:
             nf = tk.Frame(self._inner, bg=tint(AMBER, APP_BG, 0.10), highlightthickness=1,

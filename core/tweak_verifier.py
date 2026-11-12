@@ -14,7 +14,10 @@ from typing import Optional
 
 from core.tweaks import (_AMD_KEYS_PS,   # same AMD-only adapter filter as the tweaks
                          NIC_EEE_KEYWORDS, NIC_IM_KEYWORDS, _nic_ps,
-                         _TELEMETRY_TASKS_PS)   # the same task list the tweak works on
+                         _TELEMETRY_TASKS_PS,   # the same task list the tweak works on
+                         # round 45: the same value lists / power settings the tweaks write
+                         _reg_saved_ps, _power_saved_ps, TIPS_ITEMS, TIPS_CHECK, INPUT_ITEMS,
+                         _USB_SUB, _USB3_LPM, _SLEEP_SUB, _RTC_WAKE)
 
 
 @dataclass
@@ -103,10 +106,15 @@ VERIFY_MAP: dict[str, str] = {
         '$s=(Get-Service SysMain -EA SilentlyContinue).StartType; '
         'if($s -eq "Disabled"){"1"}else{"0"}'
     ),
+    # 3 = custom (since round 45: animations off, the readable look kept), 2 = the old "best performance";
+    # the minimize/maximize animation and the taskbar animations are the part both versions switch off
     "visual_effects_perf": (
         '$v=(Get-ItemProperty "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\VisualEffects" '
         '-Name VisualFXSetting -EA SilentlyContinue).VisualFXSetting; '
-        'if($v -eq 2){"1"}else{"0"}'
+        '$m=(Get-ItemProperty "HKCU:\\Control Panel\\Desktop\\WindowMetrics" -Name MinAnimate -EA SilentlyContinue).MinAnimate; '
+        '$t=(Get-ItemProperty "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced" '
+        '-Name TaskbarAnimations -EA SilentlyContinue).TaskbarAnimations; '
+        'if(($v -eq 2 -or $v -eq 3) -and "$m" -eq "0" -and $t -eq 0){"1"}else{"0"}'
     ),
     "disable_search_indexing": (
         '$s=(Get-Service WSearch -EA SilentlyContinue).StartType; '
@@ -151,10 +159,12 @@ VERIFY_MAP: dict[str, str] = {
         '-Name Win32PrioritySeparation -EA SilentlyContinue).Win32PrioritySeparation; '
         'if($v -eq 26){"1"}else{"0"}'
     ),
+    # the category is what MMCSS uses (the old check, GPU Priority = 8, is the Windows default: "active"
+    # on every PC)
     "mmcss_gaming": (
         '$v=(Get-ItemProperty "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\'
-        'Multimedia\\SystemProfile\\Tasks\\Games" -Name "GPU Priority" -EA SilentlyContinue)."GPU Priority"; '
-        'if($v -eq 8){"1"}else{"0"}'
+        'Multimedia\\SystemProfile\\Tasks\\Games" -Name "Scheduling Category" -EA SilentlyContinue)."Scheduling Category"; '
+        'if($v -eq "High"){"1"}else{"0"}'
     ),
     "disable_fullscreen_opt": (
         '$v=(Get-ItemProperty "HKCU:\\System\\GameConfigStore" '
@@ -177,11 +187,6 @@ VERIFY_MAP: dict[str, str] = {
         '$v=(Get-ItemProperty "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\GraphicsDrivers" '
         '-Name HwSchMode -EA SilentlyContinue).HwSchMode; '
         'if($v -eq 2){"1"}else{"0"}'
-    ),
-    "nvidia_low_latency": (
-        '$v=(Get-ItemProperty "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\nvlddmkm\\Global\\NVTweak" '
-        '-Name NVLatency -EA SilentlyContinue).NVLatency; '
-        'if($v -eq 1){"1"}else{"0"}'
     ),
     "dx12_optimization": (
         '$v=(Get-ItemProperty "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\GraphicsDrivers" '
@@ -298,11 +303,6 @@ VERIFY_MAP: dict[str, str] = {
         'foreach($n in $svcs){$s=Get-Service -Name $n -EA SilentlyContinue;'
         'if($s){$found=$true;if($s.StartType -ne "Disabled"){$active=$true}}}'
         'if(-not $found){"1"}elseif(-not $active){"1"}else{"0"}'
-    ),
-    "set_mmcss_audio": (
-        r'$p="HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Pro Audio";'
-        '$v=(Get-ItemProperty $p -Name "Priority" -EA SilentlyContinue).Priority;'
-        'if($v -eq 6){"1"}else{"0"}'
     ),
     "disable_audio_ducking": (
         r'$v=(Get-ItemProperty "HKCU:\Software\Microsoft\Multimedia\Audio"'
@@ -550,8 +550,10 @@ VERIFY_MAP: dict[str, str] = {
     'remove_m365_copilot_devhome': (
         'if(Get-AppxPackage -AllUsers \'*Microsoft.MicrosoftOfficeHub*\' -EA SilentlyContinue){"0"}elseif(Get-AppxPackage -AllUsers \'*Microsoft.Windows.DevHome*\' -EA SilentlyContinue){"0"}else{"1"}'
     ),
+    # what the tweak really sets (SackOpts / TcpMaxDupAcks, the old check, are not read by the TCP stack)
     'tcp_optimize': (
-        '$k=Get-ItemProperty \'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\' -EA SilentlyContinue; if($k -and $k.SackOpts -eq 1 -and $k.TcpMaxDupAcks -eq 2){"1"}else{"0"}'
+        '$t=Get-NetTCPSetting -SettingName Internet -EA Stop; '
+        'if("$($t.EcnCapability)" -eq "Disabled" -and "$($t.Timestamps)" -eq "Disabled"){"1"}else{"0"}'
     ),
     'disable_qos_limit': (
         '$v=(Get-ItemProperty \'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Psched\' -Name \'NonBestEffortLimit\' -EA SilentlyContinue).\'NonBestEffortLimit\'; if($v -eq 0){"1"}else{"0"}'
@@ -560,9 +562,55 @@ VERIFY_MAP: dict[str, str] = {
         '$k=Get-ItemProperty \'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile\\Tasks\\Audio\' -EA SilentlyContinue; if($k -and $k.\'Latency Sensitive\' -eq \'True\' -and $k.\'Scheduling Category\' -eq \'High\'){"1"}else{"0"}'
     ),
     'audio_service_priority': (
-        '$m=(Get-ItemProperty \'HKLM:\\SOFTWARE\\GameOptimizerPro\' -Name SR_AudioPriority -EA SilentlyContinue).SR_AudioPriority; $r=(Get-ItemProperty \'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile\' -Name SystemResponsiveness -EA SilentlyContinue).SystemResponsiveness; if($m -eq 1 -and $r -eq 0){"1"}else{"0"}'
+        '$m=(Get-ItemProperty \'HKLM:\\SOFTWARE\\GameOptimizerPro\' -Name SR_AudioPriority -EA SilentlyContinue).SR_AudioPriority; $r=(Get-ItemProperty \'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile\' -Name SystemResponsiveness -EA SilentlyContinue).SystemResponsiveness; if($m -eq 1 -and $r -eq 10){"1"}else{"0"}'
     ),
 
+    # ── Round 45 ──────────────────────────────────────────────────────────────
+    "disable_tips_suggestions": _reg_saved_ps("verify", "TIPS", TIPS_ITEMS, TIPS_CHECK),
+    "disable_input_speech_data": _reg_saved_ps("verify", "INPUT", INPUT_ITEMS),
+    "onedrive_block_kfm": (
+        '$v=(Get-ItemProperty "HKLM:\\SOFTWARE\\Policies\\Microsoft\\OneDrive" '
+        '-Name KFMBlockOptIn -EA SilentlyContinue).KFMBlockOptIn; if($v -eq 1){"1"}else{"0"}'
+    ),
+    "disable_remote_assistance": (
+        '$v=(Get-ItemProperty "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Remote Assistance" '
+        '-Name fAllowToGetHelp -EA SilentlyContinue).fAllowToGetHelp; if($v -eq 0){"1"}else{"0"}'
+    ),
+    "exclude_wu_drivers": (
+        '$v=(Get-ItemProperty "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate" '
+        '-Name ExcludeWUDriversInQualityUpdate -EA SilentlyContinue).ExcludeWUDriversInQualityUpdate; '
+        'if($v -eq 1){"1"}else{"0"}'
+    ),
+    "wu_pin_feature_version": (
+        '$k=Get-ItemProperty "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate" -EA SilentlyContinue; '
+        'if($k -and $k.TargetReleaseVersion -eq 1 -and $k.TargetReleaseVersionInfo -and $k.ProductVersion){"1"}else{"0"}'
+    ),
+    "disable_background_apps": (
+        '$v=(Get-ItemProperty "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\AppPrivacy" '
+        '-Name LetAppsRunInBackground -EA SilentlyContinue).LetAppsRunInBackground; if($v -eq 2){"1"}else{"0"}'
+    ),
+    "usb3_link_power_off": _power_saved_ps("verify", "USB3LPM", _USB_SUB, _USB3_LPM, 0),
+    "disable_wake_timers": _power_saved_ps("verify", "RTCWAKE", _SLEEP_SUB, _RTC_WAKE, 0),
+    "startup_delay_off": (
+        '$v=(Get-ItemProperty "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Serialize" '
+        '-Name StartupDelayInMSec -EA SilentlyContinue).StartupDelayInMSec; if($v -eq 0){"1"}else{"0"}'
+    ),
+    "explorer_open_this_pc": (
+        '$v=(Get-ItemProperty "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced" '
+        '-Name LaunchTo -EA SilentlyContinue).LaunchTo; if($v -eq 1){"1"}else{"0"}'
+    ),
+    "alt_tab_windows_only": (
+        '$v=(Get-ItemProperty "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced" '
+        '-Name MultiTaskingAltTabFilter -EA SilentlyContinue).MultiTaskingAltTabFilter; if($v -eq 3){"1"}else{"0"}'
+    ),
+    "disable_dynamic_lighting": (
+        '$v=(Get-ItemProperty "HKCU:\\Software\\Microsoft\\Lighting" '
+        '-Name AmbientLightingEnabled -EA SilentlyContinue).AmbientLightingEnabled; if($v -eq 0){"1"}else{"0"}'
+    ),
+    "controller_no_game_bar": (
+        '$v=(Get-ItemProperty "HKCU:\\Software\\Microsoft\\GameBar" '
+        '-Name UseNexusForGameBarEnabled -EA SilentlyContinue).UseNexusForGameBarEnabled; if($v -eq 0){"1"}else{"0"}'
+    ),
 }
 
 

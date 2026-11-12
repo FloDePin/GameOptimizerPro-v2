@@ -82,7 +82,12 @@ Alles, was die App macht, im Detail. Zitierte Ergebnisse aus Live-Läufen stamme
 - **Der eigene Zustand der App ist absturzsicher:** Einstellungen, die angewendeten Tweaks (darauf baut *Zurücksetzen* auf), die geänderten Dienste, Profile und die Listen des Wächters werden atomar mit letzter guter Kopie (`.bak`) geschrieben; eine Datei, die kurz nicht lesbar ist (Virenscanner beim Start), wird nie überschrieben, eine kaputte aus der Kopie wiederhergestellt. Unerwartete Fehler landen in `logs/app_errors.log` (die App hat keine Konsole). Die Stresslasten der App (Worker, FurMark eines Tunes / Härtetests) laufen in einem Windows-Job: Sie enden mit der App, auch nach einem Absturz
 
 ### 🛠 Windows Optimizer
-- **106 Tweaks** in den Kategorien Windows, Gaming, Network, Audio (inkl. AMD-GPU-Tweaks)
+- **118 Tweaks** in den Kategorien Windows, Gaming, Network, Audio (inkl. AMD-GPU-Tweaks) — jeder gegen Windows 11 26H2 geprüft (der Wert wird dort noch gelesen) und gegen Microsofts Editions-Tabellen
+- **Kein Placebo:** jeder Wert, den ein Tweak setzt, wird in Windows' eigenen Dateien gesucht (`tools/windows_watch.py --scan`). So gefunden und korrigiert: *NVIDIA Low Latency Mode* (ein Registry-Wert, den der NVIDIA-Treiber gar nicht kennt — der Modus steckt im Treiberprofil) und *MMCSS Audio Priority (Pro Audio)* (änderte nur Werte, die laut Microsoft nicht verwendet werden) sind ausgemustert; MMCSS *GPU/SFIO Priority*, TCP *SackOpts / TcpMaxDupAcks* und ein NVMe-Idle-Wert werden nicht mehr gesetzt; *SystemResponsiveness* ist 10 (Microsoft: Werte unter 10 gelten als Standard 20); *Remove Bloatware* lässt Medienwiedergabe und „Hilfe anfordern“ in Ruhe
+- **Deine eigenen Einstellungen kommen zurück:** Datenschutz-Schalter, Start-/Explorer-/Energieoptionen, die du (oder das Windows-Setup) schon gewählt hattest — Anwenden merkt sich jeden vorherigen Wert, Zurücksetzen schreibt genau den zurück statt eines „Windows-Standards“, der schlechter sein kann; die Energieoptionen behalten den Wert jedes einzelnen Plans
+- **Windows' eigene Werbung und Datensammlung:** Tipps & Vorschläge, die Willkommensseite nach Updates, „Gerät fertig einrichten“-Hinweise, vorgeschlagene Inhalte in den Einstellungen, Sperrbildschirm-Tipps (Spotlight-Bilder bleiben), Konto-Hinweise, OneDrive-Werbung im Explorer; Tipp-/Freihand-/Sprachdaten, maßgeschneiderte Erfahrungen, Feedback-Anfragen; Suchhervorhebungen und Cloud-Suche; 12 Telemetrie-Aufgaben (fehlende werden übersprungen)
+- **Updates & Hintergrund (Pro / Enterprise / Education — auf Home ausgeblendet, Home beachtet diese Richtlinien nicht):** keine Treiber über Windows Update (schützt den selbst installierten Grafiktreiber), auf der installierten Windows-Version bleiben (Sicherheitsupdates kommen weiter), Store-Apps nicht im Hintergrund
+- **Außerdem:** OneDrive verschiebt Desktop / Dokumente / Bilder nicht in die Cloud (bricht ab — und sagt, wie man sie zurückholt —, wenn sie schon dort liegen), Remoteunterstützung aus, USB-3-Link-Energiesparen und Weck-Timer aus (jeder Plan, nur Netzbetrieb), Autostart ohne Startverzögerung, Alt+Tab ohne Browser-Tabs, Explorer öffnet *Dieser PC*, Dynamic Lighting aus (gegen Konflikte mit RGB-Software), die Xbox-Taste am Controller öffnet keine Game Bar mehr; visuelle Effekte: die Animationen sofort aus, Schriftglättung / Fensterinhalt / Miniaturansichten bleiben
 - **Netzwerkadapter-Einstellungen:** Energy-Efficient Ethernet aus und Interrupt Moderation aus — nur an physischen LAN-Adaptern und nur mit den Schlüsselwörtern, die der Treiber selbst anbietet (jeder Hersteller nennt sie anders); der vorherige Wert wird gemerkt und beim Revert zurückgeschrieben. Kein Verbindungsabbruch beim Anwenden, wirkt nach einem Neustart
 - **Ehrlicher Timer-Tweak:** *Timer-Anfragen systemweit gelten lassen* (`GlobalTimerResolutionRequests`) stellt unter Windows 11 die systemweite Wirkung der Timer-Anfrage eines Programms wieder her — er setzt selbst keine Auflösung (das braucht ein laufendes Programm) und sagt das auch
 - **Windows 11 24H2/26H2 — KI & Bloat:** Recall (Richtlinie + Entfernen der Komponente), Click to Do, Paint-KI (Cocreator, Image Creator, generatives Füllen/Löschen), Notepad-KI, geräteinterne Text-/Bildgenerierung, der KI-Hostdienst (`WSAIFabricSvc`) und das Entfernen der Microsoft-365-Copilot-App / Dev Home, die Funktionsupdates wieder installieren — über Microsofts dokumentierte Richtlinien, wo es sie gibt
@@ -106,10 +111,11 @@ Alles, was die App macht, im Detail. Zitierte Ergebnisse aus Live-Läufen stamme
 - **Jede Desktop-Plattform seit Intel 8. Gen / Ryzen 1000** — 16 Plattformen: Ryzen 9000X3D / 9000 / 7000X3D / 7000 / 8000G (AM5), Ryzen 5000X3D / 5000 / APUs / 3000 / 1000–2000 (AM4), Core Ultra 200S, Core 12. / 13.–14. Gen, 10.–11. Gen, 8.–9. Gen, dazu die Grundlagen für alles andere (Laptops, Workstations)
 - Die Hardware-Erkennung **wählt nur vor** — deine Plattform und deinen Board-Hersteller (ASUS / MSI / Gigabyte / ASRock); jede Plattform lässt sich öffnen
 - Jede Einstellung mit dem **Menüpfad für deinen Board-Hersteller**, Standard- und Empfehlungswert, Risiko und Wirkung — und dem, was auf der Plattform zählt (EXPO 6000 + FCLK 2000 bei AM5, Curve Optimizer, der Microcode-0x12F-Fix für 13./14. Gen, Intel Default Settings, 200S Boost, X3D-Kernzuteilung, Secure Boot für Anti-Cheats …)
+- **BitLocker-Warnung:** schützt BitLocker C:, sagt der Guide, dass du vor BIOS-Änderungen, einem BIOS-Update oder dem Umstellen von fTPM / Secure Boot den Wiederherstellungsschlüssel sichern sollst — sonst fragt Windows beim nächsten Start danach
 - **Live-Status nur, wo Windows es wirklich weiß** (grün = gesetzt, rot = noch offen, grau = nicht prüfbar): RAM-Profil (eingestellter Takt gegen die JEDEC-Obergrenze des DDR-Typs), Resizable BAR (BAR1-Fenster aus dem NVIDIA-Treiber), Secure Boot und CSM (UEFI-Zustand). Die alten Schätzungen (ReBAR aus HAGS, XMP aus „> 3200 MHz“, PBO aus dem Maximaltakt) sind raus
 
 ### 🩺 Diagnose
-- **Health Report** — read-only-Übersicht dessen, was Windows in den letzten 30 Tagen schon protokolliert hat: WHEA-Hardwarefehler, Bluescreens, unerwartete Neustarts, GPU-Treiber-Timeouts (TDR), Datenträgerfehler, App-Abstürze — mit Schweregrad und letztem Auftreten
+- **Health Report** — read-only-Übersicht dessen, was Windows in den letzten 30 Tagen schon protokolliert hat: WHEA-Hardwarefehler, Bluescreens, unerwartete Neustarts, GPU-Treiber-Timeouts (TDR), Datenträgerfehler, App-Abstürze — mit Schweregrad und letztem Auftreten; dazu, ob Speicherintegrität und BitLocker an sind (BitLocker an: vor BIOS-Änderungen den Wiederherstellungsschlüssel sichern)
 - **Remnant-Scan** — read-only-Erkennung von Resten *anderer* Tweak-Tools (WinRing0-/inpout-Treiber, ISLC, TimerResolution-Autostarts, Fremd-Energiepläne, Razer Cortex). Meldet nur — entfernt nichts
 - **Interrupts** — je PCI-Gerät: MSI oder der alte Leitungs-Interrupt (gelesen aus dem, was Windows wirklich zugeteilt hat, nicht nur aus dem Registry-Wert), Zahl der Meldungen, Interrupt-Priorität und Kern-Zuordnung, geteilte Leitungs-Interrupts — mit Hinweis, wo es zählt (eine GPU ohne MSI verweist auf den MSI-Tweak; ein Treiber, der MSI absichtlich abschaltet, bleibt in Ruhe). Nur lesend
 
@@ -153,6 +159,10 @@ Alles, was die App macht, im Detail. Zitierte Ergebnisse aus Live-Läufen stamme
 - Status je Eintrag: Sicher ✓ / Vorsicht ⚠ / System ⚙ / Unbekannt ?
 - 40+ vorklassifizierte bekannte Prozesse (Discord, Steam, Corsair, NVIDIA usw.)
 
+### 📦 Apps
+- **Store-Apps gezielt entfernen:** die installierten Store-Apps mit verständlichem Namen und Einstufung — *kann weg* (vorinstallierte Extras), *wird evtl. genutzt* (Fotos, Snipping Tool, Xbox-App … — was danach fehlt, steht dabei, und es wird vorher gefragt), *selbst entscheiden* (selbst installiert). Store, App-Installer, Windows-Sicherheit, Edge, Terminal, Gaming Services, Treiber-Apps, Codecs, Sprachpakete und Windows-Bestandteile werden nie angezeigt. Entfernt wird für alle Benutzer samt bereitgestelltem Paket (Funktionsupdates bringen die App sonst zurück), nach einem Wiederherstellungspunkt
+- **Programme per winget installieren:** eine kurze, handverlesene Liste — Launcher (Steam, Epic, GOG, EA, Ubisoft, Battle.net), die Laufzeiten, die Spiele brauchen (Visual C++, DirectX, .NET), Tuning / Monitoring (MSI Afterburner, RTSS, FurMark 2, HWiNFO, CPU-Z, GPU-Z …), Discord / TeamSpeak / OBS, Werkzeuge — leise aus der offiziellen winget-Quelle, eins nach dem anderen; Installiertes wird erkannt (winget-Liste oder die Programmdatei)
+
 ---
 
 ## 🗂 Projektstruktur
@@ -169,7 +179,7 @@ GameOptimizerPro/
 │   ├── nvtune_tuner.py       ← Auto-Tuner: Rundum (eigene V/F-Kurve) + Schnell (OC + UV), Speicher; TDR- + Fehlererkennung
 │   ├── curve_tune.py         ← Rundum-Logik: Punktsuche, Sicherheitsabzug, Ziele, Bericht
 │   ├── hardware.py           ← WMI-Hardware-Erkennung
-│   ├── tweaks.py             ← 106-Tweaks-Datenbank (Windows, Gaming, Network, Audio)
+│   ├── tweaks.py             ← 118-Tweaks-Datenbank (Windows, Gaming, Network, Audio)
 │   ├── network_test.py       ← Gateway/DNS-Ping-Latenztest
 │   ├── system_cleaner.py     ← Sicherer Temp-/Junk-Cleaner + freiwilliger Deep Clean
 │   ├── services.py           ← Services-Manager-Logik (merkt sich Original-Starttypen)
@@ -187,7 +197,9 @@ GameOptimizerPro/
 │   ├── tweak_i18n.py         ← Mehrsprachige Tweak-Beschreibungen (EN/DE)
 │   ├── bios_guide.py         ← BIOS-Guide: 16 Plattformen, Menüpfade je Board-Hersteller
 │   ├── bios_detector.py      ← Was Windows weiß (RAM-Profil, ReBAR, Secure Boot, CSM)
-│   ├── health_report.py      ← 30-Tage Windows-Health-Report
+│   ├── health_report.py      ← 30-Tage Windows-Health-Report (+ Speicherintegrität, BitLocker)
+│   ├── app_removal.py        ← Store-Apps: Einstufung, geschützte Apps, Entfernen (alle Benutzer + bereitgestellt)
+│   ├── winget_installer.py   ← Programmliste + leise Installation über winget
 │   ├── gpu_watchdog.py       ← GPU-Hänger / Resets seit dem übernommenen Profil, Fehlerpunkt
 │   ├── hardness_test.py      ← Härtetest: 3D + Encoder + Rechnen / Speicher gleichzeitig, in Phasen
 │   ├── nvenc.py              ← NVIDIA-Video-Encoder über die nvEncodeAPI64.dll des Treibers (ctypes)
@@ -232,11 +244,13 @@ GameOptimizerPro/
     ├── live_graph.py         ← Rollierendes Spannungs-/Takt-/Temperatur-Diagramm
     ├── startup_manager.py    ← Autostart-Manager (Seite)
     ├── services_manager.py   ← Dienste-Manager (Seite)
+    ├── apps_page.py          ← Apps-Seite: Store-Apps entfernen, Programme installieren
     └── drift_dialog.py       ← Dialog „Tweaks nicht mehr aktiv“ (ein Haken pro Tweak)
 tests/                        ← Windows-Testbatterie: python tests\run_all_tests.py
 tools/
     ├── ab_selftest.py        ← Afterburner-Selbsttest (info / dryrun / live / restore)
-    └── apply_update.py       ← Spielt ein geladenes Update ein (Sicherung, Rücknahme, Neustart)
+    ├── apply_update.py       ← Spielt ein geladenes Update ein (Sicherung, Rücknahme, Neustart)
+    └── windows_watch.py      ← Nach einem Windows-Update: welche Tweaks zurückgesetzt sind / nicht mehr wirken (nur lesend)
 build.json                    ← Build-Nummer dieser Version (der Updater vergleicht sie)
 ```
 

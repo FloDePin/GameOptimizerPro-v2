@@ -17,7 +17,7 @@ TWEAK_DESC_EN: dict[str, str] = {
     'remove_recall':
         'Turns off Windows Recall via the official policies (no more screenshots of your activity) and REMOVES its components and saved snapshots on the next restart. Privacy critical.',
     "remove_bloatware":
-        "Removes preinstalled apps: Candy Crush, TikTok, Disney+, Facebook, Spotify, News, Solitaire, Clipchamp, ToDo, Paint3D and more.",
+        "Removes preinstalled apps: Candy Crush, TikTok, Disney+, Facebook, Spotify, News, Solitaire, Clipchamp, ToDo, Paint3D and more — the provisioned packages too, so feature updates don't reinstall them. Deliberately not: Media Player (Windows 11's default player) and Get Help (the troubleshooters run through it) — remove those one by one on the Apps page if you like.",
     "disable_telemetry":
         "Disables all Windows telemetry services (DiagTrack, dmwappushservice). Recommended for everyone.",
     "disable_activity_history":
@@ -29,7 +29,9 @@ TWEAK_DESC_EN: dict[str, str] = {
     "block_telemetry_hosts":
         "Blocks Microsoft telemetry servers in the hosts file. Works even if services are still running.",
     "disable_telemetry_tasks":
-        "Disables all scheduled Windows tasks that collect telemetry data.",
+        "Disables the scheduled Windows tasks that collect or send telemetry and diagnostic data: compatibility "
+        "appraisal, Customer Experience Improvement Program, feedback data, the error report queue, disk and "
+        "energy diagnostics. Tasks this Windows doesn't have are skipped; revert switches them back on.",
     "ultimate_performance":
         "Enables the Ultimate Performance power plan. CPU cores are no longer throttled, and on mains power the screen never turns off and the PC never goes to sleep. Increases power draw. (Creates the plan only once — each apply used to add another copy; extra copies are removed.)",
     "disable_hpet":
@@ -42,7 +44,10 @@ TWEAK_DESC_EN: dict[str, str] = {
     "disable_prefetch":
         "Disables SysMain. Useful on SSDs, not recommended on HDDs.",
     "visual_effects_perf":
-        "Turns off all Windows animations. Windows feels noticeably faster.",
+        "Turns off the Windows animations — minimize/maximize, menus, tooltips, lists, controls, taskbar — at "
+        "once, without signing out. Deliberately kept ON: smooth screen fonts, window contents while dragging, "
+        "thumbnails and the shadows under icon labels: they cost practically nothing, without them Windows only "
+        "gets harder to read. Windows feels noticeably more direct.",
     "disable_search_indexing":
         "Disables WSearch. Reduces background disk access. Search still works but slower.",
     "disable_mouse_accel":
@@ -60,15 +65,16 @@ TWEAK_DESC_EN: dict[str, str] = {
     "cpu_priority_games":
         "Sets Win32PrioritySeparation to 26. Windows gives active games significantly more CPU time.",
     "mmcss_gaming":
-        "Sets MMCSS to High Priority for games. Windows prioritises audio and timer interrupts.",
+        "Sets the MMCSS category of the 'Games' task to High: threads that register with Windows as a game task "
+        "run at priority 23–26 instead of 16–22. Honest note: only some games and programs do that; the values "
+        "'GPU Priority' and 'Priority' often set along with it are not read by Windows for this, per Microsoft "
+        "(GPU Priority is not used, Priority always counts as 2 with High).",
     "disable_fullscreen_opt":
         "Disables Windows Fullscreen Optimizations globally. Forces true fullscreen for lower input lag.",
     "disable_wu_gaming":
         "Prevents automatic Windows Update downloads and installs. Avoids reboots and performance drops while gaming.",
     "disable_bg_throttle":
         "Disables CPU throttling for background processes. Important for CPU-heavy games.",
-    "nvidia_low_latency":
-        "Enables NVIDIA Ultra Low Latency Mode. Reduces the render queue to 1 frame. NVIDIA GPUs only.",
     "enable_msi_mode":
         "Enables Message Signaled Interrupts for the GPU. Reduces interrupt latency. Reboot required.",
     "enable_hags":
@@ -90,7 +96,8 @@ TWEAK_DESC_EN: dict[str, str] = {
     "disable_lso":
         "Disables Large Send Offload on active adapters. Helps with unstable ping in online games.",
     "disable_network_throttle":
-        "Disables network throttling under high CPU load. Gives the network stack top priority.",
+        "Disables network throttling under high CPU load. Gives the network stack top priority. Also sets "
+        "SystemResponsiveness to 10 (the lowest value Windows accepts).",
     "dns_cloudflare":
         "Sets DNS to Cloudflare 1.1.1.1/1.0.0.1. One of the fastest and most privacy-friendly DNS services.",
     "dns_google":
@@ -125,8 +132,6 @@ TWEAK_DESC_EN: dict[str, str] = {
         "Turns off all Windows system sounds (startup, error, notifications). Prevents audio interruptions while gaming.",
     "disable_nahimic":
         "Disables Nahimic audio (preinstalled on MSI boards and gaming laptops). Causes CPU spikes and audio artefacts. Safe if unused.",
-    "set_mmcss_audio":
-        "Sets MMCSS audio priority to maximum. Windows gives audio threads higher CPU priority, less stutter and crackle under high load.",
     "disable_audio_ducking":
         "Prevents Windows from lowering other sounds during calls/communication. Often annoying when gaming with Discord.",
     # v2.1 additions
@@ -135,7 +140,9 @@ TWEAK_DESC_EN: dict[str, str] = {
     "reduce_process_count":
         "Sets the Svchost split threshold to your RAM size so Windows bundles services into fewer processes. Lowers the total background process count. Safe with 16GB+ RAM.",
     "disable_bing_search":
-        "Disables Bing web integration in Windows Search. Start menu search stays local and loads faster.",
+        "Disables Bing web integration in Windows Search. Start menu search stays local and loads faster. Also "
+        "off: search highlights (pictures and topics of the day in the search box) and the cloud content search "
+        "(OneDrive/Outlook results of the Microsoft or work account).",
     "disable_consumer_features":
         "Stops Windows from silently installing suggested apps and games (Candy Crush, TikTok & co.) — also the ones the PC maker and Microsoft line up. Works on every edition incl. Home and Pro (Content Delivery Manager); plus the 'Turn off Microsoft consumer experiences' policy, which Windows honours on Enterprise / Education only. Apps already installed stay — 'Remove Bloatware' is for those.",
     "disable_hibernation":
@@ -207,11 +214,13 @@ TWEAK_DESC_EN: dict[str, str] = {
     'disable_scheduled_defrag':
         "Disables the weekly drive optimization. Honest note: on SSDs Windows doesn't defragment, it only sends another TRIM — that stops (TRIM on delete stays). Only useful if you want to control optimization yourself.",
     'nvme_queue_depth':
-        "Sets a StorPort queue depth of 32 and a higher interrupt priority for NVMe SSDs and turns off the NVMe driver's idle power saving (lower latency, slightly more power). Honest note: the effect depends on the driver and is usually only measurable in benchmarks. Greyed out without an NVMe drive.",
+        "Sets a StorPort queue depth of 32 and a higher interrupt priority for NVMe SSDs. Honest note: the effect depends on the driver and is usually only measurable in benchmarks. (A value for idle power saving set earlier is not read by the NVMe driver and is gone.) Greyed out without an NVMe drive.",
     'disable_write_cache_flush':
         "Same as 'Turn off Windows write-cache buffer flushing' in Device Manager: faster writes, but a power loss or crash can cause data loss and file-system errors. Desktop PCs with a stable power supply only (ideally a UPS). (v1 set the wrong registry value here.)",
     'w11_hide_recommended':
-        "Hides the 'Recommended' section (recent files/apps) in the Start menu via policy. Honest note: not guaranteed on every edition/build.",
+        "Hides the 'Recommended' section in Start via policy — which Microsoft only documents for Education/SE. "
+        "So that it stays empty on Home and Pro too, also off: recently opened files (in Explorer's Home and the "
+        "taskbar jump lists as well) and tips/app recommendations in Start. Revert puts your previous settings back.",
     'disable_click_to_do':
         "Turns off 'Click to Do', which takes a screenshot on a key press and has an AI analyze it to suggest actions. Official Windows AI policy (documented for Pro too), for computer and user.",
     'disable_paint_ai':
@@ -235,13 +244,78 @@ TWEAK_DESC_EN: dict[str, str] = {
         "stream, better leave it on. Only settings the driver itself offers are changed; revert puts the "
         "previous value back. Takes effect after a restart.",
     'tcp_optimize':
-        'Turns ECN and TCP timestamps off and SACK on — slightly less overhead per packet. Honest note: the effect on ping is small; turning ECN off mainly helps behind routers that mishandle ECN packets.',
+        'Turns ECN and TCP timestamps off — slightly less overhead per packet. Honest note: the effect on ping is small; turning ECN off mainly helps behind routers that mishandle ECN packets. (SACK is always on in Windows; the old values SackOpts / TcpMaxDupAcks have not been read by the TCP stack since Windows Vista — the tweak no longer sets them.)',
     'disable_qos_limit':
         "Sets the QoS policy 'limit reservable bandwidth' to 0 %. Honest note: contrary to popular belief Windows does NOT permanently reserve 20 % — the reserve only applies when a QoS application requests bandwidth. Usually no measurable effect, but harmless.",
     'mmcss_audio_profile':
-        "Sets the MMCSS task 'Audio' to latency-sensitive with high scheduling priority — fewer crackles and dropouts under CPU load. (Complements 'MMCSS Audio Priority', which covers the 'Pro Audio' task.)",
+        "Sets the MMCSS task 'Audio' to latency-sensitive with high scheduling priority — fewer crackles and dropouts under CPU load.",
     'audio_service_priority':
-        "Sets SystemResponsiveness to 0 — MMCSS no longer reserves CPU time for background tasks, so audio and games get more. Against dropouts while gaming + streaming. ('Network Throttling Index' uses the same value — it's only reset once neither tweak needs it.)",
+        "Sets SystemResponsiveness to 10 — MMCSS only keeps 10 % instead of 20 % of CPU time free for background tasks, so audio and games get more. Against dropouts while gaming + streaming. Honest note: 10 is the minimum — lower values (often recommended: 0) are treated like the default 20, per Microsoft. ('Network Throttling Index' uses the same value — it's only reset once neither tweak needs it.)",
+    # ── Round 45 ──────────────────────────────────────────────────────────────
+    "disable_tips_suggestions":
+        "Turns off Windows' built-in advertising: 'tips and suggestions', the welcome page after updates, 'finish "
+        "setting up your device' hints, suggested content in Settings, tips and fun facts on the lock screen (the "
+        "Spotlight pictures stay), account hints in Start and Settings and the OneDrive ads in Explorer. All of "
+        "them switches Windows offers itself (Home and Pro); revert puts your previous values back.",
+    "disable_input_speech_data":
+        "Turns off the privacy switches around typing and speech: the personal inking and typing dictionary "
+        "(Windows collects what you type and write for it), 'improve inking and typing', online speech "
+        "recognition, 'tailored experiences' with diagnostic data, feedback requests, the language list for "
+        "websites and tracking app launches (Start then shows no 'most used' list). Revert puts your previous "
+        "values back.",
+    "onedrive_block_kfm":
+        "Stops OneDrive from moving Desktop, Documents and Pictures to the cloud ('back up folders') — and from "
+        "asking about it. The official OneDrive policy, for every account incl. a personal Microsoft account. If "
+        "the folders are in OneDrive already, the tweak stops and says how to move them back first (otherwise "
+        "exactly that button would be locked). No effect without OneDrive.",
+    "disable_remote_assistance":
+        "Turns off the old Windows Remote Assistance (System properties → Remote): nobody can start a help "
+        "session on this PC through it. Practically only used in company networks any more; Quick Assist, "
+        "TeamViewer & co. are not affected. Less attack surface. Revert puts the previous values back.",
+    "exclude_wu_drivers":
+        "Windows Update no longer installs drivers with the monthly updates (official policy). Protects the "
+        "graphics driver you installed from being replaced by an older or generic version. In return chipset, "
+        "Wi-Fi, Bluetooth & co. get no drivers through Windows Update either — get those from the manufacturer. "
+        "Pro, Enterprise and Education only (Windows Home ignores the policy, hidden there).",
+    "wu_pin_feature_version":
+        "Keeps Windows on the installed version (e.g. 26H2): feature updates, which can reinstall apps and reset "
+        "settings, only come once you lift this again. Security and quality updates keep coming. Official policy, "
+        "Pro, Enterprise and Education only (Home: hidden). Revert it before the version's end of support — after "
+        "that there would be no more security updates.",
+    "disable_background_apps":
+        "Official policy 'Let Windows apps run in the background: force deny': Store apps (Phone Link, Mail and "
+        "Calendar, Weather …) only run while they are open — saves RAM and background CPU. Afterwards such apps "
+        "no longer notify you while closed, e.g. WhatsApp from the Store. Regular programs (Steam, Discord, "
+        "Afterburner) are not affected. Pro, Enterprise and Education only (Home: hidden).",
+    "usb3_link_power_off":
+        "Turns off the power saving of the USB 3 link on mains power (hidden power option 'USB 3 Link Power "
+        "Management', Windows default: moderate savings). The link stays awake — against short dropouts and slow "
+        "wake-ups of USB 3 devices such as headsets, DACs, capture cards or external SSDs. Slightly more power "
+        "draw. Applies to every power plan; revert puts the previous values back. Complements 'USB Selective "
+        "Suspend' (that one is about the devices, not the link).",
+    "disable_wake_timers":
+        "Scheduled tasks (update restarts, maintenance) no longer wake the PC from sleep (power option 'Allow "
+        "wake timers' on mains power; Windows default: on). A sleeping PC stays off at night; updates install "
+        "while it is on. Applies to every power plan; revert puts the previous values back.",
+    "startup_delay_off":
+        "Windows starts autostart programs (Run entries and the Startup folder) only a few seconds after you "
+        "sign in. Without the delay Discord & co. are there at once; with very many autostarts signing in feels "
+        "a bit heavier for a moment. Programs with their own task (e.g. Afterburner) are not affected.",
+    "explorer_open_this_pc":
+        "Explorer opens 'This PC' (drives and folders) instead of 'Home' with the recently used files. A matter "
+        "of taste; doesn't count towards the score.",
+    "alt_tab_windows_only":
+        "Alt+Tab and snapping show windows only, no single Edge tabs (Settings → System → Multitasking). Out of a "
+        "game you get to the right window faster. Takes effect after signing out. A matter of taste; doesn't "
+        "count towards the score.",
+    "disable_dynamic_lighting":
+        "Turns off 'Dynamic Lighting' (Settings → Personalization): Windows no longer controls the RGB lighting "
+        "of keyboard, mouse & co. — against conflicts with the vendor software (iCUE, G HUB, Armoury Crate, "
+        "SignalRGB …), which can otherwise flicker or lose its effects. If you control the lighting through "
+        "Windows, leave it on. Takes effect after signing out at the latest; doesn't count towards the score.",
+    "controller_no_game_bar":
+        "The Xbox/guide button on the controller no longer opens the Game Bar — so it no longer pulls you out of "
+        "the game or out of Steam Big Picture (Settings → Gaming → Game Bar). Revert puts the previous value back.",
 }
 
 # English names, only where the German name differs. Most names are already English.
@@ -280,7 +354,7 @@ TWEAK_NAME_EN: dict[str, str] = {
     'disable_scheduled_defrag':
         'Disable Scheduled Drive Optimization',
     'nvme_queue_depth':
-        'NVMe: Queue Depth & Idle Power Saving',
+        'NVMe: Queue Depth & Interrupt Priority',
     'disable_write_cache_flush':
         'Disable Write-Cache Buffer Flushing (desktop + UPS only)',
     'w11_hide_recommended':
@@ -296,13 +370,28 @@ TWEAK_NAME_EN: dict[str, str] = {
     'remove_m365_copilot_devhome':
         'Remove Microsoft 365 Copilot App & Dev Home',
     'tcp_optimize':
-        'Optimize TCP (ECN & Timestamps off, SACK on)',
+        'Optimize TCP (ECN & Timestamps off)',
     'disable_qos_limit':
         'QoS Bandwidth Reserve to 0 %',
     'mmcss_audio_profile':
         'Optimize MMCSS Audio Profile',
     'audio_service_priority':
         'Raise Audio Priority System-wide',
+    # round 45
+    "disable_tips_suggestions":  "Turn Off Tips, Suggestions & Ads in Windows",
+    "disable_input_speech_data": "Don't Send Typing, Inking & Speech Data",
+    "onedrive_block_kfm":        "OneDrive: Don't Move Folders to the Cloud",
+    "disable_remote_assistance": "Disable Remote Assistance",
+    "exclude_wu_drivers":        "No Drivers through Windows Update",
+    "wu_pin_feature_version":    "Stay on This Windows Version",
+    "disable_background_apps":   "Don't Let Store Apps Run in the Background",
+    "usb3_link_power_off":       "USB 3: Link Power Saving Off",
+    "disable_wake_timers":       "Disable Wake Timers",
+    "startup_delay_off":         "Autostart Programs Without Delay",
+    "explorer_open_this_pc":     "Explorer Opens 'This PC'",
+    "alt_tab_windows_only":      "Alt+Tab Without Browser Tabs",
+    "disable_dynamic_lighting":  "Turn Off Dynamic Lighting (RGB control by Windows)",
+    "controller_no_game_bar":    "Xbox Button Doesn't Open the Game Bar",
 }
 
 

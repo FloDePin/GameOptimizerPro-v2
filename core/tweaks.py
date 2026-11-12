@@ -20,6 +20,7 @@ class Tweak:
     requires_amd:    bool = False
     requires_nvme:   bool = False
     requires_win11:  bool = False      # set from WIN11_ONLY below
+    requires_pro:    bool = False      # set from PRO_ONLY below (Home ignores the policy)
     requires_reboot: bool = False
     risk:        str = "safe"   # "safe" | "moderate" | "advanced"
     tags:        list = field(default_factory=list)
@@ -98,20 +99,8 @@ _AMD_ANTILAG_REVERT = _AMD_KEYS_PS + (
     "Remove-ItemProperty -Path $k.PSPath -Name EnableAntiLag -EA SilentlyContinue }"
 )
 
-# NVIDIA: only write when the NVIDIA kernel driver service exists. `reg add /f`
-# on an AMD/Intel system would otherwise CREATE a bogus
-# Services\nvlddmkm\Global\NVTweak tree for a driver that isn't installed.
-_NV_LATENCY_APPLY = (
-    "if(!(Test-Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\nvlddmkm')){ "
-    "Write-Output 'Kein NVIDIA-Treiber gefunden'; exit 1 }; "
-    "$p='HKLM:\\SYSTEM\\CurrentControlSet\\Services\\nvlddmkm\\Global\\NVTweak'; "
-    "if(!(Test-Path $p)){New-Item -Path $p -Force|Out-Null}; "
-    "Set-ItemProperty -Path $p -Name NVLatency -Value 1 -Type DWord"
-)
-_NV_LATENCY_REVERT = (
-    "Remove-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\nvlddmkm\\Global\\NVTweak' "
-    "-Name NVLatency -EA SilentlyContinue"
-)
+# (The "NVIDIA Low Latency Mode" tweak that wrote NVTweak\NVLatency is retired since round 45: no file
+# of the NVIDIA driver contains that value name — the low-latency mode lives in the driver profile.)
 
 
 
@@ -200,8 +189,11 @@ _NVME_QD_APPLY = _NVME_DISKS_PS + (
     r"foreach($d in $nv){ $b='HKLM\SYSTEM\CurrentControlSet\Enum\'+$d.PNPDeviceID+'\Device Parameters'; "
     r"reg add ($b+'\StorPort') /v QueueDepth /t REG_DWORD /d 32 /f | Out-Null; "
     r"reg add ($b+'\Interrupt Management\Affinity Policy') /v DevicePriority /t REG_DWORD /d 2 /f | Out-Null }; "
-    r"reg add 'HKLM\SYSTEM\CurrentControlSet\Services\stornvme\Parameters\Device' /v IdlePowerEnabled /t REG_DWORD /d 0 /f"
+    r"exit 0"
 )
+# round 45: 'stornvme\Parameters\Device\IdlePowerEnabled' (set up to round 44) is in neither stornvme.sys
+# nor storport.sys of 26H2 — no longer set; the revert still removes it. QueueDepth (storport, stornvme)
+# and DevicePriority (pci.sys) are read.
 _NVME_QD_REVERT = _NVME_DISKS_PS + (
     r"foreach($d in $nv){ $b='HKLM\SYSTEM\CurrentControlSet\Enum\'+$d.PNPDeviceID+'\Device Parameters'; "
     r"reg delete ($b+'\StorPort') /v QueueDepth /f 2>$null | Out-Null; "
@@ -286,9 +278,242 @@ _TELEMETRY_TASKS_PS = (
     "'\\Microsoft\\Windows\\Autochk\\Proxy',"
     "'\\Microsoft\\Windows\\Customer Experience Improvement Program\\Consolidator',"
     "'\\Microsoft\\Windows\\Customer Experience Improvement Program\\UsbCeip',"
-    "'\\Microsoft\\Windows\\DiskDiagnostic\\Microsoft-Windows-DiskDiagnosticDataCollector'); "
+    "'\\Microsoft\\Windows\\DiskDiagnostic\\Microsoft-Windows-DiskDiagnosticDataCollector',"
+    # round 45: Feedback-Hub data, the error report upload queue, SQM, the energy diagnosis (all four
+    # exist on 26H2 except Sqm-Tasks; administrators have full access to them)
+    "'\\Microsoft\\Windows\\Feedback\\Siuf\\DmClient',"
+    "'\\Microsoft\\Windows\\Feedback\\Siuf\\DmClientOnScenarioDownload',"
+    "'\\Microsoft\\Windows\\Windows Error Reporting\\QueueReporting',"
+    "'\\Microsoft\\Windows\\PI\\Sqm-Tasks',"
+    "'\\Microsoft\\Windows\\Power Efficiency Diagnostics\\AnalyzeSystem'); "
     "$found=@(foreach($t in $tasks){ $i=$t.LastIndexOf('\\'); "
     "Get-ScheduledTask -TaskPath $t.Substring(0,$i+1) -TaskName $t.Substring($i+1) -EA SilentlyContinue }); "
+)
+
+
+# ── Registry values the user may have chosen: revert brings THEIR value back (round 45) ─────────────
+# Privacy switches, Start and Explorer options — Windows setup or the user often set some of them
+# already. Apply keeps every value as it was (…\Software\GameOptimizerPro\RegOrig in the same hive;
+# "*none*" = it did not exist), revert writes exactly that back instead of a "Windows default" that can
+# be worse than what was there (e.g. sending typing data back ON). Without a kept value (applied by an
+# older version, or the store is gone) revert uses the item's fallback: None = delete the value, so
+# Windows uses its default. The .NET registry API, not the cmdlets: names like
+# "SubscribedContent-338389Enabled" need no escaping there.
+# item: (hive "HKCU" | "HKLM", subkey, value name, "DWord" | "String", value, fallback or None)
+_REG_HIVE_PS = ("$h=$(if($i[0] -eq 'HKLM'){[Microsoft.Win32.Registry]::LocalMachine}"
+                "else{[Microsoft.Win32.Registry]::CurrentUser}); ")
+
+
+def _ps_quote(s) -> str:
+    return "'" + str(s).replace("'", "''") + "'"
+
+
+def _reg_items_ps(items) -> str:
+    rows = []
+    for hive, path, name, kind, value, fallback in items:
+        fb = "*del*" if fallback is None else f"{kind}|{fallback}"
+        rows.append("@(" + ",".join(_ps_quote(x) for x in (hive, path, name, kind, value, fb)) + ")")
+    # ONE row needs the comma operator: @(@('a','b')) is the flat list 'a','b' — the loop would walk
+    # over the strings and index their characters (found by the round-45 test)
+    return "@(," + rows[0] + ")" if len(rows) == 1 else "@(" + ",".join(rows) + ")"
+
+
+# every loop also skips anything that is not a 6-field row (never index into a string)
+_ROW_GUARD = "if($i.Count -ne 6){ continue }; "
+
+
+def _reg_saved_ps(mode: str, tag: str, items, check=None) -> str:
+    """apply / revert / verify for `items` (see above). verify: every value (or the names in `check`)
+    has its target value."""
+    if mode == "verify":
+        rows = _reg_items_ps([i for i in items if check is None or i[2] in check])
+        return ("$ok=$true; foreach($i in " + rows + "){ " + _ROW_GUARD + _REG_HIVE_PS +
+                "$k=$h.OpenSubKey($i[1]); $v=$null; if($k){ $v=$k.GetValue($i[2],$null); $k.Close() }; "
+                "if($null -eq $v -or \"$v\" -ne $i[4]){ $ok=$false } }; if($ok){'1'}else{'0'}")
+    rows = _reg_items_ps(items)
+    store = "'Software\\GameOptimizerPro\\RegOrig'"
+    ident = f"$id='{tag}|'+$i[1]+'|'+$i[2]; "
+    # every item on its own: one that can't be written (no rights) is reported, never changed without
+    # its old value kept first; the others go on
+    fail = (f"if($bad.Count){{ Write-Output ('{_tr('Nicht geändert', 'Not changed')}: ' + ($bad -join ', ')); "
+            "exit 1 }; exit 0")
+    if mode == "apply":
+        return ("$bad=@(); foreach($i in " + rows + "){ " + _ROW_GUARD + "try { " + _REG_HIVE_PS +
+                f"$st=$h.CreateSubKey({store}); $k=$h.CreateSubKey($i[1]); " + ident +
+                "if($null -eq $st.GetValue($id)){ $cur=$k.GetValue($i[2],$null,'DoNotExpandEnvironmentNames'); "
+                "if($null -eq $cur){ $o='*none*' } else { $kd=[string]$k.GetValueKind($i[2]); "
+                "$o=$(if($kd -in 'DWord','QWord','String','ExpandString'){ $kd+'|'+$cur }else{ '*keep*' }) }; "
+                "$st.SetValue($id,$o) }; "
+                "if($i[3] -eq 'DWord'){ $k.SetValue($i[2],[int]$i[4],'DWord') }else{ $k.SetValue($i[2],[string]$i[4],'String') }; "
+                "$k.Close(); $st.Close() } catch { $bad+=$i[2] } }; " + fail)
+    return ("$bad=@(); foreach($i in " + rows + "){ " + _ROW_GUARD + "try { " + _REG_HIVE_PS +
+            f"$st=$h.OpenSubKey({store},$true); $k=$h.OpenSubKey($i[1],$true); " + ident +
+            "$o=$null; if($st){ $o=$st.GetValue($id,$null) }; if($null -eq $o){ $o=$i[5] }; "
+            "if($k){ if($o -eq '*none*' -or $o -eq '*del*'){ $k.DeleteValue($i[2],$false) } "
+            "elseif($o -ne '*keep*'){ $p=$o.IndexOf('|'); $kd=$o.Substring(0,$p); $v=$o.Substring($p+1); "
+            "switch($kd){ 'DWord' { $k.SetValue($i[2],[int]$v,'DWord') } 'QWord' { $k.SetValue($i[2],[long]$v,'QWord') } "
+            "'ExpandString' { $k.SetValue($i[2],$v,'ExpandString') } default { $k.SetValue($i[2],$v,'String') } } }; "
+            "$k.Close() }; if($st){ $st.DeleteValue($id,$false); $st.Close() } } catch { $bad+=$i[2] } }; " + fail)
+
+
+# ── Power settings with the plans' own values kept (round 45) ─────────────────────────────────────
+# Written into EVERY plan (like _power_all), on mains power only (on battery Windows' saving stays).
+# Apply keeps each plan's value (HKLM\SOFTWARE\GameOptimizerPro\PowerOrig), revert puts it back — or
+# the plan's Windows default when nothing was kept. Queried with /qh: "USB 3 Link Power Management" is
+# a hidden setting, /query does not list it at all.
+def _power_saved_ps(mode: str, tag: str, sub: str, setting: str, ac: int) -> str:
+    plans = ("$g=@(); foreach($l in (powercfg /L 2>$null)){ "
+             "if($l -match '([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})'){ $g+=$matches[1] } }; ")
+    cur = (f"$o=(powercfg /qh $s {sub} {setting} 2>$null | Out-String); "
+           "$m=[regex]::Matches($o,'0x[0-9a-fA-F]{8}'); ")
+    if mode == "verify":
+        return (cur.replace("$s", "SCHEME_CURRENT") +
+                f"if($m.Count -ge 2 -and [Convert]::ToInt32($m[$m.Count-2].Value.Substring(2),16) -eq {ac})"
+                "{'1'}else{'0'}")
+    if mode == "apply":
+        # the old values must be kept before anything changes: without the store (no admin) nothing is set
+        return ("try { $st=[Microsoft.Win32.Registry]::LocalMachine.CreateSubKey('SOFTWARE\\GameOptimizerPro\\PowerOrig') } "
+                f"catch {{ Write-Output '{_tr('Keine Administratorrechte', 'No administrator rights')}'; exit 1 }}; "
+                + plans + "$n=0; foreach($s in $g){ " + cur +
+                "if($m.Count -lt 2){ continue }; "
+                f"$id='{tag}|'+$s; if($null -eq $st.GetValue($id)){{ "
+                "$st.SetValue($id,[string][Convert]::ToInt32($m[$m.Count-2].Value.Substring(2),16)) }; "
+                f"powercfg /SETACVALUEINDEX $s {sub} {setting} {ac} 2>$null | Out-Null; "
+                "if($LASTEXITCODE -eq 0){ $n++ } }; $st.Close(); powercfg /SETACTIVE SCHEME_CURRENT 2>$null | Out-Null; "
+                f"if($n -eq 0){{ Write-Output '{_tr('Diese Energieoption gibt es auf diesem PC nicht', 'This power setting does not exist on this PC')}'; exit 1 }}; "
+                f"Write-Output \"$n {_tr('Energieplan(e) gesetzt', 'power plan(s) set')}\"; exit 0")
+    defaults = (f"HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Power\\PowerSettings\\{sub}\\{setting}"
+                "\\DefaultPowerSchemeValues")
+    return ("$st=$null; try { $st=[Microsoft.Win32.Registry]::LocalMachine.OpenSubKey('SOFTWARE\\GameOptimizerPro\\PowerOrig',$true) } catch {}; "
+            + plans + "foreach($s in $g){ "
+            f"$id='{tag}|'+$s; $v=$null; if($st){{ $v=$st.GetValue($id,$null) }}; "
+            f"if($null -eq $v){{ $v=(Get-ItemProperty \"{defaults}\\$s\" -Name ACSettingIndex -EA SilentlyContinue).ACSettingIndex }}; "
+            f"if($null -ne $v){{ powercfg /SETACVALUEINDEX $s {sub} {setting} ([int]$v) 2>$null | Out-Null }}; "
+            "if($st){ $st.DeleteValue($id,$false) } }; if($st){ $st.Close() }; "
+            "powercfg /SETACTIVE SCHEME_CURRENT 2>$null | Out-Null; exit 0")
+
+
+_USB_SUB, _USB3_LPM = "2a737441-1930-4402-8d77-b2bebba308a3", "d4e98f31-5ffe-4ce1-be31-1b38b384c009"
+_SLEEP_SUB, _RTC_WAKE = "238c9fa8-0aad-41ed-83f4-97be242c8f20", "bd3b718a-0680-4d9d-8ab2-e1d2b4ac806d"
+
+_ADV_KEY = r"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"
+_CDM_KEY = r"Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager"
+
+# Windows' own switches for its tips, suggestions and ads (Settings → System → Notifications,
+# Privacy → General, Personalization → Start / Lock screen, Explorer options). Home and Pro.
+TIPS_ITEMS = [
+    ("HKCU", _CDM_KEY, "SubscribedContent-338389Enabled", "DWord", 0, None),   # tips & suggestions
+    ("HKCU", _CDM_KEY, "SubscribedContent-310093Enabled", "DWord", 0, None),   # welcome page after updates
+    ("HKCU", _CDM_KEY, "SubscribedContent-338393Enabled", "DWord", 0, None),   # suggested content in Settings
+    ("HKCU", _CDM_KEY, "SubscribedContent-353694Enabled", "DWord", 0, None),
+    ("HKCU", _CDM_KEY, "SubscribedContent-353696Enabled", "DWord", 0, None),
+    ("HKCU", _CDM_KEY, "SubscribedContent-338387Enabled", "DWord", 0, None),   # lock screen: fun facts & tips
+    ("HKCU", _CDM_KEY, "RotatingLockScreenOverlayEnabled", "DWord", 0, None),
+    ("HKCU", _CDM_KEY, "SoftLandingEnabled", "DWord", 0, None),                # tips about Windows
+    ("HKCU", _CDM_KEY, "SubscribedContent-338388Enabled", "DWord", 0, None),   # suggestions in Start (Win10)
+    ("HKCU", _CDM_KEY, "SystemPaneSuggestionsEnabled", "DWord", 0, None),
+    ("HKCU", r"Software\Microsoft\Windows\CurrentVersion\UserProfileEngagement",
+     "ScoobeSystemSettingEnabled", "DWord", 0, None),                           # "finish setting up your device"
+    ("HKCU", _ADV_KEY, "Start_AccountNotifications", "DWord", 0, None),        # account hints in Start
+    ("HKCU", _ADV_KEY, "ShowSyncProviderNotifications", "DWord", 0, None),     # OneDrive ads in Explorer
+    ("HKCU", r"Software\Microsoft\Windows\CurrentVersion\SystemSettings\AccountNotifications",
+     "EnableAccountNotifications", "DWord", 0, None),                          # account hints in Settings
+]
+# the lock-screen pair is left out of the status check: with Windows Spotlight Windows manages it
+TIPS_CHECK = [i[2] for i in TIPS_ITEMS if i[2] not in ("SubscribedContent-338387Enabled",
+                                                       "RotatingLockScreenOverlayEnabled")]
+
+# Typing, inking and speech data, tailored experiences, feedback requests (Settings → Privacy).
+INPUT_ITEMS = [
+    ("HKCU", r"Software\Microsoft\InputPersonalization", "RestrictImplicitTextCollection", "DWord", 1, None),
+    ("HKCU", r"Software\Microsoft\InputPersonalization", "RestrictImplicitInkCollection", "DWord", 1, None),
+    ("HKCU", r"Software\Microsoft\InputPersonalization\TrainedDataStore", "HarvestContacts", "DWord", 0, None),
+    ("HKCU", r"Software\Microsoft\Personalization\Settings", "AcceptedPrivacyPolicy", "DWord", 0, None),
+    ("HKCU", r"Software\Microsoft\Input\TIPC", "Enabled", "DWord", 0, None),
+    ("HKCU", r"Software\Microsoft\Speech_OneCore\Settings\OnlineSpeechPrivacy", "HasAccepted", "DWord", 0, None),
+    ("HKCU", r"Software\Microsoft\Windows\CurrentVersion\Privacy",
+     "TailoredExperiencesWithDiagnosticDataEnabled", "DWord", 0, None),
+    ("HKCU", r"Software\Microsoft\Siuf\Rules", "NumberOfSIUFInPeriod", "DWord", 0, None),
+    ("HKCU", r"Control Panel\International\User Profile", "HttpAcceptLanguageOptOut", "DWord", 1, None),
+    ("HKCU", _ADV_KEY, "Start_TrackProgs", "DWord", 0, None),
+]
+
+# Search highlights and the cloud content search (Microsoft / work account) in Windows Search.
+SEARCH_ITEMS = [
+    ("HKCU", r"Software\Microsoft\Windows\CurrentVersion\SearchSettings", n, "DWord", 0, None)
+    for n in ("IsDynamicSearchBoxEnabled", "IsMSACloudSearchEnabled", "IsAADCloudSearchEnabled")
+]
+
+# 'Recommended' in Start on every edition: no recent files, no tips / app suggestions.
+RECO_ITEMS = [
+    ("HKCU", _ADV_KEY, "Start_TrackDocs", "DWord", 0, None),
+    ("HKCU", _ADV_KEY, "Start_IrisRecommendations", "DWord", 0, None),
+]
+
+LIGHTING_ITEMS = [("HKCU", r"Software\Microsoft\Lighting", "AmbientLightingEnabled", "DWord", 0, 1)]
+ALTTAB_ITEMS = [("HKCU", _ADV_KEY, "MultiTaskingAltTabFilter", "DWord", 3, None)]
+NEXUS_ITEMS = [("HKCU", r"Software\Microsoft\GameBar", "UseNexusForGameBarEnabled", "DWord", 0, None)]
+LAUNCHTO_ITEMS = [("HKCU", _ADV_KEY, "LaunchTo", "DWord", 1, None)]
+REMOTE_ASSIST_ITEMS = [
+    ("HKLM", r"SYSTEM\CurrentControlSet\Control\Remote Assistance", "fAllowToGetHelp", "DWord", 0, 1),
+    ("HKLM", r"SYSTEM\CurrentControlSet\Control\Remote Assistance", "fAllowFullControl", "DWord", 0, 1),
+]
+
+# OneDrive's documented policy "Prevent users from moving their Windows known folders to OneDrive"
+# (any account, personal too). With the folders ALREADY in OneDrive it would also lock the "Manage
+# backup" button that moves them back — so it refuses then and says what to do first.
+_KFM_APPLY = (
+    "$p=Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\User Shell Folders' -EA SilentlyContinue; "
+    "$moved=@(foreach($n in 'Desktop','Personal','My Pictures'){ if([string]$p.$n -match 'OneDrive'){ $n } }); "
+    f"if($moved.Count){{ Write-Output ('{_tr('Ordner liegen schon in OneDrive', 'Folders are already in OneDrive')} (' + ($moved -join ', ') + "
+    f"'). {_tr('Erst zurückholen: OneDrive-Einstellungen > Synchronisierung und Sicherung > Sicherung verwalten, dann erneut anwenden', 'Move them back first: OneDrive settings > Sync and backup > Manage backup, then apply again')}'); exit 1 }}; "
+    "reg add 'HKLM\\SOFTWARE\\Policies\\Microsoft\\OneDrive' /v KFMBlockOptIn /t REG_DWORD /d 1 /f | Out-Null; exit 0"
+)
+
+# TargetReleaseVersion + ProductVersion (Policy CSP Update, Pro/Enterprise/Education): stay on the
+# installed version (DisplayVersion, e.g. 26H2) — security and quality updates keep coming.
+_PIN_KEY = r"HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate"
+_PIN_APPLY = (
+    "$cv=Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion'; $ver=[string]$cv.DisplayVersion; "
+    f"if($ver -notmatch '^\\d{{2}}H\\d$'){{ Write-Output ('{_tr('Windows-Version unbekannt', 'Windows version unknown')}: ' + $ver); exit 1 }}; "
+    "$prod=$(if([int]$cv.CurrentBuild -ge 22000){'Windows 11'}else{'Windows 10'}); "
+    f"reg add '{_PIN_KEY}' /v ProductVersion /t REG_SZ /d $prod /f | Out-Null; "
+    f"reg add '{_PIN_KEY}' /v TargetReleaseVersion /t REG_DWORD /d 1 /f | Out-Null; "
+    f"reg add '{_PIN_KEY}' /v TargetReleaseVersionInfo /t REG_SZ /d $ver /f | Out-Null; "
+    f"Write-Output ('{_tr('Festgehalten auf', 'Staying on')} ' + $prod + ' ' + $ver); exit 0"
+)
+_PIN_REVERT = "; ".join(f"reg delete '{_PIN_KEY}' /v {v} /f 2>$null | Out-Null"
+                        for v in ("TargetReleaseVersion", "TargetReleaseVersionInfo", "ProductVersion")) + "; exit 0"
+
+# Visual effects: the animations off through SystemParametersInfo (written to the profile AND in
+# effect at once, like the Performance Options dialog does), the useful look kept: smooth fonts,
+# window contents while dragging, thumbnails, selection rectangle, icon label shadows. VisualFXSetting
+# alone only selects the dialog's radio button — the individual switches are what Windows uses.
+_VFX_ANIMS = "0x1003,0x1005,0x1007,0x1013,0x1015,0x1017,0x1019,0x101B,0x1043"  # menu, combo box, list box, menu / selection / tooltip fades, tooltip, cursor shadow, controls
+_VFX_HEAD = (
+    "Add-Type -Namespace GOPVfx -Name Spi -MemberDefinition "
+    "'[DllImport(\"user32.dll\")] public static extern bool SystemParametersInfo(uint a, uint u, System.IntPtr p, uint f);'; "
+    "function Set-MinAnimate($on){ $ai=[Runtime.InteropServices.Marshal]::AllocHGlobal(8); "
+    "[Runtime.InteropServices.Marshal]::WriteInt32($ai,0,8); [Runtime.InteropServices.Marshal]::WriteInt32($ai,4,$on); "
+    "[void][GOPVfx.Spi]::SystemParametersInfo(0x49,8,$ai,3); [Runtime.InteropServices.Marshal]::FreeHGlobal($ai) }; "
+    "$adv='HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced'; "
+    "$vfx='HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\VisualEffects'; "
+)
+_VFX_APPLY = _VFX_HEAD + (
+    f"foreach($a in @({_VFX_ANIMS})){{ [void][GOPVfx.Spi]::SystemParametersInfo($a,0,[IntPtr]::Zero,3) }}; "
+    "Set-MinAnimate 0; "
+    "[void][GOPVfx.Spi]::SystemParametersInfo(0x25,1,[IntPtr]::Zero,3); "      # keep: window contents while dragging
+    "[void][GOPVfx.Spi]::SystemParametersInfo(0x4B,1,[IntPtr]::Zero,3); "      # keep: smooth screen fonts
+    "reg add $vfx /v VisualFXSetting /t REG_DWORD /d 3 /f | Out-Null; "
+    "reg add $adv /v TaskbarAnimations /t REG_DWORD /d 0 /f | Out-Null; "
+    "foreach($n in 'ListviewAlphaSelect','ListviewShadow'){ reg add $adv /v $n /t REG_DWORD /d 1 /f | Out-Null }; "
+    "reg add $adv /v IconsOnly /t REG_DWORD /d 0 /f | Out-Null; exit 0"
+)
+_VFX_REVERT = _VFX_HEAD + (
+    f"foreach($a in @({_VFX_ANIMS})){{ [void][GOPVfx.Spi]::SystemParametersInfo($a,0,[IntPtr]1,3) }}; "
+    "Set-MinAnimate 1; "
+    "reg add $vfx /v VisualFXSetting /t REG_DWORD /d 0 /f | Out-Null; "
+    "reg add $adv /v TaskbarAnimations /t REG_DWORD /d 1 /f | Out-Null; exit 0"
 )
 
 
@@ -368,18 +593,22 @@ exit 0
         name="Remove Bloatware (Candy Crush etc.)",
         desc="Entfernt vorinstallierte Apps: Candy Crush, TikTok, Disney+, Facebook, Spotify, News, Solitaire, "
              "Clipchamp, ToDo, Paint3D, Mixed Reality u.v.m. — auch die bereitgestellten Pakete, damit "
-             "Funktionsupdates sie nicht wieder installieren.",
+             "Funktionsupdates sie nicht wieder installieren. Bewusst nicht: die Medienwiedergabe (unter "
+             "Windows 11 der Standard-Player) und 'Hilfe anfordern' (über sie laufen die Problembehandlungen) "
+             "— einzeln entfernen geht auf der Seite Apps.",
         category="Windows", group="Bloatware",
         # Also removes the provisioned packages: feature updates re-install
         # apps that were only removed per user (seen with 26H2).
+        # Round 45: Microsoft.ZuneMusic (Windows 11's Media Player, the default player for music and video —
+        # the old "Groove") and Microsoft.GetHelp (Settings' troubleshooters run through it) are out.
         ps_command=_remove_apps_ps([
             "*king.com*", "*Facebook*", "*Spotify*", "*Disney*", "*TikTok*", "*Instagram*",
             "*Netflix*", "*Twitter*", "*BubbleWitch*", "*MarchofEmpires*", "*CandyCrush*",
             "*Microsoft.News*", "*Microsoft.BingWeather*", "*Microsoft.BingNews*",
-            "*Microsoft.MicrosoftSolitaireCollection*", "*Microsoft.ZuneMusic*",
+            "*Microsoft.MicrosoftSolitaireCollection*",
             "*Microsoft.ZuneVideo*", "*Microsoft.WindowsFeedbackHub*", "*Microsoft.Todos*",
             "*Microsoft.Paint3D*", "*Microsoft.MixedReality*", "*Clipchamp*",
-            "*Microsoft.GetHelp*", "*Microsoft.Getstarted*", "*Microsoft.PowerAutomateDesktop*",
+            "*Microsoft.Getstarted*", "*Microsoft.PowerAutomateDesktop*",
         ]),
     ),
     Tweak(
@@ -459,7 +688,9 @@ reg delete "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\AdvertisingInfo" /v Di
         id="disable_bing_search",
         name="Disable Bing in Windows Search",
         desc="Deaktiviert die Bing-Web-Integration in der Windows-Suche. Die Startmenü-Suche bleibt lokal "
-             "und lädt keine Web-Ergebnisse mehr nach. Reduziert kleine Verzögerungen beim Öffnen des Startmenüs.",
+             "und lädt keine Web-Ergebnisse mehr nach. Dazu aus: Suchhervorhebungen (Bilder und Themen des "
+             "Tages im Suchfeld) und die Cloud-Inhaltssuche (Ergebnisse aus OneDrive/Outlook des Microsoft- "
+             "oder Arbeitskontos). Reduziert kleine Verzögerungen beim Öffnen des Startmenüs.",
         category="Windows", group="Privacy",
         ps_command=(
             r'Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Search" '
@@ -467,13 +698,14 @@ reg delete "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\AdvertisingInfo" /v Di
             r'$p="HKCU:\Software\Policies\Microsoft\Windows\Explorer"; '
             r'if(-not (Test-Path $p)){New-Item -Path $p -Force -EA SilentlyContinue | Out-Null}; '
             r'Set-ItemProperty -Path $p -Name DisableSearchBoxSuggestions -Value 1 -Type DWord -EA SilentlyContinue; '
-            r'Write-Output "Bing disabled"; exit 0'
+            + _reg_saved_ps("apply", "SEARCH", SEARCH_ITEMS)
         ),
         revert_cmd=(
             r'Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Search" '
             r'-Name BingSearchEnabled -Value 1 -Type DWord -EA SilentlyContinue; '
             r'Remove-ItemProperty -Path "HKCU:\Software\Policies\Microsoft\Windows\Explorer" '
-            r'-Name DisableSearchBoxSuggestions -EA SilentlyContinue; exit 0'
+            r'-Name DisableSearchBoxSuggestions -EA SilentlyContinue; '
+            + _reg_saved_ps("revert", "SEARCH", SEARCH_ITEMS)
         ),
         risk="safe",
     ),
@@ -522,7 +754,10 @@ Set-Content -Path $hostsFile -Value $filtered
     Tweak(
         id="disable_telemetry_tasks",
         name="Disable Scheduled Telemetry Tasks",
-        desc="Deaktiviert alle geplanten Windows-Aufgaben die Telemetriedaten sammeln.",
+        desc="Deaktiviert die geplanten Windows-Aufgaben, die Telemetrie- und Diagnosedaten sammeln oder "
+             "senden: Kompatibilitäts-Bewertung, Programm zur Verbesserung der Benutzerfreundlichkeit, "
+             "Feedback-Daten, Warteschlange der Fehlerberichte, Datenträger- und Energiediagnose. Aufgaben, die "
+             "es auf diesem Windows nicht gibt, werden übersprungen; der Revert schaltet sie wieder ein.",
         category="Windows", group="Privacy",
         ps_command=_TELEMETRY_TASKS_PS + (
             "$bad=@(); foreach($x in $found){ if(\"$($x.State)\" -ne 'Disabled'){ "
@@ -655,18 +890,14 @@ reg add "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Memory Manag
     Tweak(
         id="visual_effects_perf",
         name="Optimize Visual Effects (Performance)",
-        desc="Schaltet alle Windows-Animationen aus. Windows reagiert spürbar schneller.",
+        desc="Schaltet die Windows-Animationen aus — Fenster minimieren/maximieren, Menüs, QuickInfos, Listen, "
+             "Steuerelemente, Taskleiste — sofort, ohne Abmelden. Bewusst AN bleiben Kantenglättung der "
+             "Schrift, Fensterinhalt beim Ziehen, Miniaturansichten und die Schatten unter Symbolnamen: die "
+             "kosten praktisch nichts, ohne sie wird Windows nur unleserlicher. Windows reagiert spürbar "
+             "direkter.",
         category="Windows", group="Performance",
-        ps_command='''
-reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\VisualEffects" /v VisualFXSetting /t REG_DWORD /d 2 /f
-Set-ItemProperty "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced" -Name "TaskbarAnimations" -Value 0
-reg add "HKCU\\Control Panel\\Desktop\\WindowMetrics" /v MinAnimate /t REG_SZ /d 0 /f
-''',
-        revert_cmd='''
-reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\VisualEffects" /v VisualFXSetting /t REG_DWORD /d 0 /f
-Set-ItemProperty "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced" -Name "TaskbarAnimations" -Value 1
-reg add "HKCU\\Control Panel\\Desktop\\WindowMetrics" /v MinAnimate /t REG_SZ /d 1 /f
-''',
+        ps_command=_VFX_APPLY,
+        revert_cmd=_VFX_REVERT,
     ),
     Tweak(
         id="disable_search_indexing",
@@ -833,20 +1064,25 @@ reg delete "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\GameDVR" /v AllowGameD
         ps_command='reg add "HKLM\\SYSTEM\\CurrentControlSet\\Control\\PriorityControl" /v Win32PrioritySeparation /t REG_DWORD /d 26 /f',
         revert_cmd='reg add "HKLM\\SYSTEM\\CurrentControlSet\\Control\\PriorityControl" /v Win32PrioritySeparation /t REG_DWORD /d 2 /f',
     ),
+    # MMCSS task "Games" (Microsoft Learn, Multimedia Class Scheduler Service): what counts is the
+    # Scheduling Category — High = thread priority 23–26 instead of Medium's 16–22. "GPU Priority" is
+    # "not yet used", and with the category High the Priority value "is always treated as 2" — the old
+    # version wrote both and its status check looked at GPU Priority = 8, the Windows default (so the
+    # tweak showed as active on every PC); the revert left the category on High.
     Tweak(
         id="mmcss_gaming",
         name="MMCSS Gaming Profile (High Priority)",
-        desc="Setzt MMCSS auf High Priority für Spiele. Windows priorisiert Audio und Timer-Interrupts.",
+        desc="Setzt die MMCSS-Kategorie des Tasks 'Games' auf High: Threads, die sich bei Windows als "
+             "Spiele-Task anmelden, laufen mit Priorität 23–26 statt 16–22. Ehrlich: Das tun nur manche Spiele "
+             "und Programme; die oft mitgesetzten Werte 'GPU Priority' und 'Priority' liest Windows laut "
+             "Microsoft dafür nicht (GPU Priority wird nicht verwendet, Priority gilt bei High immer als 2).",
         category="Gaming", group="In-Game Boosts",
-        ps_command='''
-reg add "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile\\Tasks\\Games" /v "GPU Priority" /t REG_DWORD /d 8 /f
-reg add "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile\\Tasks\\Games" /v "Priority" /t REG_DWORD /d 6 /f
-reg add "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile\\Tasks\\Games" /v "Scheduling Category" /t REG_SZ /d High /f
-''',
+        ps_command='reg add "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile\\Tasks\\Games" /v "Scheduling Category" /t REG_SZ /d High /f',
         revert_cmd='''
-reg add "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile\\Tasks\\Games" /v "GPU Priority" /t REG_DWORD /d 8 /f
-reg add "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile\\Tasks\\Games" /v "Priority" /t REG_DWORD /d 2 /f
-reg add "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile\\Tasks\\Games" /v "Scheduling Category" /t REG_SZ /d High /f
+reg add "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile\\Tasks\\Games" /v "Scheduling Category" /t REG_SZ /d Medium /f | Out-Null
+reg add "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile\\Tasks\\Games" /v "Priority" /t REG_DWORD /d 2 /f | Out-Null
+reg add "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile\\Tasks\\Games" /v "GPU Priority" /t REG_DWORD /d 8 /f | Out-Null
+exit 0
 ''',
     ),
     Tweak(
@@ -923,15 +1159,6 @@ reg add "HKLM\\SYSTEM\\CurrentControlSet\\Control" /v SvcHostSplitThresholdInKB 
     # GAMING — GPU & DRIVER
     # ══════════════════════════════════════════════════════════════
 
-    Tweak(
-        id="nvidia_low_latency",
-        name="NVIDIA Low Latency Mode (Reflex)",
-        desc="Aktiviert NVIDIA Ultra Low Latency Mode. Reduziert Render-Queue auf 1 Frame. Nur auf NVIDIA GPUs wirksam.",
-        category="Gaming", group="GPU & Driver",
-        requires_nvidia=True,
-        ps_command=_NV_LATENCY_APPLY,
-        revert_cmd=_NV_LATENCY_REVERT,
-    ),
     Tweak(
         id="enable_msi_mode",
         name="Enable MSI Mode (Interrupts)",
@@ -1070,11 +1297,14 @@ foreach($a in $adapters){Enable-NetAdapterLso -Name $a.Name -ErrorAction Silentl
     Tweak(
         id="disable_network_throttle",
         name="Disable Network Throttling Index",
-        desc="Deaktiviert Netzwerk-Throttling bei hoher CPU-Last. Gibt dem Netzwerk-Stack höchste Priorität.",
+        desc="Deaktiviert Netzwerk-Throttling bei hoher CPU-Last. Gibt dem Netzwerk-Stack höchste Priorität. "
+             "Setzt dazu SystemResponsiveness auf 10 (der kleinste Wert, den Windows annimmt).",
         category="Network", group="Latency",
+        # SystemResponsiveness: Microsoft — "values below 10 and above 100 are clamped to 20" (the
+        # default). The 0 written up to round 44 therefore changed nothing; 10 is the lowest that counts.
         ps_command='''
 reg add "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile" /v NetworkThrottlingIndex /t REG_DWORD /d 0xffffffff /f
-reg add "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile" /v SystemResponsiveness /t REG_DWORD /d 0 /f
+reg add "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile" /v SystemResponsiveness /t REG_DWORD /d 10 /f
 ''',
         revert_cmd=r'''
 reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" /v NetworkThrottlingIndex /t REG_DWORD /d 10 /f | Out-Null
@@ -1382,41 +1612,6 @@ powercfg -setactive SCHEME_CURRENT
             " foreach ($s in $svcs) {"
             " $svc = Get-Service -Name $s -EA SilentlyContinue;"
             " if ($svc) { Set-Service -Name $s -StartupType Automatic -EA SilentlyContinue } }"
-        ),
-        risk="safe",
-    ),
-
-    Tweak(
-        id="set_mmcss_audio",
-        name="MMCSS Audio Priority (Pro Audio)",
-        desc="Setzt MMCSS Audio-Prioritaet auf maximum. Windows gibt Audio-Threads hoehere CPU-Prioritaet "
-             "— weniger Stottern und Knacken bei hoher Systemlast.",
-        category="Audio", group="Performance",
-        ps_command=(
-            "$p = 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile\\Tasks\\Pro Audio';"
-            " if (!(Test-Path $p)) { New-Item -Path $p -Force | Out-Null };"
-            " Set-ItemProperty -Path $p -Name 'Affinity' -Value 0 -Type DWord;"
-            " Set-ItemProperty -Path $p -Name 'Clock Rate' -Value 10000 -Type DWord;"
-            " Set-ItemProperty -Path $p -Name 'GPU Priority' -Value 8 -Type DWord;"
-            " Set-ItemProperty -Path $p -Name 'Priority' -Value 6 -Type DWord;"
-            " Set-ItemProperty -Path $p -Name 'Scheduling Category' -Value 'High' -Type String;"
-            " Set-ItemProperty -Path $p -Name 'SFIO Priority' -Value 'High' -Type String"
-        ),
-        revert_cmd=(
-            # "Pro Audio" ist ein von Windows MITGELIEFERTER MMCSS-Task. Den Key zu
-            # loeschen (wie frueher per Remove-Item -Recurse) wuerde auch Werte
-            # entfernen, die dieser Tweak nie gesetzt hat (z.B. "Background Only"),
-            # und das Pro-Audio-Scheduling ganz verschwinden lassen statt es
-            # zurueckzusetzen. Deshalb: die echten Windows-Defaults zurueckschreiben.
-            "$p = 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion"
-            "\\Multimedia\\SystemProfile\\Tasks\\Pro Audio';"
-            " if (Test-Path $p) {"
-            " Set-ItemProperty -Path $p -Name 'Priority' -Value 1 -Type DWord -EA SilentlyContinue;"
-            " Set-ItemProperty -Path $p -Name 'SFIO Priority' -Value 'Normal' -Type String -EA SilentlyContinue;"
-            " Set-ItemProperty -Path $p -Name 'Scheduling Category' -Value 'High' -Type String -EA SilentlyContinue;"
-            " Set-ItemProperty -Path $p -Name 'Clock Rate' -Value 10000 -Type DWord -EA SilentlyContinue;"
-            " Set-ItemProperty -Path $p -Name 'GPU Priority' -Value 8 -Type DWord -EA SilentlyContinue;"
-            " Set-ItemProperty -Path $p -Name 'Affinity' -Value 0 -Type DWord -EA SilentlyContinue }"
         ),
         risk="safe",
     ),
@@ -1732,10 +1927,10 @@ exit 0
     ),
     Tweak(
         id="nvme_queue_depth",
-        name="NVMe: Queue-Tiefe & Idle-Stromsparen",
-        desc="Setzt für NVMe-SSDs eine StorPort-Queue-Tiefe von 32 und eine höhere Interrupt-Priorität und "
-             "schaltet das Idle-Stromsparen des NVMe-Treibers ab (geringere Latenz, etwas mehr Strom). "
-             "Ehrlich: Die Wirkung hängt vom Treiber ab und ist meist nur in Benchmarks messbar. "
+        name="NVMe: Queue-Tiefe & Interrupt-Priorität",
+        desc="Setzt für NVMe-SSDs eine StorPort-Queue-Tiefe von 32 und eine höhere Interrupt-Priorität. "
+             "Ehrlich: Die Wirkung hängt vom Treiber ab und ist meist nur in Benchmarks messbar. (Ein früher "
+             "mitgesetzter Wert fürs Idle-Stromsparen wird vom NVMe-Treiber nicht gelesen und entfällt.) "
              "Ohne NVMe-Laufwerk ausgegraut.",
         category="Windows", group="Speicher & RAM",
         ps_command=_NVME_QD_APPLY,
@@ -1759,11 +1954,15 @@ exit 0
     Tweak(
         id="w11_hide_recommended",
         name="Win11: 'Empfohlen' im Startmenü ausblenden",
-        desc="Blendet den Bereich 'Empfohlen' (zuletzt geöffnete Dateien/Apps) im Startmenü per "
-             "Richtlinie aus. Ehrlich: nicht auf allen Editionen/Builds garantiert.",
+        desc="Blendet den Bereich 'Empfohlen' im Startmenü per Richtlinie aus — die gilt laut Microsoft nur "
+             "für Education/SE. Damit er auch auf Home und Pro leer bleibt, zusätzlich aus: zuletzt geöffnete "
+             "Dateien (auch im Explorer-Start und in den Sprunglisten der Taskleiste) und Tipps/App-"
+             "Empfehlungen im Start. Der Revert stellt deine vorherigen Einstellungen wieder her.",
         category="Windows", group="Windows 11",
-        ps_command=r'reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\Explorer" /v HideRecommendedSection /t REG_DWORD /d 1 /f',
-        revert_cmd=r'reg delete "HKLM\SOFTWARE\Policies\Microsoft\Windows\Explorer" /v HideRecommendedSection /f 2>$null; exit 0',
+        ps_command=(r'reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\Explorer" /v HideRecommendedSection /t REG_DWORD /d 1 /f | Out-Null; '
+                    + _reg_saved_ps("apply", "RECO", RECO_ITEMS)),
+        revert_cmd=(r'reg delete "HKLM\SOFTWARE\Policies\Microsoft\Windows\Explorer" /v HideRecommendedSection /f 2>$null | Out-Null; '
+                    + _reg_saved_ps("revert", "RECO", RECO_ITEMS)),
         risk="safe",
     ),
 
@@ -1839,16 +2038,18 @@ Start-Service -Name WSAIFabricSvc -ErrorAction SilentlyContinue
     # ── Network · TCP ─────────────────────────────────────────────────
     Tweak(
         id="tcp_optimize",
-        name="TCP optimieren (ECN & Timestamps aus, SACK an)",
-        desc="Schaltet ECN und TCP-Timestamps ab und SACK ein — etwas weniger Overhead pro Paket. Ehrlich: "
-             "Der Effekt auf den Ping ist klein; ECN-Abschalten hilft vor allem hinter Routern, die "
-             "ECN-Pakete falsch behandeln.",
+        name="TCP optimieren (ECN & Timestamps aus)",
+        desc="Schaltet ECN und TCP-Timestamps ab — etwas weniger Overhead pro Paket. Ehrlich: Der Effekt auf "
+             "den Ping ist klein; ECN-Abschalten hilft vor allem hinter Routern, die ECN-Pakete falsch "
+             "behandeln. (SACK ist in Windows immer an; die alten Werte SackOpts / TcpMaxDupAcks liest der "
+             "TCP-Stack seit Windows Vista nicht mehr — der Tweak setzt sie nicht mehr.)",
         category="Network", group="TCP",
+        # round 45: SackOpts / TcpMaxDupAcks are in no file of the 26H2 TCP stack (tcpip.sys) — gone
+        # from apply; revert still removes them (left by older versions)
         ps_command=r'''
 netsh int tcp set global ecncapability=disabled | Out-Null
 netsh int tcp set global timestamps=disabled | Out-Null
-reg add "HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" /v SackOpts /t REG_DWORD /d 1 /f | Out-Null
-reg add "HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" /v TcpMaxDupAcks /t REG_DWORD /d 2 /f
+exit 0
 ''',
         revert_cmd=r'''
 netsh int tcp set global ecncapability=default | Out-Null
@@ -1876,14 +2077,13 @@ exit 0
         id="mmcss_audio_profile",
         name="MMCSS-Audioprofil optimieren",
         desc="Setzt den MMCSS-Task 'Audio' auf latenzempfindlich mit hoher Scheduling-Priorität — weniger "
-             "Knacken und Aussetzer unter CPU-Last. (Ergänzt 'MMCSS Audio Priority', das den Task "
-             "'Pro Audio' betrifft.)",
+             "Knacken und Aussetzer unter CPU-Last.",
         category="Audio", group="Performance",
+        # "SFIO Priority" is "not used" (Microsoft Learn, MMCSS) — no longer set; revert normalizes it
         ps_command=r'''
 $p='HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Audio'
 reg add $p /v "Latency Sensitive" /t REG_SZ /d True /f | Out-Null
-reg add $p /v "Scheduling Category" /t REG_SZ /d High /f | Out-Null
-reg add $p /v "SFIO Priority" /t REG_SZ /d High /f
+reg add $p /v "Scheduling Category" /t REG_SZ /d High /f
 ''',
         revert_cmd=r'''
 $p='HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Audio'
@@ -1896,16 +2096,206 @@ reg add $p /v "SFIO Priority" /t REG_SZ /d Normal /f
     Tweak(
         id="audio_service_priority",
         name="Audio-Priorität systemweit erhöhen",
-        desc="Setzt SystemResponsiveness auf 0 — MMCSS hält dann keine CPU-Zeit mehr für "
+        desc="Setzt SystemResponsiveness auf 10 — MMCSS hält nur noch 10 % statt 20 % CPU-Zeit für "
              "Hintergrundaufgaben frei, Audio und Spiele bekommen mehr. Gegen Aussetzer bei Spielen + "
-             "Streamen. (Den Wert nutzt auch 'Network Throttling Index' — zurückgesetzt wird er erst, "
-             "wenn keiner der beiden Tweaks ihn mehr braucht.)",
+             "Streamen. Ehrlich: 10 ist das Minimum — Werte darunter (oft empfohlen: 0) behandelt Windows "
+             "laut Microsoft wie den Standard 20. (Den Wert nutzt auch 'Network Throttling Index' — "
+             "zurückgesetzt wird er erst, wenn keiner der beiden Tweaks ihn mehr braucht.)",
         category="Audio", group="Performance",
         ps_command=r'''
-reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" /v SystemResponsiveness /t REG_DWORD /d 0 /f | Out-Null
+reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" /v SystemResponsiveness /t REG_DWORD /d 10 /f | Out-Null
 reg add "HKLM\SOFTWARE\GameOptimizerPro" /v SR_AudioPriority /t REG_DWORD /d 1 /f
 ''',
         revert_cmd=_SR_AUDIO_REVERT,
+        risk="safe",
+    ),
+
+    # ══════════════════════════════════════════════════════════════
+    # ROUND 45 — checked against Windows 11 26H2 (each value is still read there)
+    # and Microsoft's edition tables (Pro-only policies are hidden on Home)
+    # ══════════════════════════════════════════════════════════════
+
+    # ── Windows · Privacy ─────────────────────────────────────────────
+    Tweak(
+        id="disable_tips_suggestions",
+        name="Tipps, Vorschläge & Werbung in Windows aus",
+        desc="Schaltet die eingebaute Werbung von Windows ab: 'Tipps und Vorschläge', die Willkommensseite nach "
+             "Updates, 'Gerät fertig einrichten'-Hinweise, vorgeschlagene Inhalte in den Einstellungen, Tipps "
+             "und Fun Facts auf dem Sperrbildschirm (die Spotlight-Bilder bleiben), Konto-Hinweise im Start und "
+             "in den Einstellungen sowie die OneDrive-Werbung im Explorer. Alles Schalter, die Windows selbst "
+             "anbietet (Home und Pro); der Revert stellt deine vorherigen Werte wieder her.",
+        category="Windows", group="Privacy",
+        ps_command=_reg_saved_ps("apply", "TIPS", TIPS_ITEMS),
+        revert_cmd=_reg_saved_ps("revert", "TIPS", TIPS_ITEMS),
+        risk="safe",
+    ),
+    Tweak(
+        id="disable_input_speech_data",
+        name="Tipp-, Freihand- & Sprachdaten nicht senden",
+        desc="Schaltet die Datenschutz-Schalter rund um Eingabe und Sprache ab: persönliches Freihand- und "
+             "Eingabewörterbuch (Windows sammelt dafür, was du tippst und schreibst), 'Freihand- und "
+             "Eingabeerkennung verbessern', Online-Spracherkennung, 'Maßgeschneiderte Erfahrungen' mit "
+             "Diagnosedaten, Feedback-Anfragen, die Sprachliste für Websites und das Verfolgen von "
+             "App-Starts (Start zeigt dann keine 'Meistverwendet'-Liste mehr). Der Revert stellt deine "
+             "vorherigen Werte wieder her.",
+        category="Windows", group="Privacy",
+        ps_command=_reg_saved_ps("apply", "INPUT", INPUT_ITEMS),
+        revert_cmd=_reg_saved_ps("revert", "INPUT", INPUT_ITEMS),
+        risk="safe",
+    ),
+    Tweak(
+        id="onedrive_block_kfm",
+        name="OneDrive: Ordner nicht in die Cloud verschieben",
+        desc="Verhindert, dass OneDrive Desktop, Dokumente und Bilder in die Cloud verschiebt ('Ordner "
+             "sichern') — und fragt auch nicht mehr danach. Offizielle OneDrive-Richtlinie, gilt für jedes "
+             "Konto inkl. privatem Microsoft-Konto. Liegen die Ordner schon in OneDrive, bricht der Tweak ab "
+             "und sagt, wie du sie zuerst zurückholst (sonst wäre genau dieser Knopf gesperrt). Ohne "
+             "OneDrive wirkungslos.",
+        category="Windows", group="Privacy",
+        ps_command=_KFM_APPLY,
+        revert_cmd=r"reg delete 'HKLM\SOFTWARE\Policies\Microsoft\OneDrive' /v KFMBlockOptIn /f 2>$null | Out-Null; exit 0",
+        risk="safe",
+    ),
+    Tweak(
+        id="disable_remote_assistance",
+        name="Remoteunterstützung deaktivieren",
+        desc="Schaltet die alte Windows-Remoteunterstützung ab (Systemeigenschaften → Remote): niemand kann "
+             "darüber eine Hilfe-Sitzung auf diesen PC aufbauen. Wird praktisch nur noch in Firmennetzen "
+             "genutzt; Schnellhilfe, TeamViewer & Co. sind nicht betroffen. Weniger Angriffsfläche. Der "
+             "Revert stellt die vorherigen Werte wieder her.",
+        category="Windows", group="Privacy",
+        ps_command=_reg_saved_ps("apply", "RA", REMOTE_ASSIST_ITEMS),
+        revert_cmd=_reg_saved_ps("revert", "RA", REMOTE_ASSIST_ITEMS),
+        risk="safe",
+    ),
+
+    # ── Windows · Updates (Pro / Enterprise / Education) ─────────────
+    Tweak(
+        id="exclude_wu_drivers",
+        name="Keine Treiber über Windows Update",
+        desc="Windows Update installiert mit den monatlichen Updates keine Treiber mehr (offizielle "
+             "Richtlinie). Schützt den selbst installierten Grafiktreiber davor, durch eine ältere oder "
+             "generische Version ersetzt zu werden. Dafür kommen auch für Chipsatz, WLAN, Bluetooth & Co. "
+             "keine Treiber mehr über Windows Update — die dann beim Hersteller holen. Nur Pro, Enterprise "
+             "und Education (Windows Home beachtet die Richtlinie nicht, dort ausgeblendet).",
+        category="Windows", group="Updates",
+        ps_command=r'reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v ExcludeWUDriversInQualityUpdate /t REG_DWORD /d 1 /f',
+        revert_cmd=r'reg delete "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v ExcludeWUDriversInQualityUpdate /f 2>$null; exit 0',
+        risk="moderate",
+    ),
+    Tweak(
+        id="wu_pin_feature_version",
+        name="Auf dieser Windows-Version bleiben",
+        desc="Hält Windows auf der installierten Version (z. B. 26H2): Funktionsupdates, die Apps neu "
+             "installieren und Einstellungen zurücksetzen können, kommen erst, wenn du das wieder aufhebst. "
+             "Sicherheits- und Qualitätsupdates kommen weiter. Offizielle Richtlinie, nur Pro, Enterprise und "
+             "Education (Home: ausgeblendet). Vor dem Supportende der Version zurücksetzen — danach gäbe es "
+             "keine Sicherheitsupdates mehr.",
+        category="Windows", group="Updates",
+        ps_command=_PIN_APPLY,
+        revert_cmd=_PIN_REVERT,
+        risk="moderate",
+    ),
+    Tweak(
+        id="disable_background_apps",
+        name="Store-Apps nicht im Hintergrund laufen lassen",
+        desc="Offizielle Richtlinie 'Windows-Apps im Hintergrund ausführen: verweigern': Store-Apps "
+             "(Smartphone-Link, Mail und Kalender, Wetter …) laufen nur noch, solange sie offen sind — spart "
+             "RAM und Hintergrund-CPU. Danach melden sich solche Apps im geschlossenen Zustand nicht mehr, "
+             "z. B. WhatsApp aus dem Store. Normale Programme (Steam, Discord, Afterburner) sind nicht "
+             "betroffen. Nur Pro, Enterprise und Education (Home: ausgeblendet).",
+        category="Windows", group="Performance",
+        ps_command=r'reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy" /v LetAppsRunInBackground /t REG_DWORD /d 2 /f',
+        revert_cmd=r'reg delete "HKLM\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy" /v LetAppsRunInBackground /f 2>$null; exit 0',
+        risk="moderate",
+    ),
+
+    # ── Windows · Power Plan ──────────────────────────────────────────
+    Tweak(
+        id="usb3_link_power_off",
+        name="USB 3: Link-Energiesparen aus",
+        desc="Schaltet das Energiesparen der USB-3-Verbindung im Netzbetrieb ab (versteckte Energieoption "
+             "'USB 3 Link Power Management', Windows-Standard: mittlere Einsparung). Der Link bleibt wach — "
+             "gegen kurze Aussetzer und verzögertes Aufwachen von USB-3-Geräten wie Headset, DAC, "
+             "Capture-Karte oder externer SSD. Etwas mehr Stromverbrauch. Gilt für jeden Energieplan; der "
+             "Revert stellt die vorherigen Werte wieder her. Ergänzt 'USB Selective Suspend' (das betrifft die "
+             "Geräte, nicht den Link).",
+        category="Windows", group="Power Plan",
+        ps_command=_power_saved_ps("apply", "USB3LPM", _USB_SUB, _USB3_LPM, 0),
+        revert_cmd=_power_saved_ps("revert", "USB3LPM", _USB_SUB, _USB3_LPM, 0),
+        risk="safe",
+    ),
+    Tweak(
+        id="disable_wake_timers",
+        name="Weck-Timer deaktivieren",
+        desc="Geplante Aufgaben (Update-Neustarts, Wartung) wecken den PC nicht mehr aus dem Energiesparmodus "
+             "(Energieoption 'Zeitgeber zur Aktivierung zulassen' im Netzbetrieb; Windows-Standard: an). Ein "
+             "schlafender PC bleibt nachts aus; Updates installieren sich, wenn er an ist. Gilt für jeden "
+             "Energieplan; der Revert stellt die vorherigen Werte wieder her.",
+        category="Windows", group="Power Plan",
+        ps_command=_power_saved_ps("apply", "RTCWAKE", _SLEEP_SUB, _RTC_WAKE, 0),
+        revert_cmd=_power_saved_ps("revert", "RTCWAKE", _SLEEP_SUB, _RTC_WAKE, 0),
+        risk="safe",
+    ),
+
+    # ── Windows · Komfort / Mouse & UI ───────────────────────────────
+    Tweak(
+        id="startup_delay_off",
+        name="Autostart-Programme ohne Verzögerung",
+        desc="Windows startet Autostart-Programme (Run-Einträge und Autostart-Ordner) erst einige Sekunden "
+             "nach der Anmeldung. Ohne die Verzögerung sind Discord & Co. sofort da; bei sehr vielen "
+             "Autostarts wirkt die Anmeldung dafür kurz zäher. Programme mit eigener Aufgabe (z. B. "
+             "Afterburner) betrifft das nicht.",
+        category="Windows", group="Komfort",
+        ps_command=r'reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Serialize" /v StartupDelayInMSec /t REG_DWORD /d 0 /f',
+        revert_cmd=r'reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Serialize" /v StartupDelayInMSec /f 2>$null; exit 0',
+        risk="safe",
+    ),
+    Tweak(
+        id="explorer_open_this_pc",
+        name="Explorer öffnet 'Dieser PC'",
+        desc="Der Explorer startet mit 'Dieser PC' (Laufwerke und Ordner) statt mit 'Start' und den zuletzt "
+             "verwendeten Dateien. Geschmackssache; zählt nicht zum Score.",
+        category="Windows", group="Mouse & UI",
+        ps_command=_reg_saved_ps("apply", "LAUNCHTO", LAUNCHTO_ITEMS),
+        revert_cmd=_reg_saved_ps("revert", "LAUNCHTO", LAUNCHTO_ITEMS),
+        risk="safe",
+    ),
+    Tweak(
+        id="alt_tab_windows_only",
+        name="Alt+Tab ohne Browser-Tabs",
+        desc="Alt+Tab und das Andocken zeigen nur noch Fenster, keine einzelnen Edge-Tabs (Einstellungen → "
+             "System → Multitasking). Aus dem Spiel heraus ist man so schneller beim richtigen Fenster. Wirkt "
+             "nach dem Abmelden. Geschmackssache; zählt nicht zum Score.",
+        category="Windows", group="Mouse & UI",
+        ps_command=_reg_saved_ps("apply", "ALTTAB", ALTTAB_ITEMS),
+        revert_cmd=_reg_saved_ps("revert", "ALTTAB", ALTTAB_ITEMS),
+        risk="safe",
+    ),
+    Tweak(
+        id="disable_dynamic_lighting",
+        name="Dynamic Lighting aus (RGB-Steuerung durch Windows)",
+        desc="Schaltet 'Dynamische Beleuchtung' ab (Einstellungen → Personalisierung): Windows steuert die "
+             "RGB-Beleuchtung von Tastatur, Maus & Co. nicht mehr — gegen Konflikte mit der Hersteller-Software "
+             "(iCUE, G HUB, Armoury Crate, SignalRGB …), die sonst flackern oder ihre Effekte verlieren kann. "
+             "Wer die Beleuchtung über Windows steuert, lässt es an. Wirkt spätestens nach dem Abmelden; "
+             "zählt nicht zum Score.",
+        category="Windows", group="Mouse & UI",
+        ps_command=_reg_saved_ps("apply", "LIGHT", LIGHTING_ITEMS),
+        revert_cmd=_reg_saved_ps("revert", "LIGHT", LIGHTING_ITEMS),
+        risk="safe",
+    ),
+
+    # ── Gaming ────────────────────────────────────────────────────────
+    Tweak(
+        id="controller_no_game_bar",
+        name="Xbox-Taste öffnet keine Game Bar",
+        desc="Die Xbox-/Guide-Taste am Controller öffnet nicht mehr die Game Bar — sie reißt einen so nicht "
+             "mehr aus dem Spiel oder aus Steam Big Picture (Einstellungen → Gaming → Game Bar). Der Revert "
+             "stellt den vorherigen Wert wieder her.",
+        category="Gaming", group="In-Game Boosts",
+        ps_command=_reg_saved_ps("apply", "NEXUS", NEXUS_ITEMS),
+        revert_cmd=_reg_saved_ps("revert", "NEXUS", NEXUS_ITEMS),
         risk="safe",
     ),
 ]
@@ -1962,10 +2352,15 @@ def get_groups(category: str) -> list[str]:
 # only in Windows 11 — on Windows 10 they write values nothing reads. Hidden there like the
 # tweaks for another GPU.
 WIN11_ONLY = {"w11_classic_context_menu", "w11_taskbar_left", "w11_disable_widgets", "w11_disable_snap_suggest",
-              "w11_hide_recommended", "end_task_right_click"}
+              "w11_hide_recommended", "end_task_right_click", "disable_dynamic_lighting"}
+# Policies Microsoft documents for Pro, Enterprise and Education only (Policy CSP edition tables) —
+# Windows Home ignores them, so they are hidden there.
+PRO_ONLY = {"exclude_wu_drivers", "wu_pin_feature_version", "disable_background_apps"}
 for _t in ALL_TWEAKS:
     if _t.id in WIN11_ONLY:
         _t.requires_win11 = True
+    if _t.id in PRO_ONLY:
+        _t.requires_pro = True
 
 
 # Tweaks taken out because Windows 11 24H2+ no longer has what they changed: Cortana is gone, Teams
@@ -1986,6 +2381,22 @@ RETIRED_TWEAKS: dict[str, tuple[str, str, str]] = {
         "$k='HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced'; "
         "if((Get-ItemProperty $k -Name TaskbarMn -EA SilentlyContinue).TaskbarMn -eq 0)"
         "{ Remove-ItemProperty $k -Name TaskbarMn -EA SilentlyContinue }; exit 0"),
+    # round 45, found by tools/windows_watch.py --scan: they never did anything.
+    # NVTweak\NVLatency is in no file of the NVIDIA driver (NVTweak itself is) — the low-latency mode lives
+    # in the driver profile (NVIDIA app → Graphics → Low Latency Mode, or Reflex in the game).
+    "nvidia_low_latency": (
+        "NVIDIA Low Latency Mode (Reflex)", "NVIDIA Low Latency Mode (Reflex)",
+        "$p='HKLM:\\SYSTEM\\CurrentControlSet\\Services\\nvlddmkm\\Global\\NVTweak'; "
+        "if((Get-ItemProperty $p -Name NVLatency -EA SilentlyContinue).NVLatency -eq 1)"
+        "{ Remove-ItemProperty $p -Name NVLatency -EA SilentlyContinue }; exit 0"),
+    # MMCSS "Pro Audio" already has the category High (so Priority "is always treated as 2"), SFIO Priority
+    # "is not used" (Microsoft Learn) — the tweak changed nothing that Windows reads.
+    "set_mmcss_audio": (
+        "MMCSS Audio Priority (Pro Audio)", "MMCSS Audio Priority (Pro Audio)",
+        "$p='HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile\\Tasks\\Pro Audio'; "
+        "$k=Get-ItemProperty $p -EA SilentlyContinue; if($k){ "
+        "if($k.Priority -eq 6){ Set-ItemProperty $p -Name Priority -Value 1 -Type DWord }; "
+        "if($k.'SFIO Priority' -eq 'High'){ Set-ItemProperty $p -Name 'SFIO Priority' -Value 'Normal' -Type String } }; exit 0"),
 }
 
 

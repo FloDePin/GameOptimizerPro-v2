@@ -52,8 +52,31 @@ $d.disk       = Q @{LogName='System'; ProviderName='disk'; Id=7,11,51; StartTime
 $d.appcrash   = Q @{LogName='Application'; Id=1000; StartTime=$since}
 $dg=Get-CimInstance -Namespace root\Microsoft\Windows\DeviceGuard -ClassName Win32_DeviceGuard -EA SilentlyContinue
 $d.hvci       = @{ known=[bool]$dg; running=[bool]($dg -and (@($dg.SecurityServicesRunning) -contains 2)) }
-$d | ConvertTo-Json -Compress
 """
+
+# BitLocker / device encryption of the system drive (round 45). Win32_EncryptableVolume is documented
+# (ProtectionStatus 0 off / 1 on / 2 unknown; ConversionStatus 0 decrypted, 1 encrypted, 2 encrypting,
+# 3 decrypting, 4/5 paused) and needs admin rights — the app runs elevated. Without them the Explorer's
+# shell property gives at least on/off; only its values 1 (on) and 2 (off) are used.
+_BITLOCKER_PS = r"""
+$bl=@{ known=$false }
+try {
+  $ev=Get-CimInstance -Namespace root\cimv2\Security\MicrosoftVolumeEncryption -ClassName Win32_EncryptableVolume -Filter "DriveLetter='$env:SystemDrive'" -EA Stop
+  if($ev){
+    $cs=$ev.ConversionStatus
+    if($null -eq $cs){ $cs=(Invoke-CimMethod -InputObject $ev -MethodName GetConversionStatus -EA SilentlyContinue).ConversionStatus }
+    $bl=@{ known=$true; src='wmi'; protection=[int]$ev.ProtectionStatus; conversion=$(if($null -eq $cs){-1}else{[int]$cs}) }
+  }
+} catch {}
+if(-not $bl.known){
+  try {
+    $p=(New-Object -ComObject Shell.Application).NameSpace($env:SystemDrive + '\').Self.ExtendedProperty('System.Volume.BitLockerProtection')
+    if($p -eq 1){ $bl=@{ known=$true; src='shell'; protection=1; conversion=1 } }
+    elseif($p -eq 2){ $bl=@{ known=$true; src='shell'; protection=0; conversion=0 } }
+  } catch {}
+}
+"""
+_BUNDLE_PS += _BITLOCKER_PS + "$d.bitlocker=$bl\n$d | ConvertTo-Json -Compress\n"
 
 
 @dataclass
@@ -105,16 +128,59 @@ def _hvci_line(data) -> Optional[StatusLine]:
         "shows it then."))
 
 
-def _gather() -> Optional[dict]:
+RECOVERY_KEY_URL = "aka.ms/myrecoverykey"
+
+
+def _bitlocker_line(data) -> Optional[StatusLine]:
+    """BitLocker / device encryption of C:. Windows 11 24H2+ switches device encryption on by itself on
+    many fresh installs; with it on, a BIOS update or changing fTPM / Secure Boot makes Windows ask for
+    the recovery key at the next start — worth knowing BEFORE using the BIOS guide. Shown only, never
+    changed (a security feature)."""
+    b = (data or {}).get("bitlocker") or {}
+    if not b.get("known"):
+        return None
+    label = _tr("Laufwerksverschlüsselung (BitLocker) auf C:", "Drive encryption (BitLocker) on C:")
+    prot, conv = b.get("protection"), b.get("conversion")
+    if prot == 1:
+        return StatusLine("bitlocker", label, _tr("an", "on"), WARN, _tr(
+            f"Vor BIOS-Änderungen, einem BIOS-Update oder dem Umstellen von fTPM/Secure Boot den "
+            f"Wiederherstellungsschlüssel sichern ({RECOVERY_KEY_URL}) — sonst fragt Windows beim nächsten Start "
+            f"danach. Software-Verschlüsselung kann auf manchen SSDs etwas Schreibleistung kosten.",
+            f"Before changing BIOS settings, updating the BIOS or switching fTPM / Secure Boot, save the recovery "
+            f"key ({RECOVERY_KEY_URL}) — otherwise Windows asks for it at the next start. Software encryption can "
+            f"cost some write speed on some SSDs."))
+    if prot == 0 and conv in (1, 2, 4):
+        return StatusLine("bitlocker", label, _tr("verschlüsselt, Schutz noch nicht aktiv",
+                                                  "encrypted, protection not active yet"), OK, _tr(
+            "C: ist verschlüsselt, der Schutz greift aber noch nicht (wartet auf Aktivierung oder ist "
+            "pausiert). Er schaltet sich ein, sobald Windows den Schlüssel sichert — z. B. bei der Anmeldung mit "
+            "einem Microsoft-Konto. Ab dann vor BIOS-Änderungen den Wiederherstellungsschlüssel sichern.",
+            "C: is encrypted, but the protection is not active yet (waiting for activation or paused). It switches "
+            "on once Windows saves the key — e.g. when you sign in with a Microsoft account. From then on save the "
+            "recovery key before changing BIOS settings."))
+    if conv == 3:
+        return StatusLine("bitlocker", label, _tr("wird entschlüsselt", "decrypting"), OK, _tr(
+            "Windows entschlüsselt C: gerade — danach ist die Verschlüsselung aus.",
+            "Windows is decrypting C: right now — encryption is off afterwards."))
+    if prot == 0 and conv == 0:
+        return StatusLine("bitlocker", label, _tr("aus", "off"), OK, _tr(
+            "Keine Verschlüsselung auf C:. Neuinstallationen ab Windows 11 24H2 schalten die Geräteverschlüsselung "
+            "oft selbst ein — dieser Report zeigt es dann an.",
+            "No encryption on C:. Fresh installs of Windows 11 24H2 and later often switch device encryption on by "
+            "themselves — this report shows it then."))
+    return None
+
+
+def _run_json(script: str, timeout: int = 45) -> Optional[dict]:
     if os.name != "nt":
         return None
     try:
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         r = subprocess.run(
             ["powershell.exe", "-NoProfile", "-NonInteractive",
-             "-ExecutionPolicy", "Bypass", "-Command", _BUNDLE_PS],
+             "-ExecutionPolicy", "Bypass", "-Command", script],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=45, creationflags=flags,
+            timeout=timeout, creationflags=flags,
         )
         out = (r.stdout or "").strip()
         if not out:
@@ -122,6 +188,20 @@ def _gather() -> Optional[dict]:
         return json.loads(out)
     except Exception:
         return None
+
+
+def _gather() -> Optional[dict]:
+    return _run_json(_BUNDLE_PS)
+
+
+def bitlocker_state() -> Optional[dict]:
+    """Only the BitLocker part (the BIOS guide asks before BIOS changes): {"known", "protection", ...}."""
+    return _run_json(_BITLOCKER_PS + "$bl | ConvertTo-Json -Compress\n", timeout=20)
+
+
+def bitlocker_protected(state) -> bool:
+    """BitLocker protects C: (a BIOS / TPM change then asks for the recovery key)."""
+    return bool(state and state.get("known") and state.get("protection") == 1)
 
 
 def _mk(key, label, data, warn_at, crit_at, note_ok, note_bad) -> HealthItem:
@@ -172,7 +252,7 @@ def generate() -> HealthReport:
             _tr("Häufige App-Abstürze — meist unkritisch, aber auffällig.", "Frequent app crashes — usually harmless, but notable.")),
     ]
     rep.items = items
-    rep.status = [s for s in (_hvci_line(data),) if s]
+    rep.status = [s for s in (_hvci_line(data), _bitlocker_line(data)) if s]
 
     crit = sum(1 for i in items if i.severity == CRITICAL)
     warn = sum(1 for i in items if i.severity == WARN)

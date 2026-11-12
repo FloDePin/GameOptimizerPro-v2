@@ -75,9 +75,9 @@ check(not any(g in p.tweak_ids for p in TP.BUILTIN_PRESETS for g in GONE)
       and all(i in ids for p in TP.BUILTIN_PRESETS for i in p.tweak_ids), "no preset names a missing tweak")
 texts = " ".join([p.desc for p in TP.BUILTIN_PRESETS] + list(PRESET_DESC_EN.values()))
 check("Cortana" not in texts and "Teams" not in texts, "preset texts no longer promise Cortana / Teams")
-check(set(RETIRED_TWEAKS) == set(GONE) and all(de and en for de, en, _c in RETIRED_TWEAKS.values())
+check(set(GONE) <= set(RETIRED_TWEAKS) and all(de and en for de, en, _c in RETIRED_TWEAKS.values())
       and RETIRED_TWEAKS["remove_cortana"][2] == "", "retired list: names in both languages, nothing to undo for an app")
-check(len(ALL_TWEAKS) == 106 and len(ids) == 106, f"106 tweaks, ids unique ({len(ALL_TWEAKS)})")
+check(len(ALL_TWEAKS) == 118 and len(ids) == 118, f"118 tweaks (round 45: +14, -2), ids unique ({len(ALL_TWEAKS)})")
 
 if os.name == "nt":
     chat = RETIRED_TWEAKS["w11_remove_chat_icon"][2]
@@ -148,7 +148,7 @@ check(VERIFY_MAP["disable_telemetry_tasks"].startswith(_TELEMETRY_TASKS_PS)
       "the status check covers every task this Windows has, not one")
 if os.name == "nt":
     rc, out, err = ps(_TELEMETRY_TASKS_PS + "Write-Output $found.Count")
-    check(rc == 0 and out.isdigit() and 1 <= int(out) <= 7, f"task lookup on this Windows: {out} of 7 exist, no error")
+    check(rc == 0 and out.isdigit() and 1 <= int(out) <= 12, f"task lookup on this Windows: {out} of 12 exist, no error")
     rc, out, err = ps(VERIFY_MAP["disable_telemetry_tasks"])
     check(rc == 0 and out in ("0", "1"), f"the real check answers 0/1 ({out})")
 

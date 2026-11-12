@@ -26,6 +26,28 @@ def windows_build() -> str:
         return ""
 
 
+# EditionID of the Home editions ("Core*"). Windows Update / app privacy policies of the Policy CSP are
+# documented for Pro, Enterprise and Education only — Home ignores them.
+_HOME_EDITIONS = {"core", "coren", "coresinglelanguage", "corecountryspecific"}
+
+
+def windows_edition() -> str:
+    """EditionID, e.g. 'Professional', 'Core' (= Home); '' if unknown."""
+    if not winreg:
+        return ""
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows NT\CurrentVersion") as k:
+            return str(winreg.QueryValueEx(k, "EditionID")[0]).strip()
+    except OSError:
+        return ""
+
+
+def is_home_edition(edition: str | None = None) -> bool:
+    """Windows Home (any variant). Unknown counts as not Home: a policy tweak then stays visible."""
+    ed = windows_edition() if edition is None else edition
+    return ed.strip().lower() in _HOME_EDITIONS
+
+
 def _vram_mb_from_registry(gpu_name: str) -> int:
     """Real VRAM from the display driver's own registry key. Win32_VideoController
     .AdapterRAM is a 32-bit field: every card above 4 GB reads as 4095 MB (an RTX
@@ -93,6 +115,7 @@ class HardwareInfo:
     os_build:       int  = 0
     is_win11:       bool = False
     is_win10:       bool = False
+    is_home:        bool = False    # Windows Home: Pro-only policy tweaks are hidden
     # NVMe
     has_nvme:       bool = False
     nvme_count:     int  = 0
@@ -272,6 +295,8 @@ def detect() -> HardwareInfo:
 
     except Exception as e:
         info.cpu_name = f"Detection error: {e}"
+
+    info.is_home = is_home_edition()
 
     # Build summary
     os_short = "Win11" if info.is_win11 else ("Win10" if info.is_win10 else info.os_name[:20])

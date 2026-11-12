@@ -23,7 +23,9 @@ from core.tweak_verifier import TweakVerifier, VERIFY_MAP
 # either-or choices (only one power plan / DNS provider can be active).
 SCORE_EXCLUDE = {"flush_dns", "clear_shader_cache", "run_disk_cleanup",
                  "ultimate_performance", "power_high", "power_balanced",
-                 "dns_cloudflare", "dns_google"}
+                 "dns_cloudflare", "dns_google",
+                 # a matter of taste, not an optimized state
+                 "disable_dynamic_lighting", "alt_tab_windows_only", "explorer_open_this_pc"}
 # Never re-applied automatically after a drift: one-time actions.
 DRIFT_EXCLUDE = {"flush_dns", "clear_shader_cache", "run_disk_cleanup"}
 
@@ -39,6 +41,8 @@ def applicable(tweak: Tweak, hw) -> bool:
     if getattr(tweak, "requires_nvme", False) and not getattr(hw, "has_nvme", False):
         return False
     if getattr(tweak, "requires_win11", False) and getattr(hw, "is_win10", False):
+        return False
+    if getattr(tweak, "requires_pro", False) and getattr(hw, "is_home", False):
         return False
     return True
 

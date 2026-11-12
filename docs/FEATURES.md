@@ -83,7 +83,12 @@ Everything the app does, in detail. Results quoted from live runs are from one t
 - **The app's own state is crash-safe:** settings, the tweaks it applied (what *revert* relies on), the services it changed, profiles and the watchdog's lists are written atomically with the last good copy kept (`.bak`); a file that can't be read for a moment (a virus scanner at boot) is never overwritten, a broken one is restored from that copy. Unexpected errors go to `logs/app_errors.log` (the app has no console). The app's stress loads (workers, FurMark of a tune / hardness test) sit in a Windows job: they end with the app, also after a crash
 
 ### 🛠 Windows Optimizer
-- **106 Tweaks** across Windows, Gaming, Network, Audio categories (incl. AMD GPU tweaks)
+- **118 Tweaks** across Windows, Gaming, Network, Audio categories (incl. AMD GPU tweaks) — each checked against Windows 11 26H2 (the value is still read there) and Microsoft's edition tables
+- **No placebo:** every value a tweak sets is searched in Windows' own files (`tools/windows_watch.py --scan`). Found that way and corrected: *NVIDIA Low Latency Mode* (a registry value the NVIDIA driver doesn't contain — the mode lives in the driver profile) and *MMCSS Audio Priority (Pro Audio)* (changed only values Microsoft documents as unused) are retired; MMCSS *GPU / SFIO Priority*, TCP *SackOpts / TcpMaxDupAcks* and an NVMe idle-power value are no longer set; *SystemResponsiveness* is 10 (Microsoft: values below 10 count as the default 20); *Remove Bloatware* keeps Media Player and Get Help
+- **Your own settings come back:** privacy switches, Start / Explorer / power options the user (or Windows setup) may have chosen already — apply keeps each previous value, revert writes exactly that back instead of a "Windows default" that can be worse; the power options keep each plan's own value
+- **Windows' own ads and data collection:** tips & suggestions, the welcome page after updates, "finish setting up" hints, suggested content in Settings, lock-screen tips (Spotlight pictures stay), account hints, OneDrive ads in Explorer; typing / inking / speech data, tailored experiences, feedback requests; search highlights and cloud search; 12 telemetry tasks (tasks a build lacks are skipped)
+- **Updates & background (Pro / Enterprise / Education — hidden on Home, which ignores these policies):** no drivers through Windows Update (protects the graphics driver you installed), stay on the installed Windows version (security updates keep coming), Store apps not in the background
+- **More:** OneDrive doesn't move Desktop / Documents / Pictures to the cloud (refuses — and says how to move them back first — when they are there already), Remote Assistance off, USB 3 link power saving and wake timers off (every plan, mains power only), autostart without the start-up delay, Alt+Tab without browser tabs, Explorer opens *This PC*, Dynamic Lighting off (against conflicts with RGB software), the controller's Xbox button no longer opens the Game Bar; visual effects: the animations off at once, smooth fonts / window contents / thumbnails kept
 - **Network adapter settings:** Energy-Efficient Ethernet off and Interrupt Moderation off — only on physical wired adapters and only with the keywords the driver itself offers (vendors name them differently); the value found before is kept and put back on revert. No connection drop when applied, effective after a restart
 - **Honest timer tweak:** *Let timer requests apply system-wide* (`GlobalTimerResolutionRequests`) brings back the system-wide effect of a program's timer request on Windows 11 — it sets no resolution itself (that needs a running program), and it says so
 - **Windows 11 24H2/26H2 AI & bloat:** Recall (policy + component removal), Click to Do, Paint AI (Cocreator, Image Creator, generative fill/erase), Notepad AI, on-device text/image generation, the AI host service (`WSAIFabricSvc`), and removal of the Microsoft 365 Copilot app / Dev Home that feature updates re-install — using Microsoft's documented policies where they exist
@@ -107,10 +112,11 @@ Everything the app does, in detail. Results quoted from live runs are from one t
 - **Every desktop platform since Intel 8th gen / Ryzen 1000** — 16 platforms: Ryzen 9000X3D / 9000 / 7000X3D / 7000 / 8000G (AM5), Ryzen 5000X3D / 5000 / APUs / 3000 / 1000–2000 (AM4), Core Ultra 200S, Core 12th / 13th–14th gen, 10th–11th gen, 8th–9th gen, plus the basics for anything else (laptops, workstations)
 - The hardware detection only **pre-selects** your platform and your board maker (ASUS / MSI / Gigabyte / ASRock) — every platform can be opened
 - Each setting with the **menu path for your board maker**, the default, the recommended value, risk and impact — and the things that matter on that platform (EXPO 6000 + FCLK 2000 on AM5, Curve Optimizer, the 13th/14th-gen microcode 0x12F fix, Intel Default Settings, 200S Boost, X3D core parking, Secure Boot for anti-cheats …)
+- **BitLocker warning:** when BitLocker protects C:, the guide says to save the recovery key before changing BIOS settings, updating the BIOS or switching fTPM / Secure Boot — Windows asks for it at the next start otherwise
 - **Live status only where Windows really knows it** (green = set, red = still to do, grey = can't tell): RAM profile (configured speed vs. the JEDEC ceiling of its DDR type), Resizable BAR (NVIDIA's BAR1 aperture from the driver), Secure Boot and CSM (UEFI state). The old guesses (ReBAR from HAGS, XMP from "> 3200 MHz", PBO from the max clock) are gone
 
 ### 🩺 Diagnose
-- **Health Report** — read-only summary of what Windows already recorded in the last 30 days: WHEA hardware errors, bluescreens, unexpected shutdowns, GPU driver timeouts (TDR), disk errors, app crashes — with severity and last occurrence
+- **Health Report** — read-only summary of what Windows already recorded in the last 30 days: WHEA hardware errors, bluescreens, unexpected shutdowns, GPU driver timeouts (TDR), disk errors, app crashes — with severity and last occurrence; plus whether memory integrity and BitLocker are on (BitLocker on: save the recovery key before BIOS changes)
 - **Remnant Scan** — read-only detection of leftovers from *other* tweak tools (WinRing0 / inpout drivers, ISLC, TimerResolution autostarts, third-party power plans, Razer Cortex). Reports only — removes nothing
 - **Interrupts** — per PCI device: MSI or the old line interrupt (read from what Windows really allocated, not just the registry flag), number of messages, interrupt priority and core assignment, shared line interrupts — with a note where it matters (a GPU without MSI points to the MSI tweak; a driver that turns MSI off on purpose is left alone). Read-only
 
@@ -154,6 +160,10 @@ Everything the app does, in detail. Results quoted from live runs are from one t
 - Status for each entry: Safe ✓ / Caution ⚠ / System ⚙ / Unknown ?
 - 40+ pre-classified known processes (Discord, Steam, Corsair, NVIDIA, etc.)
 
+### 📦 Apps
+- **Remove Store apps one by one:** the installed Store apps with a plain name and a rating — *can go* (preinstalled extras), *may be in use* (Photos, Snipping Tool, Xbox app … — what goes missing is shown, and you are asked first), *your call* (installed by you). The Store, App Installer, Windows Security, Edge, Terminal, Gaming Services, driver apps, codecs, language packs and Windows' own parts are never listed. Removal for every user including the provisioned package (feature updates bring the app back otherwise), after a System Restore point
+- **Install programs through winget:** a short, hand-picked list — launchers (Steam, Epic, GOG, EA, Ubisoft, Battle.net), the runtimes games need (Visual C++, DirectX, .NET), tuning / monitoring (MSI Afterburner, RTSS, FurMark 2, HWiNFO, CPU-Z, GPU-Z …), Discord / TeamSpeak / OBS, tools — silently from winget's official source, one after the other; installed programs are recognised (winget's list or the program's file)
+
 ---
 
 ## 🗂 Project Structure
@@ -174,7 +184,7 @@ GameOptimizerPro/
 │   ├── nvtune_tuner.py       ← Auto-tuner: All-round (own V/F curve) + Quick (OC + UV), memory; TDR + error detection
 │   ├── curve_tune.py         ← All-round tuner logic: point search, margins, goals, report
 │   ├── hardware.py           ← WMI hardware detection
-│   ├── tweaks.py             ← 106 tweaks database (Windows, Gaming, Network, Audio)
+│   ├── tweaks.py             ← 118 tweaks database (Windows, Gaming, Network, Audio)
 │   ├── network_test.py       ← Gateway/DNS ping latency test
 │   ├── system_cleaner.py     ← Safe temp/junk cleaner + opt-in Deep Clean
 │   ├── services.py           ← Services Manager logic (remembers original start types)
@@ -192,7 +202,9 @@ GameOptimizerPro/
 │   ├── tweak_i18n.py         ← Multilingual tweak descriptions (EN/DE)
 │   ├── bios_guide.py         ← BIOS guide: 16 platforms, menu paths per board maker
 │   ├── bios_detector.py      ← What Windows can tell (RAM profile, ReBAR, Secure Boot, CSM)
-│   ├── health_report.py      ← 30-day Windows event/health report
+│   ├── health_report.py      ← 30-day Windows event/health report (+ memory integrity, BitLocker)
+│   ├── app_removal.py        ← Store apps: rating, protected apps, removal (all users + provisioned)
+│   ├── winget_installer.py   ← Program list + silent installs through winget
 │   ├── interrupts.py         ← Interrupt view: MSI / line per PCI device (read-only)
 │   ├── game_profiles.py      ← Game profiles: CPU / disk priority per .exe, fullscreen flag
 │   ├── remnant_detector.py   ← leftover tweak-tool detection
@@ -239,11 +251,13 @@ GameOptimizerPro/
     ├── live_graph.py         ← Rolling voltage/clock/temp graph
     ├── startup_manager.py    ← Startup manager page
     ├── services_manager.py   ← Services manager page
+    ├── apps_page.py          ← Apps page: remove Store apps, install programs
     └── drift_dialog.py       ← "Tweaks no longer active" dialog (one tick box per tweak)
 tests/                        ← Windows test battery: python tests\run_all_tests.py
 tools/
     ├── ab_selftest.py        ← Afterburner self-test (info / dryrun / live / restore)
-    └── apply_update.py       ← Installs a downloaded update (backup, rollback, restart)
+    ├── apply_update.py       ← Installs a downloaded update (backup, rollback, restart)
+    └── windows_watch.py      ← After a Windows update: which tweaks were reset / no longer work (read-only)
 build.json                    ← Build number of this release (the updater compares it)
 ```
 

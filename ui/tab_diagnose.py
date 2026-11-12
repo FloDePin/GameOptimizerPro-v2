@@ -115,10 +115,10 @@ class DiagnoseTab(Page):
                    HEALTH_COLOR, tr(
             "Liest nur, was Windows ohnehin protokolliert hat: Hardwarefehler (WHEA), Bluescreens, "
             "unerwartete Neustarts, GPU-Timeouts, Datenträgerfehler und App-Abstürze — dazu, ob die "
-            "Speicherintegrität an ist. Es wird nichts geändert.",
+            "Speicherintegrität und BitLocker an sind. Es wird nichts geändert.",
             "Reads only what Windows recorded anyway: hardware errors (WHEA), blue screens, unexpected "
-            "restarts, GPU timeouts, disk errors and app crashes — plus whether memory integrity is on. "
-            "Nothing is changed."))
+            "restarts, GPU timeouts, disk errors and app crashes — plus whether memory integrity and "
+            "BitLocker are on. Nothing is changed."))
         self.btn_health = button(p, tr("Report erstellen", "Create report"), self._run_health,
                                  kind="primary", color=HEALTH_COLOR, height=32,
                                  image=icon_image("diagnose", on_color(HEALTH_COLOR), 14), compound="left")

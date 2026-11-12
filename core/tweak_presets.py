@@ -31,6 +31,7 @@ _TIER_MINIMAL = [
     "enable_game_mode", "disable_game_bar", "disable_mouse_accel", "disable_fullscreen_opt",
     "disable_sticky_keys", "show_file_extensions",
     "enable_long_paths", "enable_ssd_trim",
+    "disable_tips_suggestions",
 ]
 
 _MEDIUM_EXTRA = [
@@ -38,12 +39,14 @@ _MEDIUM_EXTRA = [
     "disable_bing_search", "disable_location", "disable_telemetry_tasks",
     "ultimate_performance", "visual_effects_perf", "timer_resolution", "disable_transparency",
     "cpu_priority_games", "mmcss_gaming", "disable_bg_throttle", "enable_hags",
-    "dx12_optimization", "nvidia_low_latency", "enable_msi_mode", "windowed_game_optimizations",
+    "dx12_optimization", "enable_msi_mode", "windowed_game_optimizations",
     "remove_bloatware",
     "disable_nagle", "disable_network_throttle", "enable_rss", "disable_delivery_optimization",
     "disable_hibernation", "disable_storage_sense", "end_task_right_click",
     "disable_click_to_do", "disable_paint_ai", "disable_notepad_ai",
     "tcp_optimize", "mmcss_audio_profile", "disable_eee",
+    "disable_input_speech_data", "onedrive_block_kfm", "disable_remote_assistance",
+    "disable_wake_timers", "startup_delay_off", "controller_no_game_bar",
 ]
 
 _HARD_EXTRA = [
@@ -55,13 +58,17 @@ _HARD_EXTRA = [
     "disable_power_throttling", "disable_wu_gaming", "reduce_process_count",
     "dns_cloudflare", "flush_dns", "disable_tcp_autotuning", "disable_lso",
     "disable_audio_enhancements", "disable_audio_exclusive_lock", "disable_nahimic",
-    "set_mmcss_audio", "disable_audio_ducking", "disable_sound_scheme",
+    "disable_audio_ducking", "disable_sound_scheme",
     "w11_classic_context_menu", "w11_taskbar_left", "w11_disable_widgets", "w11_disable_snap_suggest",
     "power_pcie_aspm_off", "power_disk_never_sleep", "show_hidden_files",
     "remove_m365_copilot_devhome", "disable_ai_fabric_service", "disable_reserved_storage",
     "disable_memory_compression", "audio_service_priority", "disable_qos_limit",
     "w11_hide_recommended", "disable_interrupt_moderation",
+    "usb3_link_power_off", "exclude_wu_drivers", "disable_background_apps",
 ]
+# Deliberately in no tier (a choice, not an optimization): wu_pin_feature_version (has to be lifted
+# before the version's end of support), disable_dynamic_lighting, alt_tab_windows_only,
+# explorer_open_this_pc (taste).
 
 _TIER_MEDIUM = _TIER_MINIMAL + _MEDIUM_EXTRA
 _TIER_HARD   = _TIER_MINIMAL + _MEDIUM_EXTRA + _HARD_EXTRA
@@ -146,6 +153,10 @@ BUILTIN_PRESETS: list[TweakPreset] = [
             "disable_paint_ai",
             "disable_notepad_ai",
             "disable_ai_fabric_service",
+            "disable_tips_suggestions",
+            "disable_input_speech_data",
+            "onedrive_block_kfm",
+            "disable_remote_assistance",
         ],
     ),
 
@@ -204,6 +215,7 @@ BUILTIN_PRESETS: list[TweakPreset] = [
             "power_disk_never_sleep",
             "disable_storage_sense",
             "disable_memory_compression",
+            "usb3_link_power_off",
         ],
     ),
 

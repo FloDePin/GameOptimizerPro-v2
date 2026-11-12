@@ -44,9 +44,10 @@ TAB_DEFS = [
     ("diagnose",  "Diagnose",           "Diagnose"),
     ("startup",   "Autostart",          "Startup Apps"),
     ("services",  "Dienste",            "Services"),
+    ("apps",      "Apps",               "Apps"),
     ("settings",  "Einstellungen",      "Settings"),
 ]
-TAB_COLORS = dict(PAGE_COLORS, startup=ACC, services=AMBER)
+TAB_COLORS = dict(PAGE_COLORS, startup=ACC, services=AMBER, apps=GREEN)
 PREBUILD = ("optimizer", "gpu")          # built first in the background, then the rest
 PREBUILD_IDLE_S = 1.5                    # ... only when there was no click / key for this long
 
@@ -326,7 +327,7 @@ class GameOptimizerWindow(ctk.CTk):
             "gpu": self._make_gpu, "stress": self._make_stress, "compare": self._make_compare,
             "bios": self._make_bios, "diagnose": self._make_diagnose,
             "startup": self._make_startup, "services": self._make_services,
-            "settings": self._make_settings,
+            "apps": self._make_apps, "settings": self._make_settings,
         }
 
     def _make_dashboard(self, parent):
@@ -365,6 +366,10 @@ class GameOptimizerWindow(ctk.CTk):
     def _make_services(self, parent):
         from ui.services_manager import ServicesManagerPage
         return ServicesManagerPage(parent)
+
+    def _make_apps(self, parent):
+        from ui.apps_page import AppsPage
+        return AppsPage(parent)
 
     def _make_settings(self, parent):
         from ui.tab_settings import SettingsTab

@@ -177,8 +177,8 @@ def s_prebuild():
     for key, *_x in mw.TAB_DEFS:
         w._show_tab(key)
     w.update()
-    check(len(w._tab_frames) == len(mw.TAB_DEFS) == 10 and not ERRORS,
-          f"all 10 pages open without errors ({len(ERRORS)})")
+    check(len(w._tab_frames) == len(mw.TAB_DEFS) == 11 and not ERRORS,
+          f"all 11 pages open without errors ({len(ERRORS)})")
 
 @step(400)
 def s_gpu_column():

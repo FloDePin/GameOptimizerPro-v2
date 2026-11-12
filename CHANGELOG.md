@@ -22,7 +22,7 @@ named by version only.
   efficiency against stock and the V/F curves.
 - **GPU watchdog** — a flight recorder, in-game hang detection within seconds, a targeted make-safer
   for the curve points involved; the app's own tests are never taken for a game's crash.
-- **Windows** — 106 tweaks reviewed for Windows 11 26H2, game profiles (CPU / disk priority per game),
+- **Windows** — 118 tweaks reviewed for Windows 11 26H2, game profiles (CPU / disk priority per game),
   adapter tweaks, an interrupt view, the BIOS guide for 16 platforms.
 - **App** — new interface with a sidebar, English throughout (German included), no console window,
   updates from GitHub, tray, stress tests (FurMark 1/2, 3DMark, hardness test).
@@ -82,7 +82,29 @@ named by version only.
   update (KB5127936): memory integrity in the health report, the "no longer active" dialog names a Windows
   update, *Remove Xbox apps* warns about the Xbox sign-in of Game Pass games (now in *Hard*), a note on the new
   context menu.
-- 1731 checks in 47 suites, all green.
+- **Update 2026-11-12** — every new tweak checked against Windows 11 26H2 (is the value still read there?) and
+  Microsoft's edition tables. 14 new tweaks: Windows' own ads, tips and suggestions off; typing, inking and speech
+  data; OneDrive no longer moves Desktop / Documents / Pictures to the cloud (refuses when they are there already
+  and says how to move them back); Remote Assistance off; USB 3 link power saving and wake timers off (every plan,
+  mains power only); autostart without the start-up delay; Alt+Tab without browser tabs; Explorer opens *This PC*;
+  Dynamic Lighting off; the controller's Xbox button no longer opens the Game Bar — and for Pro / Enterprise /
+  Education (hidden on Home, which ignores these policies): no drivers through Windows Update, stay on the
+  installed Windows version, Store apps not in the background. Settings you may have chosen yourself come back
+  exactly on revert (the previous value is kept). Extended: 12 telemetry tasks, search highlights and cloud
+  search off, *Recommended* in Start empty on Home / Pro too, the visual effects switch the animations off at once
+  and keep smooth fonts and thumbnails. BitLocker in the health report, and a warning in the BIOS guide to save the
+  recovery key first. New **Apps** page: remove Store apps one by one (the Store, App Installer, driver apps and
+  codecs are never listed; a restore point first) and install the usual programs of a gaming PC through winget.
+  **No placebo:** a new check (`tools/windows_watch.py`) searches Windows' own files for every value a tweak
+  sets. Found and corrected: *NVIDIA Low Latency Mode* wrote a value the NVIDIA driver doesn't contain (the mode
+  lives in the driver profile) and *MMCSS Audio Priority (Pro Audio)* changed only values Microsoft documents as
+  unused — both retired (*Revert all* cleans up after them); MMCSS *GPU / SFIO Priority*, TCP *SackOpts /
+  TcpMaxDupAcks* and an NVMe idle-power value are no longer set, and the status checks of *MMCSS Gaming* (it
+  read a Windows default and showed active everywhere) and *Optimize TCP* read what really changes;
+  *SystemResponsiveness* is 10 — Microsoft: values below 10 count as the default 20, so the 0 used before did
+  nothing; *Remove Bloatware* keeps Media Player (Windows 11's default player) and Get Help (the troubleshooters).
+  118 tweaks.
+- 1895 checks in 48 suites, all green.
 
 <details>
 <summary><b>Development log — rounds 8–33</b> (one or two lines per round)</summary>
