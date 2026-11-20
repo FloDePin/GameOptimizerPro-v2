@@ -157,16 +157,16 @@ I18N._current_lang = "de"
 print("restore point before app removals")
 import core.restore_point as RP  # noqa: E402
 made = []
-_rp = RP.create
-RP.create = lambda description="": (made.append(description), (True, "✓ ok"))[1]
-tab._backup_before("PreApply", [get_by_id("disable_telemetry")])
-check(not made, "no app removal: only the registry backup")
-tab._backup_before("PreApply", [get_by_id("disable_telemetry"), get_by_id("remove_xbox")])
-check(len(made) == 1, "a batch that removes apps: a restore point first (only it brings them back)")
+_rp = RP.create_ex          # round 47: create_ex also says why there is none (the removal asks then)
+RP.create_ex = lambda description="": (made.append(description), (True, "✓ ok", "ok"))[1]
+skip = tab._backup_before("PreApply", [get_by_id("disable_telemetry")])
+check(not made and skip == set(), "no app removal: only the registry backup")
+skip = tab._backup_before("PreApply", [get_by_id("disable_telemetry"), get_by_id("remove_xbox")])
+check(len(made) == 1 and skip == set(), "a batch that removes apps: a restore point first (only it brings them back)")
 check("Wiederherstellungspunkt" in tab._removal_note([get_by_id("remove_xbox")])
       and tab._removal_note([get_by_id("disable_telemetry")]) == "",
       "the confirmation says so — only when apps are removed")
-RP.create = _rp
+RP.create_ex = _rp
 messagebox.showinfo, messagebox.askyesno = _si, _ay
 
 # ── 5) snapshot & compare (v1's dashboard tool, kept across a restart) ───────

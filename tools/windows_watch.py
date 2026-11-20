@@ -43,9 +43,7 @@ _SCAN_AS = [(re.compile(r"^SubscribedContent-\d+Enabled$"), "SubscribedContent-"
             (re.compile(r"^StateFlags\d{4}$"), "StateFlags")]
 # read by a program outside Windows' folders (its folder is searched too when it is installed)
 EXTERNAL = {"KFMBlockOptIn": "OneDrive", "NVLatency": "NVIDIA-Treiber", "EnableULPS": "AMD-Treiber",
-            "EnableULPS_NA": "AMD-Treiber", "ShaderCacheSizePC": "AMD-Treiber",
-            "KMD_EnableComputePreemption": "AMD-Treiber", "EnableAntiLag": "AMD-Treiber",
-            "DisableAIFeatures": "Editor (Store-App)"}
+            "EnableULPS_NA": "AMD-Treiber", "DisableAIFeatures": "Editor (Store-App)"}
 # Store apps whose own policy values tweaks set: their install folders are searched too
 _APP_PACKAGES = ("Microsoft.Paint", "Microsoft.WindowsNotepad")
 # status checks that need administrator rights (they fail in a run without them)

@@ -18,7 +18,9 @@ from core.tweaks import (_AMD_KEYS_PS,   # same AMD-only adapter filter as the t
                          # round 45: the same value lists / power settings the tweaks write
                          _reg_saved_ps, _power_saved_ps, TIPS_ITEMS, TIPS_CHECK, INPUT_ITEMS,
                          _USB_SUB, _USB3_LPM, _SLEEP_SUB, _RTC_WAKE,
-                         _PAINT_AI_VALUES)      # the Paint values the tweak sets — one list for both
+                         _PAINT_AI_VALUES,      # the Paint values the tweak sets — one list for both
+                         # round 47: the same Xbox apps, DNS servers and svchost default as the tweaks
+                         XBOX_APPS, _dns_ps, SVCHOST_DEFAULT_KB)
 
 
 @dataclass
@@ -37,7 +39,10 @@ VERIFY_MAP: dict[str, str] = {
 
     # ── Bloatware (AppxPackage checks) ────────────────────────────────────────
     "remove_xbox": (
-        'if(Get-AppxPackage -AllUsers "*XboxGamingOverlay*" -EA SilentlyContinue){"0"}else{"1"}'
+        # every Xbox app the tweak removes (round 47: it only looked at the Game Bar); without admin rights the
+        # all-users list can't be read: the check fails (unknown) instead of saying 'removed'
+        "$p=@(" + ",".join(f"'{a}'" for a in XBOX_APPS) + "); "
+        "if(@($p | ForEach-Object { Get-AppxPackage -AllUsers $_ -EA SilentlyContinue }).Count){'0'}else{'1'}"
     ),
     "remove_copilot": (
         '$v=(Get-ItemProperty "HKCU:\\Software\\Policies\\Microsoft\\Windows\\WindowsCopilot" '
@@ -216,14 +221,10 @@ VERIFY_MAP: dict[str, str] = {
         'if($v -eq 4294967295){"1"}else{"0"}'
     ),
     "dns_cloudflare": (
-        '$d=Get-DnsClientServerAddress -AddressFamily IPv4 -EA SilentlyContinue | '
-        'Select-Object -ExpandProperty ServerAddresses; '
-        'if($d -contains "1.1.1.1"){"1"}else{"0"}'
+        _dns_ps("verify", "dns_cloudflare")
     ),
     "dns_google": (
-        '$d=Get-DnsClientServerAddress -AddressFamily IPv4 -EA SilentlyContinue | '
-        'Select-Object -ExpandProperty ServerAddresses; '
-        'if($d -contains "8.8.8.8"){"1"}else{"0"}'
+        _dns_ps("verify", "dns_google")
     ),
 
     # ── Power ─────────────────────────────────────────────────────────────────
@@ -347,9 +348,10 @@ VERIFY_MAP: dict[str, str] = {
         'if($v -eq 1){"1"}else{"0"}'
     ),
     "reduce_process_count": (
-        '$v=(Get-ItemProperty "HKLM:\\SYSTEM\\CurrentControlSet\\Control" '
-        '-Name SvcHostSplitThresholdInKB -EA SilentlyContinue).SvcHostSplitThresholdInKB; '
-        'if($v -ne $null -and $v -gt 380000){"1"}else{"0"}'
+        # round 47 (found in v1): above Windows' own 0x380000 — it compared with the decimal 380000, so every
+        # untouched Windows counted as 'active'
+        r'$v=(Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Control" -Name SvcHostSplitThresholdInKB -EA SilentlyContinue)'
+        f'.SvcHostSplitThresholdInKB; if($v -ne $null -and $v -gt {SVCHOST_DEFAULT_KB}){{"1"}}else{{"0"}}'
     ),
     "disable_bing_search": (
         '$v=(Get-ItemProperty "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Search" '
@@ -421,11 +423,6 @@ VERIFY_MAP: dict[str, str] = {
         '-Name PreventDeviceMetadataFromNetwork -EA SilentlyContinue).PreventDeviceMetadataFromNetwork; '
         'if($v -eq 1){"1"}else{"0"}'
     ),
-    "start_menu_previous_layout": (
-        '$v=(Get-ItemProperty "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\FeatureManagement\\Overrides\\8\\3036241548" '
-        '-Name EnabledState -EA SilentlyContinue).EnabledState; '
-        'if($v -eq 1){"1"}else{"0"}'
-    ),
     "explorer_folder_discovery": (
         '$v=(Get-ItemProperty "HKCU:\\Software\\Classes\\Local Settings\\Software\\Microsoft\\Windows\\Shell\\Bags\\AllFolders\\Shell" '
         '-Name FolderType -EA SilentlyContinue).FolderType; '
@@ -481,18 +478,6 @@ VERIFY_MAP: dict[str, str] = {
         '$v=(Get-ItemProperty $k.PSPath -Name EnableULPS -EA SilentlyContinue).EnableULPS; '
         'if($v -ne 0){$ok=$false} }; if($ok){"1"}else{"0"}'
     ),
-    "amd_shader_cache": (
-        _AMD_KEYS_PS +
-        '$v=(Get-ItemProperty "HKLM:\\SOFTWARE\\ATI Technologies\\CBT" '
-        '-Name ShaderCacheSizePC -EA SilentlyContinue).ShaderCacheSizePC; '
-        'if($amd.Count -gt 0 -and $v -ne $null){"1"}else{"0"}'
-    ),
-    "amd_antilag": (
-        _AMD_KEYS_PS +
-        '$any=$false; foreach($k in $amd){ '
-        'if((Get-ItemProperty $k.PSPath -Name EnableAntiLag -EA SilentlyContinue).EnableAntiLag -eq 1){$any=$true} }; '
-        'if($any){"1"}else{"0"}'
-    ),
     # ── v1-Parität + Windows 11 26H2 (KI) ────────────────────────────────────
     'enable_long_paths': (
         '$v=(Get-ItemProperty \'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\FileSystem\' -Name \'LongPathsEnabled\' -EA SilentlyContinue).\'LongPathsEnabled\'; if($v -eq 1){"1"}else{"0"}'
@@ -527,9 +512,6 @@ VERIFY_MAP: dict[str, str] = {
     'disable_scheduled_defrag': (
         '$t=Get-ScheduledTask -TaskPath \'\\Microsoft\\Windows\\Defrag\\\' -TaskName \'ScheduledDefrag\' -EA SilentlyContinue; if($t -and "$($t.State)" -eq \'Disabled\'){"1"}else{"0"}'
     ),
-    'nvme_queue_depth': (
-        '$idx=@(Get-PhysicalDisk -EA SilentlyContinue | Where-Object { $_.BusType -eq \'NVMe\' } | ForEach-Object { [string]$_.DeviceId }); $d=@(Get-CimInstance Win32_DiskDrive -EA SilentlyContinue | Where-Object { $idx -contains [string]$_.Index })[0]; $v=$null; if($d){ $v=(Get-ItemProperty (\'HKLM:\\SYSTEM\\CurrentControlSet\\Enum\\\'+$d.PNPDeviceID+\'\\Device Parameters\\StorPort\') -Name QueueDepth -EA SilentlyContinue).QueueDepth }; if($v -eq 32){"1"}else{"0"}'
-    ),
     'disable_write_cache_flush': (
         '$d=@(Get-CimInstance Win32_DiskDrive -EA SilentlyContinue | Where-Object { $_.PNPDeviceID -and $_.MediaType -match \'Fixed hard disk\' })[0]; $v=$null; if($d){ $v=(Get-ItemProperty (\'HKLM:\\SYSTEM\\CurrentControlSet\\Enum\\\'+$d.PNPDeviceID+\'\\Device Parameters\\Disk\') -Name CacheIsPowerProtected -EA SilentlyContinue).CacheIsPowerProtected }; if($v -eq 1){"1"}else{"0"}'
     ),
@@ -551,14 +533,6 @@ VERIFY_MAP: dict[str, str] = {
     ),
     'remove_m365_copilot_devhome': (
         'if(Get-AppxPackage -AllUsers \'*Microsoft.MicrosoftOfficeHub*\' -EA SilentlyContinue){"0"}elseif(Get-AppxPackage -AllUsers \'*Microsoft.Windows.DevHome*\' -EA SilentlyContinue){"0"}else{"1"}'
-    ),
-    # what the tweak really sets (SackOpts / TcpMaxDupAcks, the old check, are not read by the TCP stack)
-    'tcp_optimize': (
-        '$t=Get-NetTCPSetting -SettingName Internet -EA Stop; '
-        'if("$($t.EcnCapability)" -eq "Disabled" -and "$($t.Timestamps)" -eq "Disabled"){"1"}else{"0"}'
-    ),
-    'disable_qos_limit': (
-        '$v=(Get-ItemProperty \'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Psched\' -Name \'NonBestEffortLimit\' -EA SilentlyContinue).\'NonBestEffortLimit\'; if($v -eq 0){"1"}else{"0"}'
     ),
     'mmcss_audio_profile': (
         '$k=Get-ItemProperty \'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile\\Tasks\\Audio\' -EA SilentlyContinue; if($k -and $k.\'Latency Sensitive\' -eq \'True\' -and $k.\'Scheduling Category\' -eq \'High\'){"1"}else{"0"}'
@@ -621,7 +595,7 @@ SLOW_CHECKS = {"remove_xbox", "remove_bloatware",
                # WMI / storage / Appx queries take seconds each
                "remove_m365_copilot_devhome", "disable_reserved_storage",
                "pagefile_system_managed", "disable_memory_compression",
-               "disable_scheduled_defrag", "nvme_queue_depth", "disable_write_cache_flush"}
+               "disable_scheduled_defrag", "disable_write_cache_flush"}
 
 
 # Windows starts a process with at most 32767 characters of command line. One PowerShell call per

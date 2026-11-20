@@ -275,12 +275,10 @@ class AppsPage(Page):
             return
         self._set_busy(True)
         self.log_apps.clear()
+        from core import restore_point
+        self.log_apps.append(tr("Wiederherstellungspunkt …", "Restore point …"), "dim")
 
         def work():
-            from core import restore_point
-            self.log_apps.append(tr("Wiederherstellungspunkt …", "Restore point …"), "dim")
-            ok, msg = restore_point.create("GameOptimizerPro before app removal")
-            self.log_apps.append("  " + msg, "success" if ok else "warning")
             res = {}
             for i, a in enumerate(sel, 1):
                 self.log_apps.append(f"[{i}/{len(sel)}] {a.display} …", "info")
@@ -302,7 +300,22 @@ class AppsPage(Page):
             self.lbl_apps.config(text=tr(f"Entfernt: {ok} von {len(res)}.", f"Removed: {ok} of {len(res)}."),
                                  fg=GREEN if ok == len(res) else AMBER)
             self._load_apps()
-        run_async(self, work, done)
+
+        def rp_done(rp):
+            # round 47 (found in v1): without a restore point the apps were removed anyway — now asked first
+            if not self.winfo_exists():
+                return
+            ok, msg, _why = rp if not isinstance(rp, Exception) else (False, str(rp), "error")
+            self.log_apps.append("  " + msg, "success" if ok else "warning")
+            if not ok and not messagebox.askyesno(tr("Kein Wiederherstellungspunkt", "No restore point"),
+                                                  restore_point.ask_text(msg), icon="warning", default="no",
+                                                  parent=self):
+                self.log_apps.append(tr("Abgebrochen — nichts entfernt.", "Cancelled — nothing removed."), "warning")
+                self.lbl_apps.config(text=tr("Nichts entfernt.", "Nothing removed."), fg=AMBER)
+                self._set_busy(False)
+                return
+            run_async(self, work, done)
+        run_async(self, lambda: restore_point.create_ex("GameOptimizerPro before app removal"), rp_done)
 
     # ── Install programs ────────────────────────────────────────────────────
 

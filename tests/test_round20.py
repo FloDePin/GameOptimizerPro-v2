@@ -36,8 +36,8 @@ check("windowed_game_optimizations" in medium and "clear_shader_cache" not in ha
       "presets: 'Mittel' turns it on; 'Hart' no longer wipes the shader cache")
 check("clear_shader_cache" not in VERIFY_MAP and "einmalige Aktion" in get_by_id("clear_shader_cache").desc,
       "the shader-cache cleanup is an action: no status (a cache that fills again was 'drift')")
-check(len(ALL_TWEAKS) == 118 and len({x.id for x in ALL_TWEAKS}) == 118,
-      "118 tweaks (round 44: Cortana / Teams / Chat button out; round 45: 14 new, 2 placebo ones out), ids unique")
+check(len(ALL_TWEAKS) == 112 and len({x.id for x in ALL_TWEAKS}) == 112,
+      "112 tweaks (round 44: Cortana / Teams / Chat button out; round 45: 14 new, 2 placebo ones out; round 47: 6 without documented effect out), ids unique")
 
 if os.name != "nt":
     print("  (not Windows: registry checks skipped)")

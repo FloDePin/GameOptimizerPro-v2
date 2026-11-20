@@ -301,9 +301,10 @@ class OptimizerTab(Page):
 
         def _run():
             self.log.append(f"Preset: {preset.icon} {preset_name(preset, current_lang())}", "header")
-            self._backup_before("PreApply", to_apply)
-            for i, t in enumerate(to_apply):
-                self._apply_one(t, prefix=f"  [{i+1}/{len(to_apply)}] ")
+            skip = self._backup_before("PreApply", to_apply)
+            todo = [t for t in to_apply if t.id not in skip]
+            for i, t in enumerate(todo):
+                self._apply_one(t, prefix=f"  [{i+1}/{len(todo)}] ")
             self.log.append(tr("Fertig.", "Done."), "success")
             self.after(0, self._refresh_presets)
             self.after(600, self._live_verify)
@@ -333,25 +334,57 @@ class OptimizerTab(Page):
         """App removals — the one thing "Revert all" cannot bring back (only System Restore can)."""
         return any(t is not None and t.id.startswith("remove_") for t in tweaks)
 
-    def _backup_before(self, label: str, tweaks=()):
+    def _backup_before(self, label: str, tweaks=()) -> set:
         """Registry backup before a batch of changes (runs in the worker thread).
         TweakRunner.apply_batch()/revert_all() already did this — but the UI
         never calls those; it applies/reverts tweak by tweak. So the automatic
         backup has to be triggered here, where the batches actually happen.
-        A batch that removes apps gets a System Restore point first (v1 made one before every
-        apply; Windows itself makes at most one a day)."""
+        A batch that removes apps gets a System Restore point first (v1 made one before every apply).
+        Returns the ids to leave out: round 47 (found in v1) — without a restore point the apps were
+        removed anyway; now the user is asked, and on "no" only the app removals stay out."""
+        skip: set = set()
         if self._removes_apps(tweaks):
             from core import restore_point
             self.log.append(tr("Wiederherstellungspunkt (nur er holt entfernte Apps zurück) …",
                                "Restore point (only it brings removed apps back) …"), "dim")
-            ok, msg = restore_point.create("GameOptimizerPro before app removal")
+            ok, msg, _why = restore_point.create_ex("GameOptimizerPro before app removal")
             self.log.append("  " + msg, "success" if ok else "warning")
+            if not ok and not self._ask_main(tr("Kein Wiederherstellungspunkt", "No restore point"),
+                                             restore_point.ask_text(msg)):
+                skip = {t.id for t in tweaks if t is not None and t.id.startswith("remove_")}
+                self.log.append(tr("  Nicht entfernt (kein Wiederherstellungspunkt): ",
+                                   "  Not removed (no restore point): ")
+                                + ", ".join(tweak_name(get_by_id(i), current_lang()) for i in sorted(skip)), "warning")
         self.log.append(tr("Sichere Registry (Backup vor der Änderung) …", "Backing up the registry (before the change) …"), "dim")
         res = self.runner.backup_registry(label)
         if res is None:
             self.log.append(tr("  ⚠ Registry-Backup nicht möglich — fahre trotzdem fort.", "  ⚠ Registry backup not possible — going on anyway."), "warning")
         else:
             self.log.append("  " + res.summary(), "success" if res.ok else "warning")
+        return skip
+
+    def _ask_main(self, title: str, msg: str) -> bool:
+        """A yes/no question from a worker thread, asked on the window's thread (default: no)."""
+        if threading.current_thread() is threading.main_thread():      # already there: just ask
+            try:
+                return bool(messagebox.askyesno(title, msg, icon="warning", default="no", parent=self))
+            except Exception:
+                return False
+        box, ev = {}, threading.Event()
+
+        def ask():
+            try:
+                box["yes"] = messagebox.askyesno(title, msg, icon="warning", default="no", parent=self)
+            except Exception:
+                box["yes"] = False
+            finally:
+                ev.set()
+        try:
+            self.after(0, ask)
+        except (RuntimeError, tk.TclError):
+            return False
+        ev.wait(900)
+        return bool(box.get("yes"))
 
     def _create_user_preset(self):
         name = ctk.CTkInputDialog(title=tr("Eigenes Preset", "Custom preset"),
@@ -1350,12 +1383,22 @@ class OptimizerTab(Page):
                                  if t.id in self._vars and self._vars[t.id].get()
                                  and not self.runner.is_applied(t.id)],
                                 self.runner._applied)
-        selected = [get_by_id(i) for i in ids]
+        chosen = [get_by_id(i) for i in ids]
+        # round 47 (found in v1): what is already active on the system is left alone, as in the presets —
+        # applying it again re-ran its script (e.g. the folder views were wiped again) and made it the app's
+        already = [t for t in chosen if self._verify_states.get(t.id) is True]
+        selected = [t for t in chosen if t not in already]
         if not selected:
-            messagebox.showinfo(tr("Nichts", "Nothing"), tr("Keine neuen Tweaks ausgewählt.", "No new tweaks selected."))
+            messagebox.showinfo(tr("Nichts", "Nothing"),
+                                tr(f"Die {len(already)} ausgewählten Tweak(s) sind schon aktiv — sie bleiben, wie sie sind.",
+                                   f"The {len(already)} selected tweak(s) are active already — they stay as they are.")
+                                if already else tr("Keine neuen Tweaks ausgewählt.", "No new tweaks selected."))
             return
         needs_rb = any(t.requires_reboot for t in selected)
         msg = tr(f"{len(selected)} Tweak(s) anwenden?", f"Apply {len(selected)} tweak(s)?")
+        if already:
+            msg += (tr("\n\nSchon aktiv, bleibt unverändert: ", "\n\nActive already, left as it is: ")
+                    + ", ".join(tweak_name(t, current_lang()) for t in already))
         replaced = [get_by_id(a) for t in selected for a in alternatives_of(t.id)
                     if self.runner.is_applied(a)]
         if replaced:
@@ -1366,9 +1409,10 @@ class OptimizerTab(Page):
 
         def _run():
             self.log.append(tr(f"Wende {len(selected)} Tweak(s) an...", f"Applying {len(selected)} tweak(s)..."), "header")
-            self._backup_before("PreApply", selected)
-            for i, t in enumerate(selected):
-                self._apply_one(t, prefix=f"  [{i+1}/{len(selected)}] ")
+            skip = self._backup_before("PreApply", selected)
+            todo = [t for t in selected if t.id not in skip]
+            for i, t in enumerate(todo):
+                self._apply_one(t, prefix=f"  [{i+1}/{len(todo)}] ")
             self.log.append(tr("Fertig.", "Done."), "success")
             # Re-verify dots after apply
             self.after(500, self._live_verify)

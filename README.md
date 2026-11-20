@@ -2,7 +2,7 @@
 
 # ⚡ GameOptimizerPro v2.1
 
-**A Windows gaming optimizer with a GPU auto-tuner that measures your card's V/F curve point by point — plus 118 reversible Windows tweaks, game profiles, a BIOS guide and stress tests.**
+**A Windows gaming optimizer with a GPU auto-tuner that measures your card's V/F curve point by point — plus 112 reversible Windows tweaks, game profiles, a BIOS guide and stress tests.**
 
 [![Version](https://img.shields.io/badge/version-2.1-d9480f?style=flat-square)](https://github.com/FloDePin/GameOptimizerPro-v2/releases)
 [![CI](https://github.com/FloDePin/GameOptimizerPro-v2/actions/workflows/ci.yml/badge.svg)](https://github.com/FloDePin/GameOptimizerPro-v2/actions/workflows/ci.yml)
@@ -23,7 +23,7 @@
 | 🎮 **GPU auto-tuner** | Measures every voltage point on its own and builds its own V/F curve — goals *Max performance*, *Balanced*, *Efficiency*. Plus a quick mode (offset + power limit). |
 | ✅ **Tested, not guessed** | Every step runs with the video encoder next to it (as when recording or streaming); only what passed FurMark, a compute check, a game test with load changes and a hardness test (3D + video encoder + compute at once) is saved. A watchdog records clock and voltage while the app runs, sees an in-game GPU hang within seconds and makes only the curve points involved safer — the next tune keeps extra margin there. |
 | 📊 **Profile comparison** | Every profile against stock in the same benchmark: points, watts, points per watt, full load at the power limit — the V/F curves in a chart, and a guided 3DMark comparison on the stress page. |
-| 🛠 **118 Windows tweaks** | Live-verified (● active · ◑ applied · ○ inactive), presets from *Minimal* to *Hard*, a registry backup before every change, *Revert all* — your own previous settings come back. Plus an **Apps** page: remove Store apps one by one, install launchers, game runtimes and tools through winget. |
+| 🛠 **112 Windows tweaks** | Live-verified (● active · ◑ applied · ○ inactive), presets from *Minimal* to *Hard*, a registry backup before every change, *Revert all* — your own previous settings come back. Plus an **Apps** page: remove Store apps one by one, install launchers, game runtimes and tools through winget. |
 | 🎯 **Game profiles** | Per game `.exe`: a higher CPU and disk priority, optionally no fullscreen optimizations — Windows applies it at every start, no background process. While the game runs, the status shows the priority it really got. |
 | 🖥 **BIOS guide** | 16 platforms (Intel 8th gen / Ryzen 1000 and newer) with menu paths for ASUS, MSI, Gigabyte and ASRock; live status only where Windows really knows it. |
 | 🩺 **Stress test & diagnosis** | A hardness test like gaming while recording / streaming (3D, NVENC encoder, compute and memory at once), internal stress test, FurMark 1/2 and 3DMark with recording, a 30-day health report (incl. memory integrity and BitLocker), an interrupt view (MSI or line interrupt per device), services and startup managers, cleaner, dashboard. |
@@ -103,7 +103,7 @@ Windows 10 / 11 · Python 3.10+ (the launcher offers to install 3.12) · admin r
 
 - 📖 [All features in detail](docs/FEATURES.md) — including the project structure
 - 📜 [Changelog](CHANGELOG.md)
-- 🧪 1954 automated checks in 49 test suites (`python tests\run_all_tests.py`), run before every push
+- 🧪 2010 automated checks in 50 test suites (`python tests\run_all_tests.py`), run before every push
 - 🤝 Pull requests are welcome — for bigger changes please open an issue first.
 
 <div align="center">

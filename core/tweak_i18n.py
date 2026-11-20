@@ -17,7 +17,7 @@ TWEAK_DESC_EN: dict[str, str] = {
     'remove_recall':
         'Turns off Windows Recall via the official policies (no more screenshots of your activity) and REMOVES its components and saved snapshots on the next restart. Privacy critical.',
     "remove_bloatware":
-        "Removes preinstalled apps: Candy Crush, TikTok, Disney+, Facebook, Spotify, News, Solitaire, Clipchamp, ToDo, Paint3D and more — the provisioned packages too, so feature updates don't reinstall them. Deliberately not: Media Player (Windows 11's default player) and Get Help (the troubleshooters run through it) — remove those one by one on the Apps page if you like.",
+        "Removes Microsoft's preinstalled extras and the bundled games: Candy Crush & co., Solitaire, News, Weather, Clipchamp, To Do, Feedback Hub, Paint 3D, Mixed Reality and more — the provisioned packages too, so feature updates don't reinstall them. Deliberately not: apps many people install themselves (Spotify, Netflix, Disney+, TikTok, Instagram, Facebook, X), Media Player (Windows 11's default player) and Get Help (the troubleshooters run through it) — remove those one by one on the Apps page if you like.",
     "disable_telemetry":
         "Disables all Windows telemetry services (DiagTrack, dmwappushservice). Recommended for everyone.",
     "disable_activity_history":
@@ -72,13 +72,13 @@ TWEAK_DESC_EN: dict[str, str] = {
     "disable_fullscreen_opt":
         "Disables Windows Fullscreen Optimizations globally. Forces true fullscreen for lower input lag.",
     "disable_wu_gaming":
-        "Prevents automatic Windows Update downloads and installs. Avoids reboots and performance drops while gaming.",
+        "Windows no longer downloads and installs updates by itself, it only tells you that there are some — for good, not just while gaming. No restarts or downloads mid-game, but security updates only come when you start them yourself under Settings → Windows Update. Only if you do that regularly. (Windows already avoids restarts during active hours.)",
     "disable_bg_throttle":
-        "Disables CPU throttling for background processes. Important for CPU-heavy games.",
+        "Store apps no longer keep running in the background (Windows' 'Let apps run in the background' switch for your user, Home included). Saves a little memory and CPU time. Consequence: closed Store apps such as WhatsApp, Phone Link or Mail don't report new messages. Windows throttling processes is a different tweak ('Disable Power Throttling').",
     "enable_msi_mode":
         "Enables Message Signaled Interrupts for the GPU. Reduces interrupt latency. Reboot required.",
     "enable_hags":
-        "Hands GPU scheduling directly to the hardware. Less CPU overhead and lower input lag. Needs RTX 2000+ or RX 5000+.",
+        "Hands GPU scheduling directly to the hardware. Less CPU overhead and lower input lag. Needs RTX 2000+ or RX 5000+; DLSS Frame Generation requires it. Revert puts back the state from before (not set before: Windows decides again).",
     "clear_shader_cache":
         "Clears the NVIDIA/AMD shader cache (one-time action). Only after driver updates or on graphics "
         "glitches — every game then rebuilds its shaders (the first minutes stutter).",
@@ -99,13 +99,13 @@ TWEAK_DESC_EN: dict[str, str] = {
         "Disables network throttling under high CPU load. Gives the network stack top priority. Also sets "
         "SystemResponsiveness to 10 (the lowest value Windows accepts).",
     "dns_cloudflare":
-        "Sets DNS to Cloudflare 1.1.1.1/1.0.0.1. One of the fastest and most privacy-friendly DNS services.",
+        "Sets DNS to Cloudflare — IPv4 (1.1.1.1 / 1.0.0.1) and IPv6 (2606:4700:4700::1111 / ::1001), on the physical network adapters only (VPN and virtual adapters stay as they are). One of the fastest and most privacy-friendly DNS services.",
     "dns_google":
-        "Sets DNS to Google 8.8.8.8/8.8.4.4. Globally distributed, fast and reliable.",
+        "Sets DNS to Google — IPv4 (8.8.8.8 / 8.8.4.4) and IPv6 (2001:4860:4860::8888 / ::8844), on the physical network adapters only (VPN and virtual adapters stay as they are). Globally distributed, fast and reliable.",
     "flush_dns":
         "Flushes the local DNS cache. Fast, with no side effects.",
     "disable_tcp_autotuning":
-        "Disables the automatic TCP receive window. Can reduce latency spikes. Slightly lower throughput at 1Gbit+.",
+        "Turns the automatic TCP receive window off — it stays at 64 KB. Honest note: downloads get much slower (at a 20 ms ping at most about 25 Mbit/s per connection), and there is no documented gain for the ping in games. Only for troubleshooting very old routers.",
     "enable_rss":
         "Enables Receive-Side Scaling on every adapter that offers it. Spreads network processing across CPU cores. Better on fast connections. (Says so honestly when the driver doesn't expose RSS to Windows.)",
     "w11_classic_context_menu":
@@ -123,7 +123,7 @@ TWEAK_DESC_EN: dict[str, str] = {
     "power_high":
         "Enables High Performance. A good balance between performance and power draw; on mains power the screen never turns off and the PC never goes to sleep. (Alternative to Ultimate Performance and Balanced — only one plan can be active.)",
     "disable_usb_suspend":
-        "Prevents USB devices (mouse, headset) from entering power saving mode. No more sudden disconnects.",
+        "Prevents USB devices (mouse, headset) from entering power saving mode — in every power plan, on mains power. No more sudden disconnects. Revert puts back each plan's value from before.",
     "disable_audio_enhancements":
         "Disables Windows audio enhancements (bass boost, EQ etc.). Reduces audio latency and CPU load. Recommended for gaming.",
     "disable_audio_exclusive_lock":
@@ -138,7 +138,7 @@ TWEAK_DESC_EN: dict[str, str] = {
     "disable_power_throttling":
         "Prevents Windows from throttling processes to save power. Useful for games whose side-processes would otherwise be throttled.",
     "reduce_process_count":
-        "Sets the Svchost split threshold to your RAM size so Windows bundles services into fewer processes. Lowers the total background process count. Safe with 16GB+ RAM.",
+        "Sets the Svchost split threshold to your RAM size so Windows bundles services into fewer processes. Lowers the total background process count. Safe with 16GB+ RAM. Revert puts back the value from before (Windows' own is 3.5 GB).",
     "disable_bing_search":
         "Disables Bing web integration in Windows Search. Start menu search stays local and loads faster. Also "
         "off: search highlights (pictures and topics of the day in the search box) and the cloud content search "
@@ -152,9 +152,9 @@ TWEAK_DESC_EN: dict[str, str] = {
     "disable_delivery_optimization":
         "Turns off peer-to-peer sharing of Windows updates, which otherwise eats upload/download bandwidth in the background — noticeably steadier pings for online gaming. Policy only.",
     "power_pcie_aspm_off":
-        "Disables PCIe link power saving (ASPM). The PCIe bus to the graphics card stays at full power instead of dropping into low-power states — marginally more consistent latency at the cost of a little more idle power. Fully reversible.",
+        "Disables PCIe link power saving (ASPM) in every power plan, on mains power. The PCIe bus to the graphics card stays at full power instead of dropping into low-power states — marginally more consistent latency at the cost of a little more idle power. Revert puts back each plan's value from before.",
     "power_disk_never_sleep":
-        "Stops Windows from spinning down drives after inactivity. On systems with HDD(s) this prevents micro-stutter when a background process has to wake a sleeping drive. Fully reversible.",
+        "Stops Windows from spinning down drives after inactivity — in every power plan, on mains power. On systems with HDD(s) this prevents micro-stutter when a background process has to wake a sleeping drive. Revert puts back each plan's value from before.",
     "show_file_extensions":
         "Shows file extensions (.exe, .txt, .cfg …) in Explorer. Helps spot disguised files like 'setup.exe.scr' — a small security & convenience win.",
     "show_hidden_files":
@@ -171,28 +171,22 @@ TWEAK_DESC_EN: dict[str, str] = {
     # ── Ported from GameOptimizerPro v1 ──────────────────────────────────────
     "prevent_device_companion":
         "Stops Windows from pulling device metadata off the network and auto-installing or suggesting companion apps for connected devices. Saves background traffic and unwanted app installs.",
-    "start_menu_previous_layout":
-        "Enables the previous Start menu layout on supported Windows 11 builds via a feature override. Only has an effect on builds that know this flag — otherwise it does nothing.",
     "explorer_folder_discovery":
-        "Sets every folder to 'General items'. File Explorer then stops wasting time auto-detecting folder types, so large folders open noticeably faster. Requires sign-out/restart.",
+        "Sets every folder to 'General items'. File Explorer then stops wasting time auto-detecting folder types, so large folders open noticeably faster. Caution: applying it loses the saved views of all folders (sorting, columns, view). Revert only takes the default back — the views from before don't return. Requires sign-out/restart.",
     "store_no_recommended":
         "Locks the Microsoft Store's store.db via file permissions, so the Store no longer shows recommended/sponsored search results. Fully reversible.",
     "nic_power_saving":
         "Turns off 'Allow the computer to turn off this device to save power' for every network adapter. Prevents dropouts and latency spikes caused by adapter power saving.",
     "power_display_sleep_15":
-        "Sets the monitor sleep timer to 15 minutes (AC) and 5 minutes (battery) in every plan EXCEPT High Performance and Ultimate Performance — those keep the screen on while on mains power.",
+        "Sets the monitor sleep timer to 15 minutes (AC) and 5 minutes (battery) in every plan EXCEPT High Performance and Ultimate Performance — those keep the screen on while on mains power. Revert puts back each plan's values from before.",
     "power_sleep_off":
-        "Disables system sleep entirely — the PC no longer suspends after being idle. Recommended for desktops that should keep running in the background (downloads, servers).",
+        "Disables system sleep entirely (every power plan, mains and battery) — the PC no longer suspends after being idle. Recommended for desktops that should keep running in the background (downloads, servers). Revert puts back each plan's values from before.",
     "power_cpu_min_100":
-        "Sets the minimum CPU state to 100%, so the CPU never clocks down. Removes the brief ramp-up delay coming out of idle — good for consistent FPS, but raises idle power draw and temperature.",
+        "Sets the minimum CPU state to 100% (every power plan), so the CPU never clocks down. Removes the brief ramp-up delay coming out of idle — good for consistent FPS, but raises idle power draw and temperature. Revert puts back each plan's values from before.",
     "power_cpu_max_100":
         "Makes sure Windows never artificially caps the CPU. Relevant on laptops and systems with an aggressive thermal policy. 100% is also the Windows default — so there is honestly nothing to revert here.",
     "amd_disable_ulps":
         "AMD only: disables Ultra Low Power State. ULPS puts idle GPUs into an extreme power-saving mode and can cause stutter on wake-up. Worth disabling even on a single GPU.",
-    "amd_shader_cache":
-        "AMD only: sets the AMD shader cache to its maximum size. Prevents cache eviction and repeated shader recompilation — reduces stutter especially in OpenGL/Vulkan titles.",
-    "amd_antilag":
-        "AMD only: enables AMD Anti-Lag via the registry. Shortens the gap between CPU input and GPU output — similar to NVIDIA Reflex. Most effective in CPU-limited games (RX 5000+).",
     'enable_long_paths':
         "Allows file paths longer than 260 characters. Prevents 'path too long' errors with deep folder structures, game mods, Node projects etc.",
     'numlock_on_startup':
@@ -213,8 +207,6 @@ TWEAK_DESC_EN: dict[str, str] = {
         'Makes sure Windows tells SSDs about deleted blocks (TRIM), keeping SSD performance high long-term. Usually already on — this tweak checks and enforces it.',
     'disable_scheduled_defrag':
         "Disables the weekly drive optimization. Honest note: on SSDs Windows doesn't defragment, it only sends another TRIM — that stops (TRIM on delete stays). Only useful if you want to control optimization yourself.",
-    'nvme_queue_depth':
-        "Sets a StorPort queue depth of 32 and a higher interrupt priority for NVMe SSDs. Honest note: the effect depends on the driver and is usually only measurable in benchmarks. (A value for idle power saving set earlier is not read by the NVMe driver and is gone.) Greyed out without an NVMe drive.",
     'disable_write_cache_flush':
         "Same as 'Turn off Windows write-cache buffer flushing' in Device Manager: faster writes, but a power loss or crash can cause data loss and file-system errors. Desktop PCs with a stable power supply only (ideally a UPS). (v1 set the wrong registry value here.)",
     'w11_hide_recommended':
@@ -243,10 +235,6 @@ TWEAK_DESC_EN: dict[str, str] = {
         "CPU load at high download rates. Meant for online games — if you often download big files or "
         "stream, better leave it on. Only settings the driver itself offers are changed; revert puts the "
         "previous value back. Takes effect after a restart.",
-    'tcp_optimize':
-        'Turns ECN and TCP timestamps off — slightly less overhead per packet. Honest note: the effect on ping is small; turning ECN off mainly helps behind routers that mishandle ECN packets. (SACK is always on in Windows; the old values SackOpts / TcpMaxDupAcks have not been read by the TCP stack since Windows Vista — the tweak no longer sets them.)',
-    'disable_qos_limit':
-        "Sets the QoS policy 'limit reservable bandwidth' to 0 %. Honest note: contrary to popular belief Windows does NOT permanently reserve 20 % — the reserve only applies when a QoS application requests bandwidth. Usually no measurable effect, but harmless.",
     'mmcss_audio_profile':
         "Sets the MMCSS task 'Audio' to latency-sensitive with high scheduling priority — fewer crackles and dropouts under CPU load.",
     'audio_service_priority':
@@ -320,6 +308,11 @@ TWEAK_DESC_EN: dict[str, str] = {
 
 # English names, only where the German name differs. Most names are already English.
 TWEAK_NAME_EN: dict[str, str] = {
+    # round 47: renamed honestly (German names in core/tweaks.py)
+    "disable_wu_gaming":
+        "Turn off automatic Windows updates",
+    "disable_bg_throttle":
+        "Stop background apps (all editions)",
     "disable_consumer_features": "Stop Auto-Installed Suggested Apps",
     "timer_resolution":     "Let Timer Requests Apply System-wide",
     "disable_eee":          "Disable Energy-Efficient Ethernet",
@@ -353,8 +346,6 @@ TWEAK_NAME_EN: dict[str, str] = {
         'Ensure SSD TRIM',
     'disable_scheduled_defrag':
         'Disable Scheduled Drive Optimization',
-    'nvme_queue_depth':
-        'NVMe: Queue Depth & Interrupt Priority',
     'disable_write_cache_flush':
         'Disable Write-Cache Buffer Flushing (desktop + UPS only)',
     'w11_hide_recommended':
@@ -369,10 +360,6 @@ TWEAK_NAME_EN: dict[str, str] = {
         'Turn off the Windows AI Service (WSAIFabricSvc)',
     'remove_m365_copilot_devhome':
         'Remove Microsoft 365 Copilot App & Dev Home',
-    'tcp_optimize':
-        'Optimize TCP (ECN & Timestamps off)',
-    'disable_qos_limit':
-        'QoS Bandwidth Reserve to 0 %',
     'mmcss_audio_profile':
         'Optimize MMCSS Audio Profile',
     'audio_service_priority':

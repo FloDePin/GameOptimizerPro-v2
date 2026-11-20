@@ -22,7 +22,7 @@ named by version only.
   efficiency against stock and the V/F curves.
 - **GPU watchdog** — a flight recorder, in-game hang detection within seconds, a targeted make-safer
   for the curve points involved; the app's own tests are never taken for a game's crash.
-- **Windows** — 118 tweaks reviewed for Windows 11 26H2, game profiles (CPU / disk priority per game),
+- **Windows** — 112 tweaks reviewed for Windows 11 26H2, game profiles (CPU / disk priority per game),
   adapter tweaks, an interrupt view, the BIOS guide for 16 platforms.
 - **App** — new interface with a sidebar, English throughout (German included), no console window,
   updates from GitHub, tray, stress tests (FurMark 1/2, 3DMark, hardness test).
@@ -112,7 +112,23 @@ named by version only.
   "no longer active" dialog the optimizer checks the state again; *Disable Paint AI* sets only the three policies
   Microsoft documents (the two others it set were read by nothing — *Revert* still removes them); a critical finding
   makes the health report's summary red; FurMark 2 and Chrome are found in more install folders.
-- 1954 checks in 49 suites, all green.
+- **Update 2026-11-20** — checked against the November preview update (KB5132057, build 26300.10075): no tweak
+  broken. v1's review checked against v2 and fixed where it applied: reverts put back what was there — each power
+  plan's own values on mains and battery (PCIe link state, disk, display, sleep, CPU minimum, USB suspend wrote
+  fixed values, e.g. "maximum savings" instead of Balanced's "moderate"), HAGS (it was switched off even where it
+  had been on — Frame Generation needs it), the svchost threshold (0x380000, not the decimal 380000; its check
+  called every untouched Windows "active") and background apps; DNS for IPv4 and IPv6 on the physical adapters
+  only (with IPv6 the router's DNS kept answering); the Xbox TCUI app is really removed now (its pattern never
+  matched); *Remove Bloatware* leaves apps people install themselves (Spotify, Netflix, Disney+ …); *Apply
+  selected* leaves tweaks that are already active alone; without a restore point app removals ask first, and a
+  point Windows skipped (24-hour limit) is no longer reported as made; the folder-view tweak's revert no longer
+  wipes every view again. Honest presets: automatic Windows updates off (it was named "during gaming") and TCP
+  auto-tuning off (slower downloads) are in no preset any more; "background app throttling" is *Stop background
+  apps* now (that is what it does; Hard only). Retired without documented effect: *Optimize TCP* (ECN and
+  timestamps are already off), the QoS bandwidth reserve, NVMe queue depth, the previous Start layout, AMD shader
+  cache and Anti-Lag — 112 tweaks. Registry backups in a folder of their own (v1's limit deleted v2's and the
+  other way round) and about 10 MB instead of 37 MB.
+- 2010 checks in 50 suites, all green.
 
 <details>
 <summary><b>Development log — rounds 8–33</b> (one or two lines per round)</summary>
@@ -518,4 +534,5 @@ graphics tag holds for Speed Way and Time Spy (the reader now also takes a total
 a "clock stretching" rule (effective below requested clock) has no basis in the measured data; the
 tie-break for equal scores and the FurMark / 3DMark separation already existed. Not taken from the proposals: a cache for the GPU readings (NVML is thread-safe, a read costs milliseconds) and one stress worker for all steps (a fresh process per step keeps a broken CUDA context from carrying a fault into the next step).
 From the 2026-11-12 reviews: a failed pip run in the updater lost no update — the start after it checks every package and installs what is missing (the hidden pip run is gone now anyway), so neither a rollback nor keeping the download is needed; the package check in the launcher and again in the app costs about 0.1 s and catches an administrator account other than the user's and every start without the launcher — kept; the preset counts were refreshed after apply / revert by the status check that follows (only the "no longer active" dialog missed it — fixed); the process handle could not be cut off (Windows handles are small numbers) and a failed wait already stopped the update — typed anyway; the suggested Paint fix (check all five values) would have flagged working PCs: two of the five were in no documentation and no Windows file, so the tweak sets only the documented three. Not taken: reading the remaining text comparisons without PowerShell (the PowerShell checks run in one batch anyway — no measurable gain); the test battery in GitHub's CI (the suites need Windows, a desktop and the registry; they run before every push).
+From v1's review (2026-11-20), points that don't apply to v2: v2 has no boot-delay reading (v1 read the wrong event) and no "removed apps" line in *Revert all*; the hibernation text already says Fast Startup goes off with it; the "no longer active" dialog already names a newer tweak version as a reason, not only Windows updates; the score leaves the either-or DNS / power plan choices out, so 100 % is reachable; *Revert all* only ever reverted what the app applied; the scheduled-defrag tweak already says that SSDs lose the weekly TRIM and is in no preset; the TCP revert already used Windows' default; there is no restore-point status on the dashboard and no SECURITY.md / CHECKSUMS.txt; the German texts have their umlauts.
 </details>

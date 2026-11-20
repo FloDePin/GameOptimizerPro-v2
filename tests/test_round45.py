@@ -77,7 +77,7 @@ NEW = ["disable_tips_suggestions", "disable_input_speech_data", "onedrive_block_
 # ── 1. The new tweaks ────────────────────────────────────────────────────────────────────────
 print("the new tweaks")
 ids = [t.id for t in T.ALL_TWEAKS]
-check(len(ids) == 118 and len(set(ids)) == 118 and all(n in ids for n in NEW), f"118 tweaks, the 14 new ones in ({len(ids)})")
+check(len(ids) == 112 and len(set(ids)) == 112 and all(n in ids for n in NEW), f"112 tweaks (round 47: 6 retired), the 14 new ones in ({len(ids)})")
 check(all(n in VERIFY_MAP and n in TWEAK_DESC_EN and n in TWEAK_NAME_EN for n in NEW),
       "each: a status check, an English name and description")
 check(all(T.get_by_id(n).desc and T.get_by_id(n).revert_cmd for n in NEW), "each: a German description and a revert")
@@ -580,20 +580,21 @@ for tid in ("audio_service_priority", "disable_network_throttle"):
     check("SystemResponsiveness /t REG_DWORD /d 10" in cmd and "/d 0 /f" not in cmd.split("SystemResponsiveness")[1][:40],
           f"{tid}: SystemResponsiveness 10 (below 10 Windows uses 20, the default)")
 check("$r -eq 10" in VERIFY_MAP["audio_service_priority"], "... and the check wants 10 (an old 0 shows as not active: it did nothing)")
-tcp = T.get_by_id("tcp_optimize")
-check("SackOpts" not in tcp.ps_command and "TcpMaxDupAcks" not in tcp.ps_command and "SackOpts" in tcp.revert_cmd
-      and "Get-NetTCPSetting" in VERIFY_MAP["tcp_optimize"] and "SACK an" not in tcp.name,
-      "TCP: the XP-era values are gone (revert still removes them), the check reads ECN / timestamps")
-nvme = T.get_by_id("nvme_queue_depth")
-check("IdlePowerEnabled" not in nvme.ps_command and "IdlePowerEnabled" in nvme.revert_cmd and "QueueDepth" in nvme.ps_command,
-      "NVMe: the idle-power value the driver doesn't read is gone; queue depth / interrupt priority stay")
+# round 47: 'Optimize TCP' and 'NVMe queue depth' are retired (no documented effect) — their clean-ups
+# still remove what this round's versions had left
+tcp = T.RETIRED_TWEAKS["tcp_optimize"][2]
+check(T.get_by_id("tcp_optimize") is None and "SackOpts" in tcp and "ecncapability=default" in tcp,
+      "TCP: retired since round 47; 'Revert all' puts ECN / timestamps to Windows' default and removes the XP-era values")
+nvme = T.RETIRED_TWEAKS["nvme_queue_depth"][2]
+check(T.get_by_id("nvme_queue_depth") is None and "IdlePowerEnabled" in nvme and "-eq 32" in nvme,
+      "NVMe: retired since round 47; its clean-up removes only the queue depth it set (32) and the idle-power value")
 bl = T.get_by_id("remove_bloatware").ps_command
 check("ZuneMusic" not in bl and "GetHelp" not in bl and "ZuneVideo" in bl,
       "Remove Bloatware keeps Media Player (Windows 11's default player) and Get Help (the troubleshooters)")
 check(AR.classify("Microsoft.GetHelp")[0] == AR.OPTIONAL and AR.classify("Microsoft.ZuneMusic")[0] == AR.OPTIONAL,
       "... both offered on the Apps page as 'may be in use'")
 if os.name == "nt":
-    for tid in ("mmcss_gaming", "tcp_optimize", "audio_service_priority"):
+    for tid in ("mmcss_gaming", "audio_service_priority"):
         rc, out, err = ps(VERIFY_MAP[tid])
         check(rc == 0 and out in ("0", "1"), f"{tid}: the corrected check answers on this PC ({out}) {err[:60]}")
 
@@ -609,7 +610,7 @@ check(tg["power"] == [(T._USB_SUB, T._USB3_LPM)], "targets: the power setting")
 tg = WW.targets(T.get_by_id("disable_tips_suggestions"))
 check("ScoobeSystemSettingEnabled" in tg["values"] and len(tg["values"]) == len(T.TIPS_ITEMS), "targets: the kept-value rows")
 tg = WW.targets(T.get_by_id("remove_xbox"))
-check("*XboxGamingOverlay*" in tg["appx"], "targets: Store app patterns")
+check("*Microsoft.XboxGamingOverlay*" in tg["appx"] and "*Microsoft.Xbox.TCUI*" in tg["appx"], "targets: Store app patterns")
 check(any(rx.match("SubscribedContent-338389Enabled") for rx, _f in WW._SCAN_AS) and "KFMBlockOptIn" in WW.EXTERNAL,
       "names Windows builds at run time are searched by their fixed part; values other programs read are named")
 if os.name == "nt":
@@ -645,7 +646,7 @@ from ui import apps_page as AP  # noqa: E402
 root = ctk.CTk()
 root.withdraw()
 real = {"admin": services.is_admin, "list": AR.list_apps, "remove": AR.remove, "have": WI.installed_ids,
-        "install": WI.install, "exe": WI.winget_exe, "ask": AP.messagebox.askyesno, "rp": restore_point.create}
+        "install": WI.install, "exe": WI.winget_exe, "ask": AP.messagebox.askyesno, "rp": restore_point.create_ex}
 asked = []
 try:
     AP.services.is_admin = lambda: True
@@ -657,7 +658,7 @@ try:
     installed = []
     AP.winget_installer.install = lambda pid, on_line=None: (installed.append(pid), on_line and on_line("Downloading"), (True, ""))[2]
     AP.messagebox.askyesno = lambda *a, **k: (asked.append(a), True)[1]
-    restore_point.create = lambda d="": (True, "Wiederherstellungspunkt erstellt.")
+    restore_point.create_ex = lambda d="": (True, "Wiederherstellungspunkt erstellt.", "ok")
     page = AP.AppsPage(root)
     page.pack(fill="both", expand=True)
     root.update()
@@ -715,7 +716,7 @@ finally:
     AP.winget_installer.installed_ids, AP.winget_installer.install = real["have"], real["install"]
     AP.winget_installer.winget_exe = real["exe"]
     AP.messagebox.askyesno = real["ask"]
-    restore_point.create = real["rp"]
+    restore_point.create_ex = real["rp"]
 
 print("BIOS guide: BitLocker warning")
 from ui import tab_bios as TB  # noqa: E402

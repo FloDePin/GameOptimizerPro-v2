@@ -76,29 +76,6 @@ _AMD_ULPS_REVERT = _AMD_KEYS_PS + (
     "Set-ItemProperty -Path $k.PSPath -Name EnableULPS -Value 1 -Type DWord -EA SilentlyContinue; "
     "Set-ItemProperty -Path $k.PSPath -Name EnableULPS_NA -Value 1 -Type DWord -EA SilentlyContinue }"
 )
-_AMD_SHADER_APPLY = _AMD_KEYS_PS + _AMD_REQUIRED_PS + (
-    "$p='HKLM:\\SOFTWARE\\ATI Technologies\\CBT'; "
-    "if(!(Test-Path $p)){New-Item -Path $p -Force|Out-Null}; "
-    "Set-ItemProperty -Path $p -Name ShaderCacheSizePC -Value 0xffffffff -Type DWord; "
-    "foreach($k in $amd){ "
-    "Set-ItemProperty -Path $k.PSPath -Name KMD_EnableComputePreemption -Value 0 -Type DWord -EA SilentlyContinue }"
-)
-_AMD_SHADER_REVERT = (
-    "Remove-ItemProperty -Path 'HKLM:\\SOFTWARE\\ATI Technologies\\CBT' "
-    "-Name ShaderCacheSizePC -EA SilentlyContinue; "
-) + _AMD_KEYS_PS + (
-    "foreach($k in $amd){ "
-    "Remove-ItemProperty -Path $k.PSPath -Name KMD_EnableComputePreemption -EA SilentlyContinue }"
-)
-_AMD_ANTILAG_APPLY = _AMD_KEYS_PS + _AMD_REQUIRED_PS + (
-    "foreach($k in $amd){ "
-    "Set-ItemProperty -Path $k.PSPath -Name EnableAntiLag -Value 1 -Type DWord -EA SilentlyContinue }"
-)
-_AMD_ANTILAG_REVERT = _AMD_KEYS_PS + (
-    "foreach($k in $amd){ "
-    "Remove-ItemProperty -Path $k.PSPath -Name EnableAntiLag -EA SilentlyContinue }"
-)
-
 # (The "NVIDIA Low Latency Mode" tweak that wrote NVTweak\NVLatency is retired since round 45: no file
 # of the NVIDIA driver contains that value name — the low-latency mode lives in the driver profile.)
 
@@ -165,6 +142,10 @@ def _nic_ps(mode: str, tag: str, keywords) -> str:
     return head + loop + tail
 
 
+XBOX_APPS = ("*Microsoft.XboxApp*", "*Microsoft.XboxGameOverlay*", "*Microsoft.XboxGamingOverlay*",
+             "*Microsoft.XboxIdentityProvider*", "*Microsoft.XboxSpeechToTextOverlay*", "*Microsoft.Xbox.TCUI*")
+
+
 def _remove_apps_ps(patterns: list[str]) -> str:
     """Remove Store apps for ALL users AND their provisioned package — a feature
     update (e.g. 26H2) re-installs apps that are only removed per user."""
@@ -184,24 +165,6 @@ _NVME_DISKS_PS = (
     r"ForEach-Object { [string]$_.DeviceId }); "
     r"$nv=@(Get-CimInstance Win32_DiskDrive -EA SilentlyContinue | Where-Object { $idx -contains [string]$_.Index }); "
 )
-_NVME_QD_APPLY = _NVME_DISKS_PS + (
-    r"if($nv.Count -eq 0){ Write-Output 'Kein NVMe-Laufwerk gefunden'; exit 1 }; "
-    r"foreach($d in $nv){ $b='HKLM\SYSTEM\CurrentControlSet\Enum\'+$d.PNPDeviceID+'\Device Parameters'; "
-    r"reg add ($b+'\StorPort') /v QueueDepth /t REG_DWORD /d 32 /f | Out-Null; "
-    r"reg add ($b+'\Interrupt Management\Affinity Policy') /v DevicePriority /t REG_DWORD /d 2 /f | Out-Null }; "
-    r"exit 0"
-)
-# round 45: 'stornvme\Parameters\Device\IdlePowerEnabled' (set up to round 44) is in neither stornvme.sys
-# nor storport.sys of 26H2 — no longer set; the revert still removes it. QueueDepth (storport, stornvme)
-# and DevicePriority (pci.sys) are read.
-_NVME_QD_REVERT = _NVME_DISKS_PS + (
-    r"foreach($d in $nv){ $b='HKLM\SYSTEM\CurrentControlSet\Enum\'+$d.PNPDeviceID+'\Device Parameters'; "
-    r"reg delete ($b+'\StorPort') /v QueueDepth /f 2>$null | Out-Null; "
-    r"reg delete ($b+'\Interrupt Management\Affinity Policy') /v DevicePriority /f 2>$null | Out-Null }; "
-    r"reg delete 'HKLM\SYSTEM\CurrentControlSet\Services\stornvme\Parameters\Device' /v IdlePowerEnabled /f 2>$null | Out-Null; "
-    r"exit 0"
-)
-
 # Internal fixed disks only (never removable/external media).
 _FIXED_DISKS_PS = (
     r"$dd=@(Get-CimInstance Win32_DiskDrive -EA SilentlyContinue | "
@@ -358,45 +321,114 @@ def _reg_saved_ps(mode: str, tag: str, items, check=None) -> str:
             "$k.Close() }; if($st){ $st.DeleteValue($id,$false); $st.Close() } } catch { $bad+=$i[2] } }; " + fail)
 
 
-# ── Power settings with the plans' own values kept (round 45) ─────────────────────────────────────
-# Written into EVERY plan (like _power_all), on mains power only (on battery Windows' saving stays).
-# Apply keeps each plan's value (HKLM\SOFTWARE\GameOptimizerPro\PowerOrig), revert puts it back — or
-# the plan's Windows default when nothing was kept. Queried with /qh: "USB 3 Link Power Management" is
-# a hidden setting, /query does not list it at all.
-def _power_saved_ps(mode: str, tag: str, sub: str, setting: str, ac: int) -> str:
+# ── Power settings with the plans' own values kept (round 45, DC + skipped plans since round 47) ──────
+# Written into EVERY plan (like _power_all), on mains power (and on battery when `dc` is given). Apply keeps
+# each plan's value (HKLM\SOFTWARE\GameOptimizerPro\PowerOrig, "ac" or "ac|dc"), revert puts it back.
+# Without a kept value (applied by an older version) a plan goes back to its Windows default
+# (DefaultPowerSchemeValues) — and only when it still has the tweak's value: a plan the old version never
+# touched, or one the user changed since, stays as it is. Plans without a Windows default (a copy such as
+# "Ultimate Performance") stay too. `skip`: a PowerShell condition on the `powercfg /L` line ($l) for plans
+# the tweak leaves alone. Queried with /qh: "USB 3 Link Power Management" is a hidden setting, /query does
+# not list it at all. sub / setting are GUIDs: the defaults are read from the registry by GUID.
+def _power_saved_ps(mode: str, tag: str, sub: str, setting: str, ac: int, dc: int | None = None,
+                    skip: str = "") -> str:
     plans = ("$g=@(); foreach($l in (powercfg /L 2>$null)){ "
+             + (f"if({skip}){{ continue }}; " if skip else "") +
              "if($l -match '([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})'){ $g+=$matches[1] } }; ")
     cur = (f"$o=(powercfg /qh $s {sub} {setting} 2>$null | Out-String); "
            "$m=[regex]::Matches($o,'0x[0-9a-fA-F]{8}'); ")
+    read_ac = "[Convert]::ToInt64($m[$m.Count-2].Value.Substring(2),16)"
+    read_dc = "[Convert]::ToInt64($m[$m.Count-1].Value.Substring(2),16)"
     if mode == "verify":
         return (cur.replace("$s", "SCHEME_CURRENT") +
-                f"if($m.Count -ge 2 -and [Convert]::ToInt32($m[$m.Count-2].Value.Substring(2),16) -eq {ac})"
-                "{'1'}else{'0'}")
+                f"if($m.Count -ge 2 -and {read_ac} -eq {ac})" "{'1'}else{'0'}")
     if mode == "apply":
+        keep = f"[string]{read_ac}" if dc is None else f"([string]{read_ac}+'|'+[string]{read_dc})"
+        set_dc = ("" if dc is None else
+                  f"powercfg /SETDCVALUEINDEX $s {sub} {setting} {dc} 2>$null | Out-Null; ")
         # the old values must be kept before anything changes: without the store (no admin) nothing is set
         return ("try { $st=[Microsoft.Win32.Registry]::LocalMachine.CreateSubKey('SOFTWARE\\GameOptimizerPro\\PowerOrig') } "
                 f"catch {{ Write-Output '{_tr('Keine Administratorrechte', 'No administrator rights')}'; exit 1 }}; "
                 + plans + "$n=0; foreach($s in $g){ " + cur +
                 "if($m.Count -lt 2){ continue }; "
-                f"$id='{tag}|'+$s; if($null -eq $st.GetValue($id)){{ "
-                "$st.SetValue($id,[string][Convert]::ToInt32($m[$m.Count-2].Value.Substring(2),16)) }; "
-                f"powercfg /SETACVALUEINDEX $s {sub} {setting} {ac} 2>$null | Out-Null; "
-                "if($LASTEXITCODE -eq 0){ $n++ } }; $st.Close(); powercfg /SETACTIVE SCHEME_CURRENT 2>$null | Out-Null; "
+                f"$id='{tag}|'+$s; if($null -eq $st.GetValue($id)){{ $st.SetValue($id,{keep}) }}; "
+                f"powercfg /SETACVALUEINDEX $s {sub} {setting} {ac} 2>$null | Out-Null; $ok=($LASTEXITCODE -eq 0); "
+                + set_dc + "if($ok){ $n++ } }; $st.Close(); powercfg /SETACTIVE SCHEME_CURRENT 2>$null | Out-Null; "
                 f"if($n -eq 0){{ Write-Output '{_tr('Diese Energieoption gibt es auf diesem PC nicht', 'This power setting does not exist on this PC')}'; exit 1 }}; "
                 f"Write-Output \"$n {_tr('Energieplan(e) gesetzt', 'power plan(s) set')}\"; exit 0")
     defaults = (f"HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Power\\PowerSettings\\{sub}\\{setting}"
                 "\\DefaultPowerSchemeValues")
+    dc_default = ("" if dc is None else
+                  f"if($m.Count -ge 2 -and {read_dc} -eq {dc}){{ $d=$def.DCSettingIndex }}; ")
+    put_dc = ("" if dc is None else
+              f"if($null -ne $d){{ powercfg /SETDCVALUEINDEX $s {sub} {setting} ([int64]$d) 2>$null | Out-Null }}; ")
     return ("$st=$null; try { $st=[Microsoft.Win32.Registry]::LocalMachine.OpenSubKey('SOFTWARE\\GameOptimizerPro\\PowerOrig',$true) } catch {}; "
             + plans + "foreach($s in $g){ "
-            f"$id='{tag}|'+$s; $v=$null; if($st){{ $v=$st.GetValue($id,$null) }}; "
-            f"if($null -eq $v){{ $v=(Get-ItemProperty \"{defaults}\\$s\" -Name ACSettingIndex -EA SilentlyContinue).ACSettingIndex }}; "
-            f"if($null -ne $v){{ powercfg /SETACVALUEINDEX $s {sub} {setting} ([int]$v) 2>$null | Out-Null }}; "
+            f"$id='{tag}|'+$s; $v=$null; if($st){{ $v=$st.GetValue($id,$null) }}; $a=$null; $d=$null; "
+            "if($null -ne $v){ $p=\"$v\".Split('|'); $a=$p[0]; if($p.Count -gt 1){ $d=$p[1] } } "
+            f"else {{ $def=Get-ItemProperty \"{defaults}\\$s\" -EA SilentlyContinue; if($def){{ " + cur +
+            f"if($m.Count -ge 2 -and {read_ac} -eq {ac}){{ $a=$def.ACSettingIndex }}; " + dc_default + "} }; "
+            f"if($null -ne $a){{ powercfg /SETACVALUEINDEX $s {sub} {setting} ([int64]$a) 2>$null | Out-Null }}; "
+            + put_dc +
             "if($st){ $st.DeleteValue($id,$false) } }; if($st){ $st.Close() }; "
             "powercfg /SETACTIVE SCHEME_CURRENT 2>$null | Out-Null; exit 0")
 
 
 _USB_SUB, _USB3_LPM = "2a737441-1930-4402-8d77-b2bebba308a3", "d4e98f31-5ffe-4ce1-be31-1b38b384c009"
+_USB_SS = "48e6b7a6-50f5-4782-a5d4-53bb8f07e226"                                 # USB selective suspend
 _SLEEP_SUB, _RTC_WAKE = "238c9fa8-0aad-41ed-83f4-97be242c8f20", "bd3b718a-0680-4d9d-8ab2-e1d2b4ac806d"
+_STANDBY_IDLE = "29f6c1db-86da-48c5-9fdb-f2b67b1f44da"                          # sleep after
+_PCIE_SUB, _ASPM = "501a4d13-42af-4429-9fd1-a8218c268e20", "ee12f906-d277-404b-b6da-e5fa1a576df5"
+_DISK_SUB, _DISK_IDLE = "0012ee47-9041-4b5d-9b77-535fba8b1442", "6738e2c4-e8a5-4a42-b16a-e040e769756e"
+_CPU_SUB, _CPU_MIN = "54533251-82be-4824-96c1-47b60b740d00", "893dee8e-2bef-41e0-89c6-b55d0929964c"
+_VIDEO_SUB, _VIDEO_IDLE = "7516b95f-f776-4464-8c53-06167f40cc99", "3c0bc021-c8a8-4e07-a973-6b14cbcb2b7e"
+# 'High performance' and copies of 'Ultimate Performance' (a copy has a GUID of its own: matched by name)
+_SKIP_PERF_PLANS = "$l -match 'Ultimat' -or $l -match '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c'"
+
+# ── DNS provider (round 47): IPv4 AND IPv6, physical adapters only ─────────────────────────────────
+# Only IPv4 was set: with IPv6 the router's DNS kept answering. VPN / virtual adapters are left alone;
+# revert resets every adapter that still has this provider's addresses (older versions set all of them).
+DNS_PROVIDERS = {
+    "dns_cloudflare": (("1.1.1.1", "1.0.0.1"), ("2606:4700:4700::1111", "2606:4700:4700::1001")),
+    "dns_google": (("8.8.8.8", "8.8.4.4"), ("2001:4860:4860::8888", "2001:4860:4860::8844")),
+}
+_PHYS_UP = "@(Get-NetAdapter -Physical -EA SilentlyContinue | Where-Object { $_.Status -eq 'Up' })"
+
+
+def _dns_ps(mode: str, tid: str) -> str:
+    v4, v6 = DNS_PROVIDERS[tid]
+    q4 = ",".join(f"'{a}'" for a in v4)
+    q46 = ",".join(f"'{a}'" for a in v4 + v6)
+    if mode == "apply":
+        return (f"$a={_PHYS_UP}; if($a.Count -eq 0){{ Write-Output '"
+                + _tr("Kein aktiver physischer Netzwerkadapter", "No active physical network adapter") +
+                "'; exit 1 }; $bad=@(); foreach($x in $a){ "
+                f"try {{ Set-DnsClientServerAddress -InterfaceIndex $x.InterfaceIndex -ServerAddresses @({q46}) -EA Stop }} "
+                # an adapter without IPv6: IPv4 only
+                f"catch {{ try {{ Set-DnsClientServerAddress -InterfaceIndex $x.InterfaceIndex -ServerAddresses @({q4}) -EA Stop }} "
+                "catch { $bad+=$x.Name } } }; "
+                "if($bad.Count -ge $a.Count){ Write-Output ('" + _tr("Nicht gesetzt", "Not set") +
+                ": ' + ($bad -join ', ')); exit 1 }; exit 0")
+    if mode == "revert":
+        return (f"$ours=@({q46}); foreach($d in @(Get-DnsClientServerAddress -EA SilentlyContinue)){{ "
+                "if(@($d.ServerAddresses | Where-Object { $ours -contains $_ }).Count){ "
+                "Set-DnsClientServerAddress -InterfaceIndex $d.InterfaceIndex -ResetServerAddresses -EA SilentlyContinue } }; exit 0")
+    # verify: every active physical adapter asks this provider over IPv4 — and over IPv6 too when it has
+    # IPv6 DNS servers at all (the router's IPv6 DNS would answer otherwise)
+    return (f"$a={_PHYS_UP}; $ok=($a.Count -gt 0); foreach($x in $a){{ "
+            "$v4=@((Get-DnsClientServerAddress -InterfaceIndex $x.InterfaceIndex -AddressFamily IPv4 -EA SilentlyContinue).ServerAddresses | Where-Object { $_ }); "
+            "$v6=@((Get-DnsClientServerAddress -InterfaceIndex $x.InterfaceIndex -AddressFamily IPv6 -EA SilentlyContinue).ServerAddresses | Where-Object { $_ }); "
+            f"if(-not ($v4 -contains '{v4[0]}')){{ $ok=$false }}; "
+            f"if($v6.Count -gt 0 -and -not ($v6 -contains '{v6[0]}')){{ $ok=$false }} }}; "
+            "if($ok){'1'}else{'0'}")
+
+# round 47: values whose previous state revert has to put back exactly (see _reg_saved_ps)
+HAGS_ITEMS = [("HKLM", r"SYSTEM\CurrentControlSet\Control\GraphicsDrivers", "HwSchMode", "DWord", 2, None)]
+BGAPPS_ITEMS = [("HKCU", r"Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications",
+                 "GlobalUserDisabled", "DWord", 1, None)]
+SVCHOST_DEFAULT_KB = 0x380000          # Windows' own threshold (3.5 GB) — not the decimal 380000
+SVCHOST_ITEMS = [("HKLM", r"SYSTEM\CurrentControlSet\Control", "SvcHostSplitThresholdInKB", "DWord", "__RAM__",
+                  SVCHOST_DEFAULT_KB)]   # __RAM__: the installed memory in KB, filled in by the apply script
 
 _ADV_KEY = r"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"
 _CDM_KEY = r"Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager"
@@ -532,10 +564,9 @@ ALL_TWEAKS: list[Tweak] = [
              "Nicht anwenden, wenn du Spiele mit Xbox-Anmeldung (Game Pass, Microsoft Store), den Xbox-Modus "
              "oder Game-Bar-Aufnahmen nutzt — die fehlen danach, bis die Apps aus dem Store neu installiert sind.",
         category="Windows", group="Bloatware",
-        ps_command='''
-$apps=@("*XboxApp*","*XboxGameOverlay*","*XboxGamingOverlay*","*XboxIdentityProvider*","*XboxSpeechToTextOverlay*","*XboxTCUI*")
-foreach($a in $apps){Get-AppxPackage -AllUsers $a|Remove-AppxPackage -ErrorAction SilentlyContinue}
-''',
+        # round 47: the package is "Microsoft.Xbox.TCUI" — "*XboxTCUI*" never matched it (found in v1). For
+        # every user AND the provisioned package (a feature update re-installs per-user removals).
+        ps_command=_remove_apps_ps(list(XBOX_APPS)),
         risk="moderate",
     ),
     Tweak(
@@ -593,19 +624,21 @@ exit 0
     Tweak(
         id="remove_bloatware",
         name="Remove Bloatware (Candy Crush etc.)",
-        desc="Entfernt vorinstallierte Apps: Candy Crush, TikTok, Disney+, Facebook, Spotify, News, Solitaire, "
-             "Clipchamp, ToDo, Paint3D, Mixed Reality u.v.m. — auch die bereitgestellten Pakete, damit "
-             "Funktionsupdates sie nicht wieder installieren. Bewusst nicht: die Medienwiedergabe (unter "
-             "Windows 11 der Standard-Player) und 'Hilfe anfordern' (über sie laufen die Problembehandlungen) "
-             "— einzeln entfernen geht auf der Seite Apps.",
+        desc="Entfernt die vorinstallierten Extras von Microsoft und die mitgelieferten Spiele: Candy Crush & Co., "
+             "Solitaire, News, Wetter, Clipchamp, To Do, Feedback-Hub, Paint 3D, Mixed Reality u. a. — auch die "
+             "bereitgestellten Pakete, damit Funktionsupdates sie nicht wieder installieren. Bewusst nicht: Apps, "
+             "die viele selbst installieren (Spotify, Netflix, Disney+, TikTok, Instagram, Facebook, X), die "
+             "Medienwiedergabe (unter Windows 11 der Standard-Player) und 'Hilfe anfordern' (über sie laufen die "
+             "Problembehandlungen) — die entfernst du bei Bedarf einzeln auf der Seite Apps.",
         category="Windows", group="Bloatware",
         # Also removes the provisioned packages: feature updates re-install
         # apps that were only removed per user (seen with 26H2).
         # Round 45: Microsoft.ZuneMusic (Windows 11's Media Player, the default player for music and video —
         # the old "Groove") and Microsoft.GetHelp (Settings' troubleshooters run through it) are out.
+        # Round 47 (found in v1): Spotify, Netflix, Disney+, TikTok, Instagram, Facebook and X are out — a
+        # pattern can't tell Windows' pinned copy from the one the user installed and uses.
         ps_command=_remove_apps_ps([
-            "*king.com*", "*Facebook*", "*Spotify*", "*Disney*", "*TikTok*", "*Instagram*",
-            "*Netflix*", "*Twitter*", "*BubbleWitch*", "*MarchofEmpires*", "*CandyCrush*",
+            "*king.com*", "*BubbleWitch*", "*MarchofEmpires*", "*CandyCrush*",
             "*Microsoft.News*", "*Microsoft.BingWeather*", "*Microsoft.BingNews*",
             "*Microsoft.MicrosoftSolitaireCollection*",
             "*Microsoft.ZuneVideo*", "*Microsoft.WindowsFeedbackHub*", "*Microsoft.Todos*",
@@ -1105,9 +1138,14 @@ reg delete "HKCU\\System\\GameConfigStore" /v GameDVR_FSEBehavior /f 2>$null
     ),
     Tweak(
         id="disable_wu_gaming",
-        name="Disable Windows Update (Auto-Install)",
-        desc="Verhindert automatische WU-Downloads/Installationen. Verhindert Reboots und Performance-Einbrüche beim Gaming.",
+        name="Automatische Windows-Updates aus",
+        desc="Windows lädt und installiert Updates nicht mehr von selbst, sondern meldet nur, dass welche da sind — "
+             "dauerhaft, nicht nur beim Spielen. Keine Neustarts und Downloads mitten im Spiel, aber auch "
+             "Sicherheitsupdates kommen erst, wenn du sie unter Einstellungen → Windows Update selbst startest. "
+             "Nur, wenn du das regelmäßig machst. (Neustarts während der Nutzungszeit verhindert Windows ohnehin.)",
         category="Gaming", group="In-Game Boosts",
+        # round 47 (found in v1): it was named "...during gaming" but turns automatic updates off for good
+        # — honest name, risk advanced, in no preset any more
         ps_command='''
 reg add "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU" /v NoAutoUpdate /t REG_DWORD /d 1 /f
 reg add "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU" /v AUOptions /t REG_DWORD /d 2 /f
@@ -1116,21 +1154,26 @@ reg add "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU" /v AUO
 reg delete "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU" /v NoAutoUpdate /f 2>$null
 reg delete "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU" /v AUOptions /f 2>$null
 ''',
-        risk="moderate",
+        risk="advanced",
     ),
     Tweak(
+        # id kept: what the app applied stays recognised. Round 47 (found in v1): it was named "background
+        # app throttling" but GlobalUserDisabled switches background Store apps off, and the second value
+        # (kernel\DisableLowQosTimerResolution) is documented nowhere — not set any more, the revert still
+        # removes it. The value the user had is kept and put back.
         id="disable_bg_throttle",
-        name="Disable Background App Throttling",
-        desc="Deaktiviert CPU-Throttling für Hintergrundprozesse. Wichtig bei CPU-intensiven Spielen.",
+        name="Hintergrund-Apps stoppen (alle Editionen)",
+        desc="Store-Apps laufen nicht mehr im Hintergrund weiter (Windows' Schalter „Apps im Hintergrund "
+             "ausführen“ für deinen Benutzer, auch auf Home). Spart etwas Arbeitsspeicher und CPU-Zeit. Folge: "
+             "Geschlossene Store-Apps wie WhatsApp, Phone Link oder Mail melden keine neuen Nachrichten. Das "
+             "Drosseln von Prozessen durch Windows ist ein anderer Tweak („Disable Power Throttling“).",
         category="Gaming", group="In-Game Boosts",
-        ps_command='''
-reg add "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\kernel" /v DisableLowQosTimerResolution /t REG_DWORD /d 1 /f
-reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\BackgroundAccessApplications" /v GlobalUserDisabled /t REG_DWORD /d 1 /f
-''',
-        revert_cmd='''
-reg delete "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\kernel" /v DisableLowQosTimerResolution /f 2>$null
-reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\BackgroundAccessApplications" /v GlobalUserDisabled /t REG_DWORD /d 0 /f
-''',
+        ps_command=_reg_saved_ps("apply", "disable_bg_throttle", BGAPPS_ITEMS),
+        revert_cmd=('$p="HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\kernel"; '
+                    'if((Get-ItemProperty $p -Name DisableLowQosTimerResolution -EA SilentlyContinue).DisableLowQosTimerResolution -eq 1)'
+                    '{ Remove-ItemProperty $p -Name DisableLowQosTimerResolution -EA SilentlyContinue }; '
+                    + _reg_saved_ps("revert", "disable_bg_throttle", BGAPPS_ITEMS)),
+        risk="moderate",
     ),
     Tweak(
         id="disable_power_throttling",
@@ -1149,11 +1192,12 @@ reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\BackgroundAccessApp
              "separate Prozesse aufteilt. Reduziert die Gesamtzahl der Hintergrundprozesse. Bei 16GB+ RAM unkritisch.",
         category="Gaming", group="In-Game Boosts",
         requires_reboot=True,
-        ps_command='''
-$ramKB = [math]::Round((Get-CimInstance Win32_PhysicalMemory | Measure-Object -Property Capacity -Sum).Sum / 1024)
-reg add "HKLM\\SYSTEM\\CurrentControlSet\\Control" /v SvcHostSplitThresholdInKB /t REG_DWORD /d $ramKB /f
-''',
-        revert_cmd='reg add "HKLM\\SYSTEM\\CurrentControlSet\\Control" /v SvcHostSplitThresholdInKB /t REG_DWORD /d 380000 /f',
+        # round 47 (found in v1): the revert wrote "380000" — decimal for reg.exe, not Windows' 0x380000
+        # (3.5 GB) — and the check called every untouched Windows "active" (0x380000 > 380000). The value
+        # before is kept and put back; without one, Windows' 0x380000.
+        ps_command=("$ramKB=[math]::Round((Get-CimInstance Win32_PhysicalMemory | Measure-Object -Property Capacity -Sum).Sum / 1024); "
+                    + _reg_saved_ps("apply", "reduce_process_count", SVCHOST_ITEMS).replace("'__RAM__'", '"$ramKB"')),
+        revert_cmd=_reg_saved_ps("revert", "reduce_process_count", SVCHOST_ITEMS),
         risk="moderate",
     ),
 
@@ -1185,10 +1229,13 @@ if($dev){
     Tweak(
         id="enable_hags",
         name="Enable HAGS (HW-Accelerated GPU Scheduling)",
-        desc="Übergibt GPU-Scheduling direkt an Hardware. Weniger CPU-Overhead, geringerer Input-Lag. Braucht RTX 2000+ oder RX 5000+.",
+        desc="Übergibt GPU-Scheduling direkt an Hardware. Weniger CPU-Overhead, geringerer Input-Lag. Braucht RTX "
+             "2000+ oder RX 5000+; DLSS Frame Generation setzt es voraus. Zurücksetzen stellt den Zustand von "
+             "vorher wieder her (vorher nicht gesetzt: Windows entscheidet wieder selbst).",
         category="Gaming", group="GPU & Driver",
-        ps_command='reg add "HKLM\\SYSTEM\\CurrentControlSet\\Control\\GraphicsDrivers" /v HwSchMode /t REG_DWORD /d 2 /f',
-        revert_cmd='reg add "HKLM\\SYSTEM\\CurrentControlSet\\Control\\GraphicsDrivers" /v HwSchMode /t REG_DWORD /d 1 /f',
+        # round 47 (found in v1): the revert switched HAGS OFF (1) even where it had been on before
+        ps_command=_reg_saved_ps("apply", "enable_hags", HAGS_ITEMS),
+        revert_cmd=_reg_saved_ps("revert", "enable_hags", HAGS_ITEMS),
         requires_reboot=True,
     ),
     Tweak(
@@ -1334,30 +1381,22 @@ exit 0
     Tweak(
         id="dns_cloudflare",
         name="Set DNS to Cloudflare (1.1.1.1)",
-        desc="Setzt DNS auf Cloudflare 1.1.1.1/1.0.0.1. Einer der schnellsten und datenschutzfreundlichsten DNS-Dienste.",
+        desc="Setzt DNS auf Cloudflare — IPv4 (1.1.1.1 / 1.0.0.1) und IPv6 (2606:4700:4700::1111 / ::1001), nur "
+             "an den physischen Netzwerkadaptern (VPN und virtuelle Adapter bleiben, wie sie sind). Einer der "
+             "schnellsten und datenschutzfreundlichsten DNS-Dienste.",
         category="Network", group="DNS",
-        ps_command='''
-$adapters=Get-NetAdapter|Where-Object{$_.Status -eq "Up"}
-foreach($a in $adapters){Set-DnsClientServerAddress -InterfaceIndex $a.InterfaceIndex -ServerAddresses ("1.1.1.1","1.0.0.1") -ErrorAction SilentlyContinue}
-''',
-        revert_cmd='''
-$adapters=Get-NetAdapter|Where-Object{$_.Status -eq "Up"}
-foreach($a in $adapters){Set-DnsClientServerAddress -InterfaceIndex $a.InterfaceIndex -ResetServerAddresses -ErrorAction SilentlyContinue}
-''',
+        ps_command=_dns_ps("apply", "dns_cloudflare"),
+        revert_cmd=_dns_ps("revert", "dns_cloudflare"),
     ),
     Tweak(
         id="dns_google",
         name="Set DNS to Google (8.8.8.8)",
-        desc="Setzt DNS auf Google 8.8.8.8/8.8.4.4. Global verteilt, schnell und zuverlässig.",
+        desc="Setzt DNS auf Google — IPv4 (8.8.8.8 / 8.8.4.4) und IPv6 (2001:4860:4860::8888 / ::8844), nur an den "
+             "physischen Netzwerkadaptern (VPN und virtuelle Adapter bleiben, wie sie sind). Global verteilt, "
+             "schnell und zuverlässig.",
         category="Network", group="DNS",
-        ps_command='''
-$adapters=Get-NetAdapter|Where-Object{$_.Status -eq "Up"}
-foreach($a in $adapters){Set-DnsClientServerAddress -InterfaceIndex $a.InterfaceIndex -ServerAddresses ("8.8.8.8","8.8.4.4") -ErrorAction SilentlyContinue}
-''',
-        revert_cmd='''
-$adapters=Get-NetAdapter|Where-Object{$_.Status -eq "Up"}
-foreach($a in $adapters){Set-DnsClientServerAddress -InterfaceIndex $a.InterfaceIndex -ResetServerAddresses -ErrorAction SilentlyContinue}
-''',
+        ps_command=_dns_ps("apply", "dns_google"),
+        revert_cmd=_dns_ps("revert", "dns_google"),
     ),
     Tweak(
         id="flush_dns",
@@ -1374,7 +1413,9 @@ foreach($a in $adapters){Set-DnsClientServerAddress -InterfaceIndex $a.Interface
     Tweak(
         id="disable_tcp_autotuning",
         name="Disable TCP Auto-Tuning",
-        desc="Deaktiviert automatisches TCP-Empfangsfenster. Kann Latenz-Spikes reduzieren. Bei 1Gbit+ leicht schlechterer Durchsatz.",
+        desc="Schaltet das automatische TCP-Empfangsfenster ab — es bleibt bei 64 KB. Ehrlich: Downloads werden "
+             "dadurch deutlich langsamer (bei 20 ms Ping höchstens rund 25 Mbit/s pro Verbindung), einen belegten "
+             "Nutzen für den Ping in Spielen gibt es nicht. Nur zur Fehlersuche mit sehr alten Routern.",
         category="Network", group="TCP",
         ps_command='netsh int tcp set global autotuninglevel=disabled',
         revert_cmd='netsh int tcp set global autotuninglevel=normal',
@@ -1397,7 +1438,7 @@ foreach($a in @(Get-NetAdapter -EA SilentlyContinue | Where-Object { $_.Status -
 }
 $msg
 if($ok -gt 0){ Write-Output "RSS aktiv auf $ok von $n Adapter(n)"; exit 0 }
-if($n -eq 0){ Write-Output "Kein aktiver Adapter bietet RSS ueber Windows an (Treiber)"; exit 1 }
+if($n -eq 0){ Write-Output "Kein aktiver Adapter bietet RSS über Windows an (Treiber) / no active adapter offers RSS through Windows (driver)"; exit 1 }
 exit 1
 ''',
         # RSS is enabled by default on virtually all modern adapters, so the
@@ -1495,52 +1536,38 @@ powercfg -setactive $g
     Tweak(
         id="disable_usb_suspend",
         name="Disable USB Selective Suspend",
-        desc="Verhindert dass USB-Geräte (Maus, Headset) in Stromspar-Modus versetzt werden. Kein plötzliches Disconnect mehr.",
+        desc="Verhindert, dass USB-Geräte (Maus, Headset) in den Stromsparmodus versetzt werden — in allen "
+             "Energieplänen, im Netzbetrieb. Kein plötzliches Trennen mehr. Zurücksetzen stellt den Wert jedes "
+             "Plans von vorher wieder her.",
         category="Windows", group="Power Plan",
-        ps_command='''
-powercfg -change -standby-timeout-ac 0
-$guid=(powercfg -getactivescheme).Split()[3]
-powercfg -setacvalueindex $guid 2a737441-1930-4402-8d77-b2bebba308a3 48e6b7a6-50f5-4782-a5d4-53bb8f07e226 0
-powercfg -setactive $guid
-''',
-        revert_cmd='''
-$guid=(powercfg -getactivescheme).Split()[3]
-powercfg -setacvalueindex $guid 2a737441-1930-4402-8d77-b2bebba308a3 48e6b7a6-50f5-4782-a5d4-53bb8f07e226 1
-powercfg -setactive $guid
-''',
+        # round 47: every plan with the plans' own values kept (it changed the active plan only, put "on"
+        # back instead of the value before, and switched sleep off on the side without saying so)
+        ps_command=_power_saved_ps("apply", "disable_usb_suspend", _USB_SUB, _USB_SS, 0),
+        revert_cmd=_power_saved_ps("revert", "disable_usb_suspend", _USB_SUB, _USB_SS, 0),
     ),
     Tweak(
         id="power_pcie_aspm_off",
         name="PCIe Link State Power Management aus",
-        desc="Deaktiviert das Energiesparen des PCIe-Links (ASPM). Der PCIe-Bus zur Grafikkarte bleibt "
-             "dauerhaft auf voller Leistung statt in Sparzustände zu wechseln — minimal konsistentere "
-             "Latenz, dafür etwas mehr Idle-Verbrauch. Voll reversibel.",
+        desc="Deaktiviert das Energiesparen des PCIe-Links (ASPM) in allen Energieplänen, im Netzbetrieb. Der "
+             "PCIe-Bus zur Grafikkarte bleibt dauerhaft auf voller Leistung statt in Sparzustände zu wechseln — "
+             "minimal konsistentere Latenz, dafür etwas mehr Idle-Verbrauch. Zurücksetzen stellt den Wert jedes "
+             "Plans von vorher wieder her.",
         category="Windows", group="Power Plan",
-        ps_command='''
-powercfg -setacvalueindex SCHEME_CURRENT SUB_PCIEXPRESS ASPM 0
-powercfg -setactive SCHEME_CURRENT
-''',
-        revert_cmd='''
-powercfg -setacvalueindex SCHEME_CURRENT SUB_PCIEXPRESS ASPM 2
-powercfg -setactive SCHEME_CURRENT
-''',
+        # round 47 (found in v1): the revert wrote "maximum power savings" (2) — Windows' default is
+        # "moderate" (1) in Balanced and "off" (0) in High performance
+        ps_command=_power_saved_ps("apply", "power_pcie_aspm_off", _PCIE_SUB, _ASPM, 0),
+        revert_cmd=_power_saved_ps("revert", "power_pcie_aspm_off", _PCIE_SUB, _ASPM, 0),
         risk="safe",
     ),
     Tweak(
         id="power_disk_never_sleep",
         name="Festplatte nie schlafen legen",
-        desc="Verhindert dass Windows Laufwerke nach Inaktivität abschaltet. Auf Systemen mit HDD(s) "
-             "verhindert das Mikro-Ruckler, wenn ein Hintergrundprozess ein eingeschlafenes Laufwerk "
-             "aufwecken muss. Voll reversibel.",
+        desc="Verhindert, dass Windows Laufwerke nach Inaktivität abschaltet — in allen Energieplänen, im "
+             "Netzbetrieb. Auf Systemen mit HDD(s) verhindert das Mikro-Ruckler, wenn ein Hintergrundprozess ein "
+             "eingeschlafenes Laufwerk aufwecken muss. Zurücksetzen stellt den Wert jedes Plans von vorher wieder her.",
         category="Windows", group="Power Plan",
-        ps_command='''
-powercfg -setacvalueindex SCHEME_CURRENT SUB_DISK DISKIDLE 0
-powercfg -setactive SCHEME_CURRENT
-''',
-        revert_cmd='''
-powercfg -setacvalueindex SCHEME_CURRENT SUB_DISK DISKIDLE 1200
-powercfg -setactive SCHEME_CURRENT
-''',
+        ps_command=_power_saved_ps("apply", "power_disk_never_sleep", _DISK_SUB, _DISK_IDLE, 0),
+        revert_cmd=_power_saved_ps("revert", "power_disk_never_sleep", _DISK_SUB, _DISK_IDLE, 0),
         risk="safe",
     ),
 
@@ -1649,23 +1676,19 @@ powercfg -setactive SCHEME_CURRENT
         tags=["privacy", "ctt"],
     ),
     Tweak(
-        id="start_menu_previous_layout",
-        name="Enable Start Menu Previous Layout",
-        desc="Aktiviert auf unterstützten Windows-11-Builds das vorherige Startmenü-Layout über ein Feature-Override. Wirkt nur auf Builds, die dieses Flag kennen — sonst ohne Effekt.",
-        category="Windows", group="CTT Essentials",
-        ps_command=r"""$p='HKLM:\SYSTEM\CurrentControlSet\Control\FeatureManagement\Overrides\8\3036241548'; if(!(Test-Path $p)){New-Item -Path $p -Force|Out-Null}; Set-ItemProperty -Path $p -Name EnabledState -Value 1 -Type DWord""",
-        revert_cmd=r"""Remove-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FeatureManagement\Overrides\8\3036241548' -Name EnabledState -EA SilentlyContinue""",
-        requires_reboot=True,
-        tags=["ui", "ctt"],
-    ),
-    Tweak(
         id="explorer_folder_discovery",
         name="Disable File Explorer Automatic Folder Discovery",
-        desc="Setzt alle Ordner auf 'Allgemeine Elemente'. Der Explorer verschwendet keine Zeit mehr damit, Ordnertypen automatisch zu erkennen — große Ordner öffnen deutlich schneller. Abmelden/Neustart nötig.",
+        desc="Setzt alle Ordner auf 'Allgemeine Elemente'. Der Explorer verschwendet keine Zeit mehr damit, "
+             "Ordnertypen automatisch zu erkennen — große Ordner öffnen deutlich schneller. Achtung: Beim Anwenden "
+             "gehen die gespeicherten Ansichten aller Ordner verloren (Sortierung, Spalten, Ansicht). Zurücksetzen "
+             "nimmt nur die Vorgabe zurück — die Ansichten von vorher kommen nicht wieder. Abmelden/Neustart nötig.",
         category="Windows", group="CTT Essentials",
         ps_command=r"""$b='HKCU:\Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\Bags'; $m='HKCU:\Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\BagMRU'; Remove-Item -Path $b -Recurse -Force -EA SilentlyContinue; Remove-Item -Path $m -Recurse -Force -EA SilentlyContinue; $a='HKCU:\Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\Bags\AllFolders\Shell'; if(!(Test-Path $a)){New-Item -Path $a -Force|Out-Null}; Set-ItemProperty -Path $a -Name FolderType -Value 'NotSpecified' -Type String""",
-        revert_cmd=r"""Remove-Item -Path 'HKCU:\Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\Bags' -Recurse -Force -EA SilentlyContinue; Remove-Item -Path 'HKCU:\Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\BagMRU' -Recurse -Force -EA SilentlyContinue""",
+        # round 47 (found in v1): the revert deleted every saved folder view a second time — now it only
+        # takes back the default it set; views made since stay
+        revert_cmd=r"""Remove-ItemProperty -Path 'HKCU:\Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\Bags\AllFolders\Shell' -Name FolderType -EA SilentlyContinue; exit 0""",
         requires_reboot=True,
+        risk="moderate",          # it wipes the saved folder views: not for "All safe tweaks"
         tags=["performance", "ctt"],
     ),
     Tweak(
@@ -1688,7 +1711,7 @@ powercfg -setactive SCHEME_CURRENT
         name="Disable Network Adapter Power Saving",
         desc="Deaktiviert 'Computer kann das Gerät ausschalten, um Energie zu sparen' für alle Netzwerkadapter. Verhindert Verbindungsabbrüche und Latenz-Spitzen durch Energiesparfunktionen des Adapters.",
         category="Network", group="Adapter",
-        ps_command='$c=\'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e972-e325-11ce-bfc1-08002be10318}\'; $n=0; foreach($k in @(Get-ChildItem $c -EA SilentlyContinue | Where-Object { $_.PSChildName -match \'^\\d{4}$\' })){ if((Get-ItemProperty $k.PSPath -EA SilentlyContinue).NetCfgInstanceId){ Set-ItemProperty -Path $k.PSPath -Name PnPCapabilities -Value 24 -Type DWord -Force -EA SilentlyContinue; if($?){ $n++ } } }; if($n -gt 0){ Write-Output "Energiesparen aus fuer $n Netzwerkadapter"; exit 0 } else { exit 1 }',
+        ps_command='$c=\'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e972-e325-11ce-bfc1-08002be10318}\'; $n=0; foreach($k in @(Get-ChildItem $c -EA SilentlyContinue | Where-Object { $_.PSChildName -match \'^\\d{4}$\' })){ if((Get-ItemProperty $k.PSPath -EA SilentlyContinue).NetCfgInstanceId){ Set-ItemProperty -Path $k.PSPath -Name PnPCapabilities -Value 24 -Type DWord -Force -EA SilentlyContinue; if($?){ $n++ } } }; if($n -gt 0){ Write-Output "Energiesparen aus für $n Netzwerkadapter / power saving off for $n network adapter(s)"; exit 0 } else { exit 1 }',
         revert_cmd="$c='HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e972-e325-11ce-bfc1-08002be10318}'; $n=0; foreach($k in @(Get-ChildItem $c -EA SilentlyContinue | Where-Object { $_.PSChildName -match '^\\d{4}$' })){ if((Get-ItemProperty $k.PSPath -EA SilentlyContinue).NetCfgInstanceId){ Remove-ItemProperty -Path $k.PSPath -Name PnPCapabilities -Force -EA SilentlyContinue; if($?){ $n++ } } }; exit 0",
         requires_reboot=True,
         tags=["latency", "network"],
@@ -1730,28 +1753,38 @@ powercfg -setactive SCHEME_CURRENT
         id="power_display_sleep_15",
         name="Display Sleep = 15 Minuten",
         desc="Setzt den Monitor-Schlaf-Timer auf 15 Minuten (Netz) und 5 Minuten (Akku) — in allen Plänen "
-             "AUSSER 'Höchstleistung' und 'Ultimative Leistung': dort bleibt der Bildschirm im Netzbetrieb an.",
+             "AUSSER 'Höchstleistung' und 'Ultimative Leistung': dort bleibt der Bildschirm im Netzbetrieb an. "
+             "Zurücksetzen stellt die Werte jedes Plans von vorher wieder her.",
         category="Windows", group="Power Plan",
-        ps_command='$re=\'[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\'; $n=0; foreach($l in (powercfg /L 2>$null)){ $m=[regex]::Match($l,$re); if(-not $m.Success){ continue }; if($l -match \'Ultimat\' -or $l -match \'8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c\'){ continue }; powercfg /SETACVALUEINDEX $m.Value SUB_VIDEO VIDEOIDLE 900 2>$null | Out-Null; powercfg /SETDCVALUEINDEX $m.Value SUB_VIDEO VIDEOIDLE 300 2>$null | Out-Null; $n++ }; powercfg /SETACTIVE SCHEME_CURRENT 2>$null | Out-Null; Write-Output "$n Energieplan(e) gesetzt (Hoechstleistung/Ultimativ bleiben: nie)"',
-        revert_cmd='$re=\'[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\'; $n=0; foreach($l in (powercfg /L 2>$null)){ $m=[regex]::Match($l,$re); if(-not $m.Success){ continue }; if($l -match \'Ultimat\' -or $l -match \'8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c\'){ continue }; powercfg /SETACVALUEINDEX $m.Value SUB_VIDEO VIDEOIDLE 600 2>$null | Out-Null; powercfg /SETDCVALUEINDEX $m.Value SUB_VIDEO VIDEOIDLE 120 2>$null | Out-Null; $n++ }; powercfg /SETACTIVE SCHEME_CURRENT 2>$null | Out-Null; Write-Output "$n Energieplan(e) gesetzt (Hoechstleistung/Ultimativ bleiben: nie)"',
+        # round 47 (found in v1): the revert wrote fixed values (10 / 2 min) instead of each plan's own
+        ps_command=_power_saved_ps("apply", "power_display_sleep_15", _VIDEO_SUB, _VIDEO_IDLE, 900, 300,
+                                   skip=_SKIP_PERF_PLANS),
+        revert_cmd=_power_saved_ps("revert", "power_display_sleep_15", _VIDEO_SUB, _VIDEO_IDLE, 900, 300,
+                                   skip=_SKIP_PERF_PLANS),
         tags=["power"],
     ),
     Tweak(
         id="power_sleep_off",
         name="System-Schlafmodus deaktivieren",
-        desc="Deaktiviert den System-Schlafmodus komplett. Der PC schläft nicht mehr nach Inaktivität ein — empfohlen für Desktops, die im Hintergrund weiterlaufen sollen (Downloads, Server).",
+        desc="Deaktiviert den System-Schlafmodus komplett (alle Energiepläne, Netz und Akku). Der PC schläft nicht "
+             "mehr nach Inaktivität ein — empfohlen für Desktops, die im Hintergrund weiterlaufen sollen (Downloads, "
+             "Server). Zurücksetzen stellt die Werte jedes Plans von vorher wieder her.",
         category="Windows", group="Power Plan",
-        ps_command=_power_all("SUB_SLEEP", "STANDBYIDLE", 0, 0),
-        revert_cmd=_power_all("SUB_SLEEP", "STANDBYIDLE", 3600, 1800),
+        # round 47 (found in v1): the revert wrote 60 / 30 min — Balanced's own is 30 / 15
+        ps_command=_power_saved_ps("apply", "power_sleep_off", _SLEEP_SUB, _STANDBY_IDLE, 0, 0),
+        revert_cmd=_power_saved_ps("revert", "power_sleep_off", _SLEEP_SUB, _STANDBY_IDLE, 0, 0),
         tags=["power"],
     ),
     Tweak(
         id="power_cpu_min_100",
         name="CPU Minimum Processor State = 100%",
-        desc="Setzt den minimalen CPU-Zustand auf 100%. Die CPU regelt nicht mehr herunter — das eliminiert die kurze Verzögerung beim Hochtakten aus dem Idle. Gut für konstante FPS, erhöht aber Idle-Verbrauch und Temperatur.",
+        desc="Setzt den minimalen CPU-Zustand auf 100% (alle Energiepläne). Die CPU regelt nicht mehr herunter — "
+             "das eliminiert die kurze Verzögerung beim Hochtakten aus dem Idle. Gut für konstante FPS, erhöht "
+             "aber Idle-Verbrauch und Temperatur. Zurücksetzen stellt die Werte jedes Plans von vorher wieder her.",
         category="Windows", group="Power Plan",
-        ps_command=_power_all("SUB_PROCESSOR", "PROCTHROTTLEMIN", 100, 100),
-        revert_cmd=_power_all("SUB_PROCESSOR", "PROCTHROTTLEMIN", 5, 5),
+        # round 47 (found in v1): the revert wrote 5 % everywhere — High performance's own minimum is 100 %
+        ps_command=_power_saved_ps("apply", "power_cpu_min_100", _CPU_SUB, _CPU_MIN, 100, 100),
+        revert_cmd=_power_saved_ps("revert", "power_cpu_min_100", _CPU_SUB, _CPU_MIN, 100, 100),
         risk="moderate",
         tags=["performance", "power"],
     ),
@@ -1778,26 +1811,6 @@ powercfg -setactive SCHEME_CURRENT
         revert_cmd=_AMD_ULPS_REVERT,
         requires_amd=True, requires_reboot=True,
         tags=["gpu", "amd"],
-    ),
-    Tweak(
-        id="amd_shader_cache",
-        name="AMD: Shader-Cache unbegrenzt",
-        desc="Nur AMD: Setzt den AMD-Shader-Cache auf maximale Größe. Verhindert Cache-Eviction und damit erneutes Kompilieren von Shadern — reduziert Stutter besonders in OpenGL/Vulkan-Titeln.",
-        category="Gaming", group="AMD GPU",
-        ps_command=_AMD_SHADER_APPLY,
-        revert_cmd=_AMD_SHADER_REVERT,
-        requires_amd=True, requires_reboot=True,
-        tags=["gpu", "amd"],
-    ),
-    Tweak(
-        id="amd_antilag",
-        name="AMD: Anti-Lag (Low Latency Mode)",
-        desc="Nur AMD: Aktiviert AMD Anti-Lag via Registry. Reduziert den Abstand zwischen CPU-Input und GPU-Ausgabe — ähnlich wie NVIDIA Reflex. Wirkt vor allem bei CPU-limitierten Spielen (RX 5000+).",
-        category="Gaming", group="AMD GPU",
-        ps_command=_AMD_ANTILAG_APPLY,
-        revert_cmd=_AMD_ANTILAG_REVERT,
-        requires_amd=True, requires_reboot=True,
-        tags=["gpu", "amd", "latency"],
     ),
 
     # ══════════════════════════════════════════════════════════════
@@ -1928,18 +1941,6 @@ exit 0
         risk="moderate",
     ),
     Tweak(
-        id="nvme_queue_depth",
-        name="NVMe: Queue-Tiefe & Interrupt-Priorität",
-        desc="Setzt für NVMe-SSDs eine StorPort-Queue-Tiefe von 32 und eine höhere Interrupt-Priorität. "
-             "Ehrlich: Die Wirkung hängt vom Treiber ab und ist meist nur in Benchmarks messbar. (Ein früher "
-             "mitgesetzter Wert fürs Idle-Stromsparen wird vom NVMe-Treiber nicht gelesen und entfällt.) "
-             "Ohne NVMe-Laufwerk ausgegraut.",
-        category="Windows", group="Speicher & RAM",
-        ps_command=_NVME_QD_APPLY,
-        revert_cmd=_NVME_QD_REVERT,
-        requires_nvme=True, requires_reboot=True, risk="moderate",
-    ),
-    Tweak(
         id="disable_write_cache_flush",
         name="Schreibcache-Leerung deaktivieren (nur Desktop + USV)",
         desc="Wie das Häkchen 'Leeren des Windows-Schreibcachepuffers deaktivieren' im Gerätemanager: "
@@ -2038,41 +2039,6 @@ Start-Service -Name WSAIFabricSvc -ErrorAction SilentlyContinue
     ),
 
     # ── Network · TCP ─────────────────────────────────────────────────
-    Tweak(
-        id="tcp_optimize",
-        name="TCP optimieren (ECN & Timestamps aus)",
-        desc="Schaltet ECN und TCP-Timestamps ab — etwas weniger Overhead pro Paket. Ehrlich: Der Effekt auf "
-             "den Ping ist klein; ECN-Abschalten hilft vor allem hinter Routern, die ECN-Pakete falsch "
-             "behandeln. (SACK ist in Windows immer an; die alten Werte SackOpts / TcpMaxDupAcks liest der "
-             "TCP-Stack seit Windows Vista nicht mehr — der Tweak setzt sie nicht mehr.)",
-        category="Network", group="TCP",
-        # round 45: SackOpts / TcpMaxDupAcks are in no file of the 26H2 TCP stack (tcpip.sys) — gone
-        # from apply; revert still removes them (left by older versions)
-        ps_command=r'''
-netsh int tcp set global ecncapability=disabled | Out-Null
-netsh int tcp set global timestamps=disabled | Out-Null
-exit 0
-''',
-        revert_cmd=r'''
-netsh int tcp set global ecncapability=default | Out-Null
-netsh int tcp set global timestamps=default | Out-Null
-reg delete "HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" /v SackOpts /f 2>$null
-reg delete "HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" /v TcpMaxDupAcks /f 2>$null
-exit 0
-''',
-        risk="safe",
-    ),
-    Tweak(
-        id="disable_qos_limit",
-        name="QoS-Bandbreitenreserve auf 0 %",
-        desc="Setzt die QoS-Richtlinie 'Reservierbare Bandbreite' auf 0 %. Ehrlich: Windows reserviert "
-             "entgegen verbreiteter Annahme NICHT dauerhaft 20 % — die Reserve greift nur, wenn eine "
-             "QoS-Anwendung Bandbreite anfordert. Meist ohne messbaren Effekt, schadet aber nicht.",
-        category="Network", group="TCP",
-        ps_command=r'reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\Psched" /v NonBestEffortLimit /t REG_DWORD /d 0 /f',
-        revert_cmd=r'reg delete "HKLM\SOFTWARE\Policies\Microsoft\Windows\Psched" /v NonBestEffortLimit /f 2>$null; exit 0',
-        risk="safe",
-    ),
 
     # ── Audio ─────────────────────────────────────────────────────────
     Tweak(
@@ -2399,6 +2365,49 @@ RETIRED_TWEAKS: dict[str, tuple[str, str, str]] = {
         "$k=Get-ItemProperty $p -EA SilentlyContinue; if($k){ "
         "if($k.Priority -eq 6){ Set-ItemProperty $p -Name Priority -Value 1 -Type DWord }; "
         "if($k.'SFIO Priority' -eq 'High'){ Set-ItemProperty $p -Name 'SFIO Priority' -Value 'Normal' -Type String } }; exit 0"),
+    # round 47 — checked again with v1's review: no documented effect, retired in both versions. Each
+    # clean-up only removes the value the tweak itself wrote.
+    # StorPort QueueDepth / DevicePriority: nothing documents a gain for NVMe (StorNVMe manages its own queues)
+    "nvme_queue_depth": (
+        "NVMe: Queue-Tiefe & Interrupt-Priorität", "NVMe: queue depth & interrupt priority",
+        _NVME_DISKS_PS +
+        "foreach($d in $nv){ $b='HKLM:\\SYSTEM\\CurrentControlSet\\Enum\\'+$d.PNPDeviceID+'\\Device Parameters'; "
+        "if((Get-ItemProperty ($b+'\\StorPort') -Name QueueDepth -EA SilentlyContinue).QueueDepth -eq 32)"
+        "{ Remove-ItemProperty ($b+'\\StorPort') -Name QueueDepth -EA SilentlyContinue }; "
+        "if((Get-ItemProperty ($b+'\\Interrupt Management\\Affinity Policy') -Name DevicePriority -EA SilentlyContinue).DevicePriority -eq 2)"
+        "{ Remove-ItemProperty ($b+'\\Interrupt Management\\Affinity Policy') -Name DevicePriority -EA SilentlyContinue } }; "
+        "Remove-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\stornvme\\Parameters\\Device' "
+        "-Name IdlePowerEnabled -EA SilentlyContinue; exit 0"),
+    # ECN and TCP timestamps are already off in Windows' own TCP settings — it changed nothing
+    "tcp_optimize": (
+        "TCP optimieren (ECN & Timestamps aus)", "Optimize TCP (ECN & timestamps off)",
+        "netsh int tcp set global ecncapability=default | Out-Null; netsh int tcp set global timestamps=default | Out-Null; "
+        "Remove-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters' -Name SackOpts,TcpMaxDupAcks "
+        "-EA SilentlyContinue; exit 0"),
+    # the 20 % reserve only applies when a QoS application reserves bandwidth — nothing measurable
+    "disable_qos_limit": (
+        "QoS-Bandbreitenreserve auf 0 %", "QoS bandwidth reserve to 0 %",
+        "$p='HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Psched'; "
+        "if((Get-ItemProperty $p -Name NonBestEffortLimit -EA SilentlyContinue).NonBestEffortLimit -eq 0)"
+        "{ Remove-ItemProperty $p -Name NonBestEffortLimit -EA SilentlyContinue }; exit 0"),
+    # driver values AMD documents nowhere (Anti-Lag and the shader cache are set in the AMD software)
+    "amd_shader_cache": (
+        "AMD: Shader-Cache unbegrenzt", "AMD: unlimited shader cache",
+        "$p='HKLM:\\SOFTWARE\\ATI Technologies\\CBT'; "
+        "if((Get-ItemProperty $p -Name ShaderCacheSizePC -EA SilentlyContinue).ShaderCacheSizePC -eq 4294967295)"
+        "{ Remove-ItemProperty $p -Name ShaderCacheSizePC -EA SilentlyContinue }; " + _AMD_KEYS_PS +
+        "foreach($k in $amd){ if((Get-ItemProperty $k.PSPath -Name KMD_EnableComputePreemption -EA SilentlyContinue)"
+        ".KMD_EnableComputePreemption -eq 0){ Remove-ItemProperty $k.PSPath -Name KMD_EnableComputePreemption -EA SilentlyContinue } }; exit 0"),
+    "amd_antilag": (
+        "AMD: Anti-Lag (Low Latency Mode)", "AMD: Anti-Lag (low latency mode)",
+        _AMD_KEYS_PS + "foreach($k in $amd){ if((Get-ItemProperty $k.PSPath -Name EnableAntiLag -EA SilentlyContinue)"
+        ".EnableAntiLag -eq 1){ Remove-ItemProperty $k.PSPath -Name EnableAntiLag -EA SilentlyContinue } }; exit 0"),
+    # a feature override current Windows 11 builds no longer know — the check showed "active" anyway
+    "start_menu_previous_layout": (
+        "Startmenü: vorheriges Layout", "Enable Start Menu Previous Layout",
+        "$p='HKLM:\\SYSTEM\\CurrentControlSet\\Control\\FeatureManagement\\Overrides\\8\\3036241548'; "
+        "if((Get-ItemProperty $p -Name EnabledState -EA SilentlyContinue).EnabledState -eq 1)"
+        "{ Remove-ItemProperty $p -Name EnabledState -EA SilentlyContinue }; exit 0"),
 }
 
 

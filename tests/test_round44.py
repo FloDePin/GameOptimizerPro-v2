@@ -77,7 +77,7 @@ texts = " ".join([p.desc for p in TP.BUILTIN_PRESETS] + list(PRESET_DESC_EN.valu
 check("Cortana" not in texts and "Teams" not in texts, "preset texts no longer promise Cortana / Teams")
 check(set(GONE) <= set(RETIRED_TWEAKS) and all(de and en for de, en, _c in RETIRED_TWEAKS.values())
       and RETIRED_TWEAKS["remove_cortana"][2] == "", "retired list: names in both languages, nothing to undo for an app")
-check(len(ALL_TWEAKS) == 118 and len(ids) == 118, f"118 tweaks (round 45: +14, -2), ids unique ({len(ALL_TWEAKS)})")
+check(len(ALL_TWEAKS) == 112 and len(ids) == 112, f"112 tweaks (round 45: +14, -2; round 47: -6), ids unique ({len(ALL_TWEAKS)})")
 
 if os.name == "nt":
     chat = RETIRED_TWEAKS["w11_remove_chat_icon"][2]

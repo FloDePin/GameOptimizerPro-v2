@@ -6,7 +6,13 @@ oder Zurücksetzen von Tweaks alle Registry-Zweige, die die Tweaks anfassen
 können, als .reg-Dateien — damit man notfalls per Doppelklick zurück kann.
 
 Rein additiv: es wird nur gelesen und exportiert, nie etwas geändert.
-Zielordner:  %LOCALAPPDATA%\GameOptimizerPro\RegistryBackups\<stamp>_<label>\
+Zielordner:  %LOCALAPPDATA%\GameOptimizerPro-v2\RegistryBackups\<stamp>_<label>\
+
+Round 47 (found in v1's review): the folder was the one v1 uses too — v1's limit of 20 deleted v2's
+backups and v2's limit of 10 deleted v1's. Backups made before stay in the old folder
+(%LOCALAPPDATA%\GameOptimizerPro\RegistryBackups), untouched. And not the whole
+HKLM\...\Control key any more (35 MB per backup): only the branches the tweaks touch, plus the one
+value they set on Control itself.
 """
 
 from __future__ import annotations
@@ -64,7 +70,16 @@ BACKUP_KEYS: list[str] = [
     r"HKLM\SOFTWARE\Policies\WindowsNotepad",
     r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint",
     r"HKLM\SOFTWARE\GameOptimizerPro",
-    r"HKLM\SYSTEM\CurrentControlSet\Control",
+    # the branches of HKLM\...\Control the tweaks touch (the whole key is 35 MB per backup)
+    r"HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}",   # display adapters
+    r"HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-e325-11ce-bfc1-08002be10318}",   # network adapters
+    r"HKLM\SYSTEM\CurrentControlSet\Control\FeatureManagement\Overrides",
+    r"HKLM\SYSTEM\CurrentControlSet\Control\FileSystem",
+    r"HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers",
+    r"HKLM\SYSTEM\CurrentControlSet\Control\Power",
+    r"HKLM\SYSTEM\CurrentControlSet\Control\PriorityControl",
+    r"HKLM\SYSTEM\CurrentControlSet\Control\Remote Assistance",
+    r"HKLM\SYSTEM\CurrentControlSet\Control\Session Manager",
     r"HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters",
     r"HKLM\SYSTEM\CurrentControlSet\Services\nvlddmkm\Global\NVTweak",
     r"HKLM\SYSTEM\CurrentControlSet\Services\stornvme\Parameters\Device",
@@ -128,9 +143,53 @@ class BackupResult:
 
 
 def backup_root() -> str:
-    """Wurzelordner aller Registry-Backups."""
+    """Wurzelordner aller Registry-Backups — ein eigener für v2 (v1 räumt seinen Ordner selbst auf)."""
     la = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
-    return os.path.join(la, "GameOptimizerPro", "RegistryBackups")
+    return os.path.join(la, "GameOptimizerPro-v2", "RegistryBackups")
+
+
+# Values the tweaks set on HKLM\...\Control itself: reg.exe can only export a key WITH all its subkeys
+# (the whole 35 MB), so these few go into a small .reg of their own.
+CONTROL_KEY = r"HKLM\SYSTEM\CurrentControlSet\Control"
+CONTROL_VALUES = ("SvcHostSplitThresholdInKB",)
+
+
+def _reg_string(v: str) -> str:
+    return '"' + str(v).replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def export_values(key: str, names, out: str) -> bool:
+    """A .reg file with only these values of one key (UTF-16 like reg.exe's). A value that isn't there
+    is written as `"name"=-`: double-clicking the backup removes it again — that is the state before."""
+    import winreg
+    hive_name, sub = key.split("\\", 1)
+    hives = {"HKLM": (winreg.HKEY_LOCAL_MACHINE, "HKEY_LOCAL_MACHINE"),
+             "HKCU": (winreg.HKEY_CURRENT_USER, "HKEY_CURRENT_USER")}
+    hive, full = hives[hive_name]
+    lines = ["Windows Registry Editor Version 5.00", "", f"[{full}\\{sub}]"]
+    try:
+        k = winreg.OpenKey(hive, sub, 0, winreg.KEY_READ | winreg.KEY_WOW64_64KEY)
+    except OSError:
+        return False
+    with k:
+        for n in names:
+            try:
+                v, t = winreg.QueryValueEx(k, n)
+            except FileNotFoundError:
+                lines.append(f"{_reg_string(n)}=-")
+                continue
+            except OSError:
+                continue
+            if t == winreg.REG_DWORD:
+                lines.append(f"{_reg_string(n)}=dword:{v & 0xFFFFFFFF:08x}")
+            elif t == winreg.REG_SZ:
+                lines.append(f"{_reg_string(n)}={_reg_string(v)}")
+    try:
+        with open(out, "w", encoding="utf-16", newline="\r\n") as f:
+            f.write("\n".join(lines) + "\n")
+    except OSError:
+        return False
+    return True
 
 
 def create(label: str = "Backup") -> BackupResult:
@@ -168,6 +227,12 @@ def create(label: str = "Backup") -> BackupResult:
                 res.skipped += 1
         except Exception:
             res.skipped += 1
+    out = os.path.join(dest_dir, _UNSAFE_FILE_CHARS.sub("_", CONTROL_KEY) + "_values.reg")
+    if export_values(CONTROL_KEY, CONTROL_VALUES, out):
+        res.saved += 1
+        res.files.append(out)
+    else:
+        res.skipped += 1
 
     res.path = dest_dir
     res.ok = res.saved > 0
@@ -175,9 +240,7 @@ def create(label: str = "Backup") -> BackupResult:
         res.error = (_tr("Kein einziger Zweig konnte exportiert werden "
                      "(Adminrechte fehlen?).", "Not a single branch could be exported (missing admin rights?)."))
     else:
-        # Ein voller Export ist mehrere Dutzend MB gross (HKLM\...\Control allein
-        # ist riesig) und laeuft vor JEDEM Stapel-Apply/Revert automatisch. Ohne
-        # Begrenzung laeuft die Platte mit der Zeit voll.
+        # It runs before EVERY apply / revert batch: without a limit the disk would fill up over time.
         prune(KEEP_BACKUPS)
     return res
 
