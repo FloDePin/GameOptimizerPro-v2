@@ -47,6 +47,9 @@ UPD.pending = lambda *a, **k: (calls.append("pending"), {"build": 99, "dir": "x"
 UPD.launch_apply = lambda *a, **k: (calls.append("apply"), True)[1]
 LOCK = [False]
 G.single_instance = lambda wait_s=0.0: (calls.append("lock"), LOCK[0])[1]
+WINDOW = [True]                       # round 48: the running instance's window is up (or not yet: still loading)
+G.instance_window_up = lambda: WINDOW[0]
+G.say_still_starting = lambda: calls.append("still starting")
 APP = G.GameOptimizerApp
 G.GameOptimizerApp = lambda: (_ for _ in ()).throw(AssertionError("the app must not start"))
 
@@ -62,6 +65,11 @@ def run_main():
 code = run_main()
 check(calls == ["lock"] and code == 0,
       f"the app already runs (tray): the second start hands over, installs NOTHING under it: {calls}")
+calls.clear()
+WINDOW[0] = False
+code = run_main()
+check(calls == ["lock", "still starting"] and code == 0,
+      f"... while the first one still loads (no window yet): it says so instead of doing nothing: {calls}")
 calls.clear()
 LOCK[0] = True
 code = run_main()

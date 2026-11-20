@@ -509,6 +509,8 @@ from core.tweak_verifier import VERIFY_MAP
 def nagle(adapters: str, keys: str) -> str:
     stub = (
         "function Get-NetAdapter { " + adapters + " }\n"
+        # round 47: the check reads the adapters straight from CIM (the same stubbed adapters)
+        "function Get-CimInstance { [CmdletBinding()] param($Namespace, $ClassName) " + adapters + " }\n"
         "function Get-ChildItem { "
         "[pscustomobject]@{PSChildName='{aaaa-1}';PSPath='A'},"
         "[pscustomobject]@{PSChildName='{BBBB-2}';PSPath='B'} }\n"
@@ -520,7 +522,8 @@ def nagle(adapters: str, keys: str) -> str:
     return next((l.split("|", 1)[1].strip() for l in out.splitlines() if l.startswith("r|")), "?")
 
 
-UP_A = "[pscustomobject]@{Status='Up';InterfaceGuid='{AAAA-1}'}, [pscustomobject]@{Status='Disconnected';InterfaceGuid='{BBBB-2}'}"
+UP_A = ("[pscustomobject]@{Status='Up';InterfaceOperationalStatus=1;InterfaceGuid='{AAAA-1}'}, "
+        "[pscustomobject]@{Status='Disconnected';InterfaceOperationalStatus=2;InterfaceGuid='{BBBB-2}'}")
 ONLY_A = "if($p -eq 'A'){[pscustomobject]@{TcpAckFrequency=1}}else{[pscustomobject]@{EnableDHCP=1}}"
 r1, r2, r3 = (nagle(UP_A, ONLY_A),
               nagle(UP_A, "[pscustomobject]@{EnableDHCP=1}"),

@@ -26,7 +26,7 @@ if __name__ == "__main__":
     if not deps.ensure():
         sys.exit(1)
 
-from core.hardware       import detect as detect_hw
+from core.hardware       import detect_safe as detect_hw   # round 47: a WMI that hangs no longer stops the start
 from core.nvtune_core    import GpuMonitor, AfterburnerController, ProfileManager
 from core.nvtune_tuner   import AutoTuner, TunerConfig
 from core.tweak_runner   import TweakRunner
@@ -126,6 +126,56 @@ def single_instance(wait_s: float = 0.0) -> bool:
         return False
     except Exception:
         return True
+
+
+def instance_window_up() -> bool:
+    """Has the running GameOptimizerPro a window yet (also one hidden in the tray)? A top-level window whose
+    title starts with the app's name, owned by another python / pythonw process. Can't tell -> True (say
+    nothing, as before)."""
+    if os.name != "nt":
+        return True
+    try:
+        import psutil
+        user32 = ctypes.WinDLL("user32")      # its own function objects: the argument types stay local
+        user32.GetWindowTextLengthW.argtypes = [ctypes.c_void_p]
+        user32.GetWindowTextW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_int]
+        user32.GetWindowThreadProcessId.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong)]
+        found = []
+        proc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+
+        def check(hwnd, _lparam):
+            n = user32.GetWindowTextLengthW(hwnd)
+            if n:
+                buf = ctypes.create_unicode_buffer(n + 1)
+                user32.GetWindowTextW(hwnd, buf, n + 1)
+                if buf.value.startswith("GameOptimizerPro"):
+                    pid = ctypes.c_ulong()
+                    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                    try:
+                        if pid.value != os.getpid() and psutil.Process(pid.value).name().lower().startswith("python"):
+                            found.append(hwnd)
+                            return False
+                    except psutil.Error:
+                        pass
+            return True
+        user32.EnumWindows(proc(check), None)
+        return bool(found)
+    except Exception:
+        return True
+
+
+def say_still_starting():
+    """A second start while the first one still loads (no window to show yet): until now nothing happened
+    at all, and people clicked again (round 47, found in v1)."""
+    de = i18n.current_lang() == "de"
+    try:
+        # MB_ICONINFORMATION | MB_TOPMOST
+        ctypes.windll.user32.MessageBoxW(
+            0, "GameOptimizerPro läuft schon und startet gerade — das Fenster erscheint gleich." if de else
+            "GameOptimizerPro is already running and still starting — its window appears in a moment.",
+            "GameOptimizerPro", 0x40040)
+    except Exception:
+        pass
 
 
 def release_single_instance():
@@ -767,6 +817,8 @@ def main():
     # the tray installed a pending update under the running instance (the installer
     # only waits for the process that started it).
     if not single_instance(20.0 if AFTER_RESTART in sys.argv else 0.0):
+        if not instance_window_up():    # still loading: nothing to show yet — say so
+            say_still_starting()
         sys.exit(0)                     # the running instance shows its window
     if not ensure_ui_package():
         sys.exit(1)

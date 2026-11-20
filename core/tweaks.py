@@ -254,6 +254,16 @@ _TELEMETRY_TASKS_PS = (
     "$found=@(foreach($t in $tasks){ $i=$t.LastIndexOf('\\'); "
     "Get-ScheduledTask -TaskPath $t.Substring(0,$i+1) -TaskName $t.Substring($i+1) -EA SilentlyContinue }); "
 )
+# Round 47: the same list for the status check, read through the Task Scheduler's own COM interface.
+# Get-ScheduledTask loads its module and asks CIM per task — 3.7 s for the twelve, two thirds of the whole
+# status check; this reads them in about 0.1 s with the same answers. A task that is missing or can't be
+# read is skipped, as with -EA SilentlyContinue. ($found: the tasks, .Enabled false = disabled.)
+_TASK_COM_PS = "$svc=New-Object -ComObject Schedule.Service; $svc.Connect(); "
+_TELEMETRY_TASKS_COM_PS = (
+    _TELEMETRY_TASKS_PS.split("$found=")[0] + _TASK_COM_PS +
+    "$found=@(foreach($t in $tasks){ $i=$t.LastIndexOf('\\'); "
+    "try { $svc.GetFolder($t.Substring(0,$i)).GetTask($t.Substring($i+1)) } catch {} }); "
+)
 
 
 # ── Registry values the user may have chosen: revert brings THEIR value back (round 45) ─────────────
@@ -392,7 +402,13 @@ DNS_PROVIDERS = {
     "dns_cloudflare": (("1.1.1.1", "1.0.0.1"), ("2606:4700:4700::1111", "2606:4700:4700::1001")),
     "dns_google": (("8.8.8.8", "8.8.4.4"), ("2001:4860:4860::8888", "2001:4860:4860::8844")),
 }
-_PHYS_UP = "@(Get-NetAdapter -Physical -EA SilentlyContinue | Where-Object { $_.Status -eq 'Up' })"
+# The adapters that are up, straight from CIM: the NetAdapter / DnsClient modules took ~0.4 s each to load in
+# every status check (round 47, same answers). $na: MSFT_NetAdapter rows (Name, InterfaceGuid, InterfaceIndex).
+_UP_ADAPTERS_CIM_PS = ("$na=@(Get-CimInstance -Namespace root/StandardCimv2 -ClassName MSFT_NetAdapter -EA SilentlyContinue | "
+                       "Where-Object { $_.InterfaceOperationalStatus -eq 1 }); ")
+# physical: ConnectorPresent (Microsoft: TRUE for a physical adapter — what Get-NetAdapter -Physical returns)
+_PHYS_UP = "@($na | Where-Object { $_.ConnectorPresent })"
+_DNS_CIM_PS = "$dns=@(Get-CimInstance -Namespace root/StandardCimv2 -ClassName MSFT_DNSClientServerAddress -EA SilentlyContinue); "
 
 
 def _dns_ps(mode: str, tid: str) -> str:
@@ -400,7 +416,7 @@ def _dns_ps(mode: str, tid: str) -> str:
     q4 = ",".join(f"'{a}'" for a in v4)
     q46 = ",".join(f"'{a}'" for a in v4 + v6)
     if mode == "apply":
-        return (f"$a={_PHYS_UP}; if($a.Count -eq 0){{ Write-Output '"
+        return (_UP_ADAPTERS_CIM_PS + f"$a={_PHYS_UP}; if($a.Count -eq 0){{ Write-Output '"
                 + _tr("Kein aktiver physischer Netzwerkadapter", "No active physical network adapter") +
                 "'; exit 1 }; $bad=@(); foreach($x in $a){ "
                 f"try {{ Set-DnsClientServerAddress -InterfaceIndex $x.InterfaceIndex -ServerAddresses @({q46}) -EA Stop }} "
@@ -410,14 +426,14 @@ def _dns_ps(mode: str, tid: str) -> str:
                 "if($bad.Count -ge $a.Count){ Write-Output ('" + _tr("Nicht gesetzt", "Not set") +
                 ": ' + ($bad -join ', ')); exit 1 }; exit 0")
     if mode == "revert":
-        return (f"$ours=@({q46}); foreach($d in @(Get-DnsClientServerAddress -EA SilentlyContinue)){{ "
+        return (f"$ours=@({q46}); " + _DNS_CIM_PS + "foreach($d in $dns){ "
                 "if(@($d.ServerAddresses | Where-Object { $ours -contains $_ }).Count){ "
                 "Set-DnsClientServerAddress -InterfaceIndex $d.InterfaceIndex -ResetServerAddresses -EA SilentlyContinue } }; exit 0")
     # verify: every active physical adapter asks this provider over IPv4 — and over IPv6 too when it has
-    # IPv6 DNS servers at all (the router's IPv6 DNS would answer otherwise)
-    return (f"$a={_PHYS_UP}; $ok=($a.Count -gt 0); foreach($x in $a){{ "
-            "$v4=@((Get-DnsClientServerAddress -InterfaceIndex $x.InterfaceIndex -AddressFamily IPv4 -EA SilentlyContinue).ServerAddresses | Where-Object { $_ }); "
-            "$v6=@((Get-DnsClientServerAddress -InterfaceIndex $x.InterfaceIndex -AddressFamily IPv6 -EA SilentlyContinue).ServerAddresses | Where-Object { $_ }); "
+    # IPv6 DNS servers at all (the router's IPv6 DNS would answer otherwise). AddressFamily 2 = IPv4, 23 = IPv6.
+    return (_UP_ADAPTERS_CIM_PS + _DNS_CIM_PS + f"$a={_PHYS_UP}; $ok=($a.Count -gt 0); foreach($x in $a){{ "
+            "$v4=@($dns | Where-Object { $_.InterfaceIndex -eq $x.InterfaceIndex -and $_.AddressFamily -eq 2 } | ForEach-Object { $_.ServerAddresses } | Where-Object { $_ }); "
+            "$v6=@($dns | Where-Object { $_.InterfaceIndex -eq $x.InterfaceIndex -and $_.AddressFamily -eq 23 } | ForEach-Object { $_.ServerAddresses } | Where-Object { $_ }); "
             f"if(-not ($v4 -contains '{v4[0]}')){{ $ok=$false }}; "
             f"if($v6.Count -gt 0 -and -not ($v6 -contains '{v6[0]}')){{ $ok=$false }} }}; "
             "if($ok){'1'}else{'0'}")

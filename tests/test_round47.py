@@ -263,6 +263,12 @@ function Set-DnsClientServerAddress { [CmdletBinding()] param($InterfaceIndex, $
   $global:CALLS += ("{0}:{1}" -f $InterfaceIndex, $(if($ResetServerAddresses){'reset'}else{$ServerAddresses -join ','})) }
 function A($i,$n,$phys,$nov6){ $global:ADP += [pscustomobject]@{InterfaceIndex=$i; Name=$n; Status='Up'; Phys=$phys; NoV6=$nov6} }
 function D($i,$fam,$srv){ $global:DNS += [pscustomobject]@{InterfaceIndex=$i; AddressFamily=$fam; ServerAddresses=@($srv)} }
+# the checks read adapters / DNS servers straight from CIM (round 47): the same simulated network
+function Get-CimInstance { [CmdletBinding()] param($Namespace, $ClassName)
+  if($ClassName -eq 'MSFT_NetAdapter'){ $global:ADP | ForEach-Object { [pscustomobject]@{Name=$_.Name; InterfaceIndex=$_.InterfaceIndex;
+      InterfaceGuid=''; ConnectorPresent=$_.Phys; InterfaceOperationalStatus=$(if($_.Status -eq 'Up'){1}else{2})} } }
+  elseif($ClassName -eq 'MSFT_DNSClientServerAddress'){ $global:DNS | ForEach-Object { [pscustomobject]@{InterfaceIndex=$_.InterfaceIndex;
+      AddressFamily=$(if($_.AddressFamily -eq 'IPv4'){2}else{23}); ServerAddresses=$_.ServerAddresses} } } }
 """
 
 

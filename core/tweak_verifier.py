@@ -14,7 +14,8 @@ from typing import Optional
 
 from core.tweaks import (_AMD_KEYS_PS,   # same AMD-only adapter filter as the tweaks
                          NIC_EEE_KEYWORDS, NIC_IM_KEYWORDS, _nic_ps,
-                         _TELEMETRY_TASKS_PS,   # the same task list the tweak works on
+                         _TELEMETRY_TASKS_COM_PS, _TASK_COM_PS,   # the same task list the tweak works on
+                         _UP_ADAPTERS_CIM_PS,
                          # round 45: the same value lists / power settings the tweaks write
                          _reg_saved_ps, _power_saved_ps, TIPS_ITEMS, TIPS_CHECK, INPUT_ITEMS,
                          _USB_SUB, _USB3_LPM, _SLEEP_SUB, _RTC_WAKE,
@@ -88,10 +89,11 @@ VERIFY_MAP: dict[str, str] = {
         '$h=Get-Content "$env:SystemRoot\\System32\\drivers\\etc\\hosts" -EA SilentlyContinue; '
         'if($h -match "telemetry.microsoft.com"){"1"}else{"0"}'
     ),
-    # every task of the list this Windows has must be disabled (24H2+ lacks some — skipped)
+    # every task of the list this Windows has must be disabled (24H2+ lacks some — skipped); read through
+    # the Task Scheduler's COM interface (round 47: 0.1 s instead of 3.7 s, same answers)
     "disable_telemetry_tasks": (
-        _TELEMETRY_TASKS_PS +
-        'if($found.Count -gt 0 -and -not ($found | Where-Object { "$($_.State)" -ne "Disabled" })){"1"}else{"0"}'
+        _TELEMETRY_TASKS_COM_PS +
+        'if($found.Count -gt 0 -and -not ($found | Where-Object { $_.Enabled })){"1"}else{"0"}'
     ),
 
     # ── Performance ───────────────────────────────────────────────────────────
@@ -206,9 +208,9 @@ VERIFY_MAP: dict[str, str] = {
         # the interface keys of unused adapters (Bluetooth PAN, VPN, virtual
         # switches) without the values — the tweak then looked "no longer active"
         # at every start although the network in use still had it.
-        '$ok=$true; '
-        '$up=@(Get-NetAdapter -EA SilentlyContinue | Where-Object{$_.Status -eq "Up"} | '
-        'ForEach-Object{"$($_.InterfaceGuid)".ToUpper()}); '
+        # round 47: the adapters straight from CIM (the NetAdapter module took ~0.4 s to load)
+        '$ok=$true; ' + _UP_ADAPTERS_CIM_PS +
+        '$up=@($na | ForEach-Object{"$($_.InterfaceGuid)".ToUpper()}); '
         'Get-ChildItem "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces" '
         '-EA SilentlyContinue | ForEach-Object{ '
         'if($up.Count -eq 0 -or $up -contains $_.PSChildName.ToUpper()){ '
@@ -256,11 +258,10 @@ VERIFY_MAP: dict[str, str] = {
 
     # ── Network ───────────────────────────────────────────────────────────────
     "disable_lso": (
-        '$adapters=Get-NetAdapter|Where-Object{$_.Status -eq "Up"};'
-        '$all_disabled=$true;'
-        'foreach($a in $adapters){'
-        '$lso=Get-NetAdapterLso -Name $a.Name -EA SilentlyContinue;'
-        'if($lso -and ($lso.IPv4Enabled -or $lso.IPv6Enabled)){$all_disabled=$false}};'
+        # round 47: CIM instead of the NetAdapter module (same answers, ~0.4 s less)
+        _UP_ADAPTERS_CIM_PS + '$up=@($na | ForEach-Object { $_.Name }); $all_disabled=$true; '
+        'foreach($l in @(Get-CimInstance -Namespace root/StandardCimv2 -ClassName MSFT_NetAdapterLsoSettingData -EA SilentlyContinue)){'
+        'if($up -contains $l.Name -and ($l.IPv4Enabled -or $l.IPv6Enabled)){$all_disabled=$false}};'
         'if($all_disabled){"1"}else{"0"}'
     ),
     "flush_dns": (
@@ -274,11 +275,10 @@ VERIFY_MAP: dict[str, str] = {
         'if(-not $v){ throw "netsh" }; if("$v" -match "disabled"){"1"}else{"0"}'
     ),
     "enable_rss": (
-        '$adapters=Get-NetAdapter|Where-Object{$_.Status -eq "Up"};'
-        '$any_on=$false;'
-        'foreach($a in $adapters){'
-        '$r=Get-NetAdapterRss -Name $a.Name -EA SilentlyContinue;'
-        'if($r -and $r.Enabled){$any_on=$true}};'
+        # round 47: CIM instead of the NetAdapter module (same answers, ~0.4 s less)
+        _UP_ADAPTERS_CIM_PS + '$up=@($na | ForEach-Object { $_.Name }); $any_on=$false; '
+        'foreach($r in @(Get-CimInstance -Namespace root/StandardCimv2 -ClassName MSFT_NetAdapterRssSettingData -EA SilentlyContinue)){'
+        'if($up -contains $r.Name -and $r.Enabled){$any_on=$true}};'
         'if($any_on){"1"}else{"0"}'
     ),
 
@@ -510,7 +510,9 @@ VERIFY_MAP: dict[str, str] = {
         '$q=@(fsutil behavior query DisableDeleteNotify 2>$null); $l=@($q | Where-Object { $_ -match \'NTFS\' })[0]; if(-not $l){ $l=@($q | Where-Object { $_ -match \'=\' })[0] }; if($l -match \'=\\s*0\\b\'){"1"}else{"0"}'
     ),
     'disable_scheduled_defrag': (
-        '$t=Get-ScheduledTask -TaskPath \'\\Microsoft\\Windows\\Defrag\\\' -TaskName \'ScheduledDefrag\' -EA SilentlyContinue; if($t -and "$($t.State)" -eq \'Disabled\'){"1"}else{"0"}'
+        # round 47: through the Task Scheduler's COM interface (Get-ScheduledTask: module + CIM, ~0.4 s)
+        _TASK_COM_PS + '$t=$null; try { $t=$svc.GetFolder(\'\\Microsoft\\Windows\\Defrag\').GetTask(\'ScheduledDefrag\') } '
+        'catch {}; if($t -and -not $t.Enabled){"1"}else{"0"}'
     ),
     'disable_write_cache_flush': (
         '$d=@(Get-CimInstance Win32_DiskDrive -EA SilentlyContinue | Where-Object { $_.PNPDeviceID -and $_.MediaType -match \'Fixed hard disk\' })[0]; $v=$null; if($d){ $v=(Get-ItemProperty (\'HKLM:\\SYSTEM\\CurrentControlSet\\Enum\\\'+$d.PNPDeviceID+\'\\Device Parameters\\Disk\') -Name CacheIsPowerProtected -EA SilentlyContinue).CacheIsPowerProtected }; if($v -eq 1){"1"}else{"0"}'
@@ -614,6 +616,16 @@ def _check_line(tid: str) -> str:
     # multi-statement form used by most registry checks.
     return (f'try {{ $__r=$({cmd}); Write-Output "{tid}|$__r" }}'
             f' catch {{ Write-Output "{tid}|ERR" }}')
+
+
+FAST_PARTS = 3          # PowerShell processes for the fast checks, side by side (round 47)
+
+
+def spread_parts(ids: list[str], n: int = FAST_PARTS) -> list[list[str]]:
+    """The ids dealt round-robin into n groups (order kept within each), each group then cut below the
+    command-line limit — about equally long parts that can run side by side."""
+    groups = [ids[i::max(1, n)] for i in range(max(1, n))]
+    return [p for g in groups if g for p in split_batch(g)]
 
 
 def split_batch(ids: list[str], limit: int = MAX_SCRIPT_CHARS) -> list[list[str]]:
@@ -840,10 +852,18 @@ class TweakVerifier:
         fast_ids = [t for t in verifiable if t not in SLOW_CHECKS and t not in results]
         slow_ids = [t for t in verifiable if t in SLOW_CHECKS]
 
-        # Fast batch: 20s timeout
-        results.update(self._run_batch(fast_ids, expected, timeout=20))
-        # Slow batch: 30s timeout (AppxPackage queries take longer)
-        results.update(self._run_batch(slow_ids, expected, timeout=30))
+        # Round 47: the slow batch (Store apps, storage) runs NEXT TO the fast one instead of after it, and the
+        # fast one is spread over a few PowerShell processes side by side: the wall time is the slowest part,
+        # not the sum (fast 20 s, slow 30 s time limit as before).
+        jobs = ([(p, 20) for p in spread_parts(fast_ids, FAST_PARTS)] +
+                [(p, 30) for p in split_batch(slow_ids)])
+        if len(jobs) == 1:
+            results.update(self._run_part(jobs[0][0], expected, jobs[0][1]))
+        elif jobs:
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=len(jobs)) as ex:
+                for r in ex.map(lambda j: self._run_part(j[0], expected, j[1]), jobs):
+                    results.update(r)
         return results
 
     def verify_single(self, tweak_id: str, expected: bool) -> Optional[VerifyResult]:

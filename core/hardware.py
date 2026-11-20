@@ -3,7 +3,7 @@ GameOptimizerPro Hardware Detection
 CPU, GPU, RAM, Mainboard, OS — via wmi (Windows) with fallbacks.
 """
 
-import platform, subprocess
+import platform, subprocess, threading
 from dataclasses import dataclass
 try:
     import winreg
@@ -309,4 +309,71 @@ def detect() -> HardwareInfo:
         f"{os_short} (Build {info.os_build})"
     )
 
+    return info
+
+
+DETECT_TIMEOUT_S = 25.0
+
+
+def basic_info() -> HardwareInfo:
+    """What is known without WMI: the Windows build and edition from the registry, the CPU from platform."""
+    info = HardwareInfo()
+    info.cpu_name = platform.processor() or "Unknown CPU"
+    try:
+        info.os_build = int((windows_build() or "0").split(".")[0])
+    except ValueError:
+        info.os_build = 0
+    info.is_win11 = info.os_build >= 22000
+    info.is_win10 = 10240 <= info.os_build < 22000
+    info.is_home = is_home_edition()
+    info.summary = f"CPU: {info.cpu_name}  |  {'Win11' if info.is_win11 else 'Windows'} (Build {info.os_build})"
+    return info
+
+
+def detect_safe(timeout: float = DETECT_TIMEOUT_S) -> HardwareInfo:
+    """detect() with a time limit (round 47, found in v1's review): a WMI that doesn't answer (a broken
+    repository, a hanging provider) kept the whole start waiting — no window, no tray icon, nothing. detect()
+    runs in a thread of its own; after `timeout` the start goes on with what is known without WMI, and the
+    full result is copied into that same object as soon as WMI answers."""
+    box: dict = {}
+    done = threading.Event()
+    try:
+        # imported here, in the calling (main) thread: imported first in the worker, its module-level COM
+        # state belonged to that thread's apartment and was released at exit with a "releasing IUnknown" error
+        import pythoncom
+    except Exception:
+        pythoncom = None
+
+    def work():
+        try:
+            if pythoncom is not None:
+                pythoncom.CoInitialize()      # COM for WMI in this thread; deliberately never uninitialized
+        except Exception:
+            pass
+        try:
+            box["hw"] = detect()
+        except Exception as e:                # detect() catches its own errors — just in case
+            box["err"] = e
+        # WMI's COM wrappers hang in reference cycles: freed here, in the thread that made them — collected
+        # later at exit (this thread gone) each printed "Win32 exception occurred releasing IUnknown"
+        import gc
+        gc.collect()
+        done.set()
+
+    threading.Thread(target=work, daemon=True, name="hw-detect").start()
+    if done.wait(timeout):
+        return box.get("hw") or basic_info()
+    info = basic_info()
+    try:
+        from core import errlog
+        errlog.note(f"hardware detection: WMI did not answer within {timeout:.0f} s — started without it")
+    except Exception:
+        pass
+
+    def late():
+        done.wait()
+        hw = box.get("hw")
+        if hw is not None:
+            info.__dict__.update(hw.__dict__)
+    threading.Thread(target=late, daemon=True, name="hw-detect-late").start()
     return info

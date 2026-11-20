@@ -128,7 +128,14 @@ named by version only.
   timestamps are already off), the QoS bandwidth reserve, NVMe queue depth, the previous Start layout, AMD shader
   cache and Anti-Lag — 112 tweaks. Registry backups in a folder of their own (v1's limit deleted v2's and the
   other way round) and about 10 MB instead of 37 MB.
-- 2010 checks in 50 suites, all green.
+- **Faster and sturdier 2026-11-20** — the status check (at the start, for the score and "Check status") takes
+  well under a second instead of almost six: the telemetry and defrag tasks are read through the Task
+  Scheduler's own interface (3.7 s → 0.2 s), adapters and DNS servers straight from CIM instead of loading the
+  NetAdapter / DnsClient modules, and the slow checks run next to the fast ones — the same answer for every
+  check, compared on a real PC. A WMI that doesn't answer no longer keeps the whole start waiting (the app opens
+  with what it knows and fills in the rest when WMI answers), and starting the app a second time while it is still
+  loading says so instead of doing nothing.
+- 2030 checks in 51 suites, all green.
 
 <details>
 <summary><b>Development log — rounds 8–33</b> (one or two lines per round)</summary>

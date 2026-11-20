@@ -4,7 +4,7 @@ TESTS = ["test_ab_profile.py", "test_real_profile.py", "test_ab_controller.py", 
          "test_mahm_threads.py", "test_tuner_apply.py", "test_tuner_stages.py", "test_worker.py",
          "test_ui_ab.py", "test_selftest_tool.py", "test_services.py", "test_score_clean_display.py",
          "test_ui_new.py", "test_round10.py", "test_memstage.py", "test_round12.py",
-         "test_ui_round12.py", "test_round13.py", "test_ui_round13.py", "test_round14.py", "test_round15.py", "test_round16.py", "test_round17.py", "test_round18.py", "test_round20.py", "test_round23.py", "test_round24.py", "test_round28.py", "test_round29.py", "test_round30.py", "test_round31.py", "test_round32.py", "test_round33.py", "test_round34.py", "test_round35.py", "test_round36.py", "test_round37.py", "test_round38.py", "test_round39.py", "test_round40.py", "test_round41.py", "test_round42.py", "test_round43.py", "test_round44.py", "test_round45.py", "test_round46.py", "test_round47.py", "test_app_start.py", "ps_parse_all.py",
+         "test_ui_round12.py", "test_round13.py", "test_ui_round13.py", "test_round14.py", "test_round15.py", "test_round16.py", "test_round17.py", "test_round18.py", "test_round20.py", "test_round23.py", "test_round24.py", "test_round28.py", "test_round29.py", "test_round30.py", "test_round31.py", "test_round32.py", "test_round33.py", "test_round34.py", "test_round35.py", "test_round36.py", "test_round37.py", "test_round38.py", "test_round39.py", "test_round40.py", "test_round41.py", "test_round42.py", "test_round43.py", "test_round44.py", "test_round45.py", "test_round46.py", "test_round47.py", "test_round48.py", "test_app_start.py", "ps_parse_all.py",
          "ci_backslash_check.py"]
 SKIPPED = 2          # exit code of a test that can't run here (e.g. no Afterburner)
 # These map real (alpha-0) windows for real geometry. They run on their own,
@@ -37,16 +37,23 @@ for t in TESTS:
     cmd = [sys.executable, os.path.join(HERE, t)]
     if t in WINDOWED and os.name == "nt":
         cmd.insert(1, os.path.join(HERE, "run_hidden_desktop.py"))
-    r = subprocess.run(cmd, capture_output=True, text=True,
-                       encoding="utf-8", errors="replace", env=env, timeout=900, cwd=HERE)
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", env=env, timeout=900, cwd=HERE)
+        out, code = r.stdout + r.stderr, r.returncode
+    except subprocess.TimeoutExpired as e:
+        # a hanging suite (e.g. a dialog nobody closes) is killed and counted as failed — the battery goes on
+        # with the next one instead of ending with a traceback (round 48)
+        part = e.stdout or b""
+        out = (part.decode("utf-8", "replace") if isinstance(part, bytes) else part) + "\n  FAIL timed out after 900 s\n"
+        code = "TIMEOUT"
     shutil.rmtree(set_dir, ignore_errors=True)        # the suite's own settings, nothing else
-    out = r.stdout + r.stderr
     ok = out.count("  ok   ")
     fail = out.count("  FAIL ")
     total_ok += ok; total_fail += fail
-    note = "  (skipped)" if r.returncode == SKIPPED and not fail else ""
-    print(f"{t:32s} exit={r.returncode}  {ok:3d} ok  {fail} FAIL  ({time.time() - t0:.0f}s){note}", flush=True)
-    if (r.returncode not in (0, SKIPPED)) or fail:
+    note = "  (skipped)" if code == SKIPPED and not fail else ""
+    print(f"{t:32s} exit={code}  {ok:3d} ok  {fail} FAIL  ({time.time() - t0:.0f}s){note}", flush=True)
+    if (code not in (0, SKIPPED)) or fail:
         bad.append(t)
         for line in out.splitlines():
             if "FAIL" in line or "Traceback" in line or "Error" in line:

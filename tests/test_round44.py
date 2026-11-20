@@ -143,9 +143,9 @@ check("Microsoft Compatibility Appraiser Exp" in _TELEMETRY_TASKS_PS and "Progra
 check(t.ps_command.startswith(_TELEMETRY_TASKS_PS) and "Disable-ScheduledTask" in t.ps_command
       and "exit 1" in t.ps_command and "Enable-ScheduledTask" in (t.revert_cmd or ""),
       "apply disables the existing ones (fails honestly), revert enables them again")
-check(VERIFY_MAP["disable_telemetry_tasks"].startswith(_TELEMETRY_TASKS_PS)
+check(VERIFY_MAP["disable_telemetry_tasks"].startswith(_TELEMETRY_TASKS_PS.split("$found=")[0])
       and "$found.Count -gt 0" in VERIFY_MAP["disable_telemetry_tasks"],
-      "the status check covers every task this Windows has, not one")
+      "the status check covers every task this Windows has, not one (round 47: read through COM, same list)")
 if os.name == "nt":
     rc, out, err = ps(_TELEMETRY_TASKS_PS + "Write-Output $found.Count")
     check(rc == 0 and out.isdigit() and 1 <= int(out) <= 12, f"task lookup on this Windows: {out} of 12 exist, no error")

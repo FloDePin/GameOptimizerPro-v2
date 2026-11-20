@@ -105,7 +105,7 @@ Windows 10 / 11 · Python 3.10+ (der Launcher bietet Python 3.12 an) · Admin-Re
 
 - 📖 [Alle Funktionen im Detail](docs/FEATURES.de.md) — samt Projektstruktur
 - 📜 [Changelog](CHANGELOG.md) (Englisch)
-- 🧪 2010 automatische Prüfungen in 50 Test-Suiten (`python tests\run_all_tests.py`), vor jedem Push
+- 🧪 2030 automatische Prüfungen in 51 Test-Suiten (`python tests\run_all_tests.py`), vor jedem Push
 - 🤝 Pull Requests sind willkommen — bei größeren Änderungen bitte zuerst ein Issue öffnen.
 
 <div align="center">
