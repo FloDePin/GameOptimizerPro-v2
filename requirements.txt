@@ -4,7 +4,7 @@
 # without anyone having tested it (installed newer ones are kept, nothing is downgraded).
 # ASCII only: pip reads this file with the system code page.
 # core/deps.py checks these at every start and installs what is missing.
-nvidia-ml-py>=11.5,<14
+nvidia-ml-py>=13.615.71,<14
 pystray>=0.19,<1
 Pillow>=9.5,<14
 numpy>=1.26,<3
