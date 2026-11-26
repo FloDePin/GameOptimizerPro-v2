@@ -7,7 +7,7 @@
 nvidia-ml-py>=11.5,<14
 pystray>=0.19,<1
 Pillow>=9.5,<14
-numpy>=1.26,<3
+numpy>=2.5.5,<3
 WMI>=1.5,<2
 psutil>=5.9,<8
 # COM for WMI (core/hardware.py); WMI pulls it in too, listed because the app imports it itself
