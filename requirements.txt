@@ -13,4 +13,4 @@ psutil>=5.9,<8
 # COM for WMI (core/hardware.py); WMI pulls it in too, listed because the app imports it itself
 pywin32>=306,<400
 # user interface (since v2.0 round 12)
-customtkinter>=5.2,<7
+customtkinter>=6.0.0,<7
