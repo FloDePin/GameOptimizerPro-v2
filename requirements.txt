@@ -1,12 +1,16 @@
 # Lower bounds kept moderate so the app also runs where older packages are already
 # installed (numpy 2.0 changed the C API and breaks some other packages - 1.26 is the
-# safe compromise). ASCII only: pip reads this file with the system code page.
+# safe compromise). Upper bounds: the next major version a fresh install would pull
+# without anyone having tested it (installed newer ones are kept, nothing is downgraded).
+# ASCII only: pip reads this file with the system code page.
 # core/deps.py checks these at every start and installs what is missing.
-nvidia-ml-py>=11.5
-pystray>=0.19
-Pillow>=9.5
-numpy>=1.26
-WMI>=1.5
-psutil>=5.9
+nvidia-ml-py>=11.5,<14
+pystray>=0.19,<1
+Pillow>=9.5,<14
+numpy>=1.26,<3
+WMI>=1.5,<2
+psutil>=5.9,<8
+# COM for WMI (core/hardware.py); WMI pulls it in too, listed because the app imports it itself
+pywin32>=306,<400
 # user interface (since v2.0 round 12)
-customtkinter>=5.2
+customtkinter>=5.2,<7

@@ -1,0 +1,13 @@
+# Monthly: newer GitHub Actions (the CI's runtime) and Python packages beyond the bounds in
+# requirements.txt — a pull request to look at, nothing is changed on its own.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 3

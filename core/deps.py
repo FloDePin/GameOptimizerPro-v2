@@ -26,7 +26,7 @@ SETUP_LOG = BASE / "logs" / "setup.log"
 MIN_PYTHON = (3, 10)
 
 # distribution name (lower case) -> import name, where they differ
-_IMPORT_NAME = {"nvidia-ml-py": "pynvml", "pillow": "PIL"}
+_IMPORT_NAME = {"nvidia-ml-py": "pynvml", "pillow": "PIL", "pywin32": "pythoncom"}
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 

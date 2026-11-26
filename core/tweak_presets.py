@@ -53,7 +53,7 @@ _HARD_EXTRA = [
     # + aggressiver Debloat + volle Performance/Netzwerk/Audio + W11-Classic + moderate Tweaks
     # (Xbox apps here, not in Mittel: removing them ends the Xbox sign-in of Game Pass / Store games)
     "remove_xbox", "remove_copilot", "remove_recall", "remove_onedrive",
-    "block_telemetry_hosts", "disable_wpbt", "disable_ai_text_image_gen",
+    "disable_wpbt", "disable_ai_text_image_gen",
     "disable_prefetch", "disable_search_indexing", "disable_usb_suspend", "disable_hpet",
     "disable_power_throttling", "disable_bg_throttle", "reduce_process_count",
     "dns_cloudflare", "flush_dns", "disable_lso",
@@ -64,13 +64,15 @@ _HARD_EXTRA = [
     "remove_m365_copilot_devhome", "disable_ai_fabric_service", "disable_reserved_storage",
     "disable_memory_compression", "audio_service_priority",
     "w11_hide_recommended", "disable_interrupt_moderation",
-    "usb3_link_power_off", "exclude_wu_drivers", "disable_background_apps",
+    "usb3_link_power_off", "exclude_wu_drivers",
 ]
 # Deliberately in no tier (a choice, not an optimization): wu_pin_feature_version (has to be lifted
 # before the version's end of support), disable_dynamic_lighting, alt_tab_windows_only,
 # explorer_open_this_pc (taste). Round 47 (found in v1): disable_wu_gaming (automatic updates off for
 # good) and disable_tcp_autotuning (slower downloads, no gain documented) are in no tier any more;
 # disable_bg_throttle (background Store apps off — their notifications too) moved from Mittel to Hart.
+# Round 49: disable_background_apps (the same as a Pro policy for the whole PC) is in no tier — Hart had
+# both, and reverting one left the other in effect; disable_bg_throttle works on every edition.
 
 _TIER_MEDIUM = _TIER_MINIMAL + _MEDIUM_EXTRA
 _TIER_HARD   = _TIER_MINIMAL + _MEDIUM_EXTRA + _HARD_EXTRA
@@ -137,12 +139,11 @@ BUILTIN_PRESETS: list[TweakPreset] = [
         id="privacy",
         name="Privacy & Anti-Telemetry",
         icon="🔒",
-        desc="Deaktiviert alle Microsoft Telemetrie-Dienste, Tracking, Werbe-ID, Activity History, Copilot und Recall. Blockiert Telemetrie-Server in der hosts-Datei.",
+        desc="Deaktiviert alle Microsoft Telemetrie-Dienste, Tracking, Werbe-ID, Activity History, Copilot und Recall.",
         color="#a78bfa",
         tweak_ids=[
             "disable_telemetry",
             "disable_telemetry_tasks",
-            "block_telemetry_hosts",
             "disable_activity_history",
             "disable_advertising_id",
             "disable_location",
@@ -239,7 +240,8 @@ BUILTIN_PRESETS: list[TweakPreset] = [
         id="all_safe",
         name="All Safe Tweaks",
         icon="✅",
-        desc="Wendet alle als 'safe' markierten Tweaks an. Geeignet für eine schnelle Komplettoptimierung ohne riskante Eingriffe.",
+        desc="Wendet alle als 'safe' markierten Tweaks an — außer App-Entfernungen (die bringt kein Zurücksetzen "
+             "zurück, nur ein Wiederherstellungspunkt). Geeignet für eine schnelle Komplettoptimierung ohne riskante Eingriffe.",
         color="#22c55e",
         tweak_ids=[],   # populated dynamically
     ),
@@ -249,8 +251,10 @@ BUILTIN_PRESETS: list[TweakPreset] = [
 def get_all_safe_ids() -> list[str]:
     # Without the either-or alternatives: it used to apply all three power plans
     # and both DNS providers (the last one applied won).
+    # Round 49: without app removals (remove_*): "safe" says nothing breaks, but no revert brings a removed
+    # app back — a preset that promises "no risky changes" must not take OneDrive, Copilot & co. away.
     from core.tweaks import ALL_TWEAKS, resolve_selection
-    return resolve_selection([t.id for t in ALL_TWEAKS if t.risk == "safe"])
+    return resolve_selection([t.id for t in ALL_TWEAKS if t.risk == "safe" and not t.id.startswith("remove_")])
 
 
 def get_preset(preset_id: str) -> Optional[TweakPreset]:

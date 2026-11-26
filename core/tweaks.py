@@ -64,7 +64,8 @@ _AMD_KEYS_PS = (
     "(Get-ItemProperty $_.PSPath -Name ProviderName -EA SilentlyContinue).ProviderName "
     "-match 'Advanced Micro Devices|ATI Technologies|^AMD' }); "
 )
-_AMD_REQUIRED_PS = "if($amd.Count -eq 0){ Write-Output 'Kein AMD-Grafikadapter gefunden'; exit 1 }; "
+_AMD_REQUIRED_PS = ("if($amd.Count -eq 0){ Write-Output '"
+                    + _tr("Kein AMD-Grafikadapter gefunden", "No AMD graphics adapter found") + "'; exit 1 }; ")
 
 _AMD_ULPS_APPLY = _AMD_KEYS_PS + _AMD_REQUIRED_PS + (
     "foreach($k in $amd){ "
@@ -173,7 +174,8 @@ _FIXED_DISKS_PS = (
 # "Turn off Windows write-cache buffer flushing" = CacheIsPowerProtected=1.
 # (v1 wrote UserWriteCacheSetting=1, which only ENABLES write caching.)
 _WCACHE_APPLY = _FIXED_DISKS_PS + (
-    r"if($dd.Count -eq 0){ Write-Output 'Keine internen Laufwerke gefunden'; exit 1 }; "
+    "if($dd.Count -eq 0){ Write-Output '" + _tr("Keine internen Laufwerke gefunden", "No internal drives found")
+    + "'; exit 1 }; "
     r"foreach($d in $dd){ reg add ('HKLM\SYSTEM\CurrentControlSet\Enum\'+$d.PNPDeviceID+'\Device Parameters\Disk') "
     r"/v CacheIsPowerProtected /t REG_DWORD /d 1 /f | Out-Null }; exit 0"
 )
@@ -396,8 +398,12 @@ _VIDEO_SUB, _VIDEO_IDLE = "7516b95f-f776-4464-8c53-06167f40cc99", "3c0bc021-c8a8
 _SKIP_PERF_PLANS = "$l -match 'Ultimat' -or $l -match '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c'"
 
 # ── DNS provider (round 47): IPv4 AND IPv6, physical adapters only ─────────────────────────────────
-# Only IPv4 was set: with IPv6 the router's DNS kept answering. VPN / virtual adapters are left alone;
-# revert resets every adapter that still has this provider's addresses (older versions set all of them).
+# Only IPv4 was set: with IPv6 the router's DNS kept answering. VPN / virtual adapters are left alone.
+# Round 49: apply keeps each adapter's servers from before (HKLM\SOFTWARE\GameOptimizerPro\DnsOrig,
+# "<InterfaceGuid>|4" / "|6": the static list from the TCP/IP interface key, "" = automatic) and revert
+# puts exactly that back — a DNS that was set by hand (Pi-hole, a company DNS) is no longer lost. Revert
+# only touches adapters that still have this provider's addresses; one without a kept value (applied by
+# an older version, which set virtual adapters too) goes back to automatic, as before.
 DNS_PROVIDERS = {
     "dns_cloudflare": (("1.1.1.1", "1.0.0.1"), ("2606:4700:4700::1111", "2606:4700:4700::1001")),
     "dns_google": (("8.8.8.8", "8.8.4.4"), ("2001:4860:4860::8888", "2001:4860:4860::8844")),
@@ -409,6 +415,10 @@ _UP_ADAPTERS_CIM_PS = ("$na=@(Get-CimInstance -Namespace root/StandardCimv2 -Cla
 # physical: ConnectorPresent (Microsoft: TRUE for a physical adapter — what Get-NetAdapter -Physical returns)
 _PHYS_UP = "@($na | Where-Object { $_.ConnectorPresent })"
 _DNS_CIM_PS = "$dns=@(Get-CimInstance -Namespace root/StandardCimv2 -ClassName MSFT_DNSClientServerAddress -EA SilentlyContinue); "
+_DNS_STORE = "SOFTWARE\\GameOptimizerPro\\DnsOrig"
+# the static servers of an interface (empty = from DHCP / automatic), IPv4 and IPv6
+_DNS_IF_KEYS = (("4", "SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces\\"),
+                ("6", "SYSTEM\\CurrentControlSet\\Services\\Tcpip6\\Parameters\\Interfaces\\"))
 
 
 def _dns_ps(mode: str, tid: str) -> str:
@@ -416,19 +426,41 @@ def _dns_ps(mode: str, tid: str) -> str:
     q4 = ",".join(f"'{a}'" for a in v4)
     q46 = ",".join(f"'{a}'" for a in v4 + v6)
     if mode == "apply":
+        # keep what each adapter had before — once: a second apply (or the other provider) keeps the first
+        keep = "".join(
+            f"$id=$g+'|{fam}'; if($null -eq $st.GetValue($id)){{ $v=''; "
+            f"$k=[Microsoft.Win32.Registry]::LocalMachine.OpenSubKey('{root}'+$g); "
+            "if($k){ $v=[string]$k.GetValue('NameServer',''); $k.Close() }; $st.SetValue($id,$v) }; "
+            for fam, root in _DNS_IF_KEYS)
         return (_UP_ADAPTERS_CIM_PS + f"$a={_PHYS_UP}; if($a.Count -eq 0){{ Write-Output '"
                 + _tr("Kein aktiver physischer Netzwerkadapter", "No active physical network adapter") +
-                "'; exit 1 }; $bad=@(); foreach($x in $a){ "
+                "'; exit 1 }; "
+                f"$st=$null; try {{ $st=[Microsoft.Win32.Registry]::LocalMachine.CreateSubKey('{_DNS_STORE}') }} catch {{}}; "
+                "$bad=@(); foreach($x in $a){ $g=[string]$x.InterfaceGuid; "
+                "if($st -and $g){ try { " + keep + "} catch {} }; "
                 f"try {{ Set-DnsClientServerAddress -InterfaceIndex $x.InterfaceIndex -ServerAddresses @({q46}) -EA Stop }} "
                 # an adapter without IPv6: IPv4 only
                 f"catch {{ try {{ Set-DnsClientServerAddress -InterfaceIndex $x.InterfaceIndex -ServerAddresses @({q4}) -EA Stop }} "
-                "catch { $bad+=$x.Name } } }; "
+                "catch { $bad+=$x.Name } } }; if($st){ $st.Close() }; "
                 "if($bad.Count -ge $a.Count){ Write-Output ('" + _tr("Nicht gesetzt", "Not set") +
                 ": ' + ($bad -join ', ')); exit 1 }; exit 0")
     if mode == "revert":
-        return (f"$ours=@({q46}); " + _DNS_CIM_PS + "foreach($d in $dns){ "
-                "if(@($d.ServerAddresses | Where-Object { $ours -contains $_ }).Count){ "
-                "Set-DnsClientServerAddress -InterfaceIndex $d.InterfaceIndex -ResetServerAddresses -EA SilentlyContinue } }; exit 0")
+        # per adapter: automatic first (Windows resets both families at once), then the kept static servers
+        # — a kept list that holds this provider's addresses itself (set by an older version) counts as automatic
+        return (f"$ours=@({q46}); " + _DNS_CIM_PS +
+                "$na0=@(Get-CimInstance -Namespace root/StandardCimv2 -ClassName MSFT_NetAdapter -EA SilentlyContinue); "
+                f"$st=$null; try {{ $st=[Microsoft.Win32.Registry]::LocalMachine.OpenSubKey('{_DNS_STORE}',$true) }} catch {{}}; "
+                "$done=@(); foreach($d in $dns){ $ix=$d.InterfaceIndex; if($done -contains $ix){ continue }; "
+                "if(-not @($d.ServerAddresses | Where-Object { $ours -contains $_ }).Count){ continue }; $done+=$ix; "
+                "$g=[string](@($na0 | Where-Object { $_.InterfaceIndex -eq $ix } | ForEach-Object { $_.InterfaceGuid }) | Select-Object -First 1); "
+                "$srv=@(); foreach($f in '4','6'){ $v=$null; if($st -and $g){ $v=$st.GetValue($g+'|'+$f,$null) }; "
+                "if($null -ne $v){ $l=@(\"$v\" -split '[,\\s]+' | Where-Object { $_ }); "
+                "if(-not @($l | Where-Object { $ours -contains $_ }).Count){ $srv+=$l } } }; "
+                "Set-DnsClientServerAddress -InterfaceIndex $ix -ResetServerAddresses -EA SilentlyContinue; "
+                "if($srv.Count){ try { Set-DnsClientServerAddress -InterfaceIndex $ix -ServerAddresses $srv -EA Stop } "
+                "catch { Set-DnsClientServerAddress -InterfaceIndex $ix -ServerAddresses @($srv | Where-Object { $_ -notmatch ':' }) -EA SilentlyContinue } }; "
+                "if($st -and $g){ $st.DeleteValue($g+'|4',$false); $st.DeleteValue($g+'|6',$false) } }; "
+                "if($st){ $st.Close() }; exit 0")
     # verify: every active physical adapter asks this provider over IPv4 — and over IPv6 too when it has
     # IPv6 DNS servers at all (the router's IPv6 DNS would answer otherwise). AddressFamily 2 = IPv4, 23 = IPv6.
     return (_UP_ADAPTERS_CIM_PS + _DNS_CIM_PS + f"$a={_PHYS_UP}; $ok=($a.Count -gt 0); foreach($x in $a){{ "
@@ -775,34 +807,6 @@ Set-Service lfsvc -StartupType Manual -ErrorAction SilentlyContinue
 ''',
     ),
     Tweak(
-        id="block_telemetry_hosts",
-        name="Block Telemetry Hosts (hosts file)",
-        desc="Blockiert Microsoft Telemetrie-Server in der hosts-Datei. Funktioniert auch wenn Dienste noch laufen.",
-        category="Windows", group="Privacy",
-        ps_command='''
-$entries=@("0.0.0.0 telemetry.microsoft.com","0.0.0.0 vortex.data.microsoft.com",
-"0.0.0.0 vortex-win.data.microsoft.com","0.0.0.0 telecommand.telemetry.microsoft.com",
-"0.0.0.0 oca.telemetry.microsoft.com","0.0.0.0 sqm.telemetry.microsoft.com",
-"0.0.0.0 watson.telemetry.microsoft.com","0.0.0.0 redir.metaservices.microsoft.com",
-"0.0.0.0 df.telemetry.microsoft.com")
-$hostsFile="$env:SystemRoot\\System32\\drivers\\etc\\hosts"
-$existing=Get-Content $hostsFile
-foreach($e in $entries){if($existing -notcontains $e){Add-Content $hostsFile $e}}
-''',
-        revert_cmd='''
-$entries=@("0.0.0.0 telemetry.microsoft.com","0.0.0.0 vortex.data.microsoft.com",
-"0.0.0.0 vortex-win.data.microsoft.com","0.0.0.0 telecommand.telemetry.microsoft.com",
-"0.0.0.0 oca.telemetry.microsoft.com","0.0.0.0 sqm.telemetry.microsoft.com",
-"0.0.0.0 watson.telemetry.microsoft.com","0.0.0.0 redir.metaservices.microsoft.com",
-"0.0.0.0 df.telemetry.microsoft.com")
-$hostsFile="$env:SystemRoot\\System32\\drivers\\etc\\hosts"
-$existing=Get-Content $hostsFile
-$filtered=$existing | Where-Object { $entries -notcontains $_ }
-Set-Content -Path $hostsFile -Value $filtered
-''',
-        risk="moderate",
-    ),
-    Tweak(
         id="disable_telemetry_tasks",
         name="Disable Scheduled Telemetry Tasks",
         desc="Deaktiviert die geplanten Windows-Aufgaben, die Telemetrie- und Diagnosedaten sammeln oder "
@@ -872,7 +876,7 @@ $act=[regex]::Match((powercfg /getactivescheme 2>$null | Out-String),$re).Value
 if($ult.Count -eq 0){
     $o=(powercfg -duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61 2>&1 | Out-String)
     $new=[regex]::Match($o,$re).Value
-    if(-not $new){ Write-Output "Plan 'Ultimative Leistung' nicht verfuegbar: $o"; exit 1 }
+    if(-not $new){ Write-Output "__ULT_NA__: $o"; exit 1 }
     $ult=@($new)
 }
 $keep=$(if($ult -contains $act){ $act } else { $ult[0] })
@@ -885,9 +889,13 @@ powercfg /SETACVALUEINDEX $keep SUB_SLEEP STANDBYIDLE 0
 powercfg /SETACVALUEINDEX $keep SUB_SLEEP HIBERNATEIDLE 0
 powercfg -setactive $keep
 $now=[regex]::Match((powercfg /getactivescheme 2>$null | Out-String),$re).Value
-if($now -ne $keep){ Write-Output "Plan liess sich nicht aktivieren"; exit 1 }
-Write-Output "Aktiv: Ultimative Leistung ($keep), Bildschirm/Standby im Netzbetrieb: nie; entfernte Kopien: $($ult.Count - 1)"
-''',
+if($now -ne $keep){ Write-Output "__ULT_NOT_ACTIVE__"; exit 1 }
+Write-Output "__ULT_ACTIVE__ ($keep), __ULT_NEVER__: $($ult.Count - 1)"
+'''.replace("__ULT_NA__", _tr("Plan 'Ultimative Leistung' nicht verfügbar", "Plan 'Ultimate Performance' not available"))
+         .replace("__ULT_NOT_ACTIVE__", _tr("Plan ließ sich nicht aktivieren", "The plan could not be activated"))
+         .replace("__ULT_ACTIVE__", _tr("Aktiv: Ultimative Leistung", "Active: Ultimate Performance"))
+         .replace("__ULT_NEVER__", _tr("Bildschirm/Standby im Netzbetrieb: nie; entfernte Kopien",
+                                       "screen/sleep on mains power: never; copies removed")),
         revert_cmd='powercfg -setactive 381b4222-f694-41f0-9685-ff5bb260df2e',
     ),
     Tweak(
@@ -1182,7 +1190,9 @@ reg delete "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU" /v 
         desc="Store-Apps laufen nicht mehr im Hintergrund weiter (Windows' Schalter „Apps im Hintergrund "
              "ausführen“ für deinen Benutzer, auch auf Home). Spart etwas Arbeitsspeicher und CPU-Zeit. Folge: "
              "Geschlossene Store-Apps wie WhatsApp, Phone Link oder Mail melden keine neuen Nachrichten. Das "
-             "Drosseln von Prozessen durch Windows ist ein anderer Tweak („Disable Power Throttling“).",
+             "Drosseln von Prozessen durch Windows ist ein anderer Tweak („Disable Power Throttling“). Dasselbe "
+             "als Richtlinie für alle Benutzer (nur Pro): „Store-Apps nicht im Hintergrund laufen lassen“ — "
+             "einer von beiden reicht.",
         category="Gaming", group="In-Game Boosts",
         ps_command=_reg_saved_ps("apply", "disable_bg_throttle", BGAPPS_ITEMS),
         revert_cmd=('$p="HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\kernel"; '
@@ -1448,15 +1458,18 @@ exit 0
 $n=0; $ok=0; $msg=@()
 foreach($a in @(Get-NetAdapter -EA SilentlyContinue | Where-Object { $_.Status -eq 'Up' })){
     $r=Get-NetAdapterRss -Name $a.Name -EA SilentlyContinue
-    if(-not $r){ $msg+="$($a.Name): Treiber meldet keine RSS-Einstellung"; continue }
+    if(-not $r){ $msg+="$($a.Name): __RSS_NONE__"; continue }
     $n++
     try { Enable-NetAdapterRss -Name $a.Name -EA Stop; $ok++ } catch { $msg+="$($a.Name): $($_.Exception.Message)" }
 }
 $msg
-if($ok -gt 0){ Write-Output "RSS aktiv auf $ok von $n Adapter(n)"; exit 0 }
-if($n -eq 0){ Write-Output "Kein aktiver Adapter bietet RSS über Windows an (Treiber) / no active adapter offers RSS through Windows (driver)"; exit 1 }
+if($ok -gt 0){ Write-Output "__RSS_ON__"; exit 0 }
+if($n -eq 0){ Write-Output "__RSS_NO_ADAPTER__"; exit 1 }
 exit 1
-''',
+'''.replace("__RSS_NONE__", _tr("Treiber meldet keine RSS-Einstellung", "the driver reports no RSS setting"))
+         .replace("__RSS_ON__", _tr("RSS aktiv auf $ok von $n Adapter(n)", "RSS on for $ok of $n adapter(s)"))
+         .replace("__RSS_NO_ADAPTER__", _tr("Kein aktiver Adapter bietet RSS über Windows an (Treiber)",
+                                            "No active adapter offers RSS through Windows (driver)")),
         # RSS is enabled by default on virtually all modern adapters, so the
         # honest "revert" is to leave it enabled (the Windows default) rather
         # than force it off — which would leave the PC worse than before.
@@ -1924,8 +1937,8 @@ reg add "HKU\.DEFAULT\Control Panel\Keyboard" /v InitialKeyboardIndicators /t RE
              "sinnvoll (16 GB+) — sonst lagert Windows früher auf die Platte aus. (Ist SysMain deaktiviert, "
              "wird der Dienst dafür kurz gestartet und danach wieder deaktiviert.)",
         category="Windows", group="Speicher & RAM",
-        ps_command="$s=Get-Service SysMain -EA SilentlyContinue; $was=$(if($s){ [string]$s.StartType } else { '' }); if($was -eq 'Disabled'){ Set-Service SysMain -StartupType Manual -EA SilentlyContinue; Start-Service SysMain -EA SilentlyContinue }; $err=$null; try { Disable-MMAgent -MemoryCompression -EA Stop } catch { $err=$_.Exception.Message }; if($was -eq 'Disabled'){ Stop-Service SysMain -Force -EA SilentlyContinue; Set-Service SysMain -StartupType Disabled -EA SilentlyContinue }; if($err){ Write-Output $err; exit 1 }; if($was -eq 'Disabled'){ Write-Output 'SysMain kurz gestartet und wieder deaktiviert' }",
-        revert_cmd="$s=Get-Service SysMain -EA SilentlyContinue; $was=$(if($s){ [string]$s.StartType } else { '' }); if($was -eq 'Disabled'){ Set-Service SysMain -StartupType Manual -EA SilentlyContinue; Start-Service SysMain -EA SilentlyContinue }; $err=$null; try { Enable-MMAgent -MemoryCompression -EA Stop } catch { $err=$_.Exception.Message }; if($was -eq 'Disabled'){ Stop-Service SysMain -Force -EA SilentlyContinue; Set-Service SysMain -StartupType Disabled -EA SilentlyContinue }; if($err){ Write-Output $err; exit 1 }; if($was -eq 'Disabled'){ Write-Output 'SysMain kurz gestartet und wieder deaktiviert' }",
+        ps_command="$s=Get-Service SysMain -EA SilentlyContinue; $was=$(if($s){ [string]$s.StartType } else { '' }); if($was -eq 'Disabled'){ Set-Service SysMain -StartupType Manual -EA SilentlyContinue; Start-Service SysMain -EA SilentlyContinue }; $err=$null; try { Disable-MMAgent -MemoryCompression -EA Stop } catch { $err=$_.Exception.Message }; if($was -eq 'Disabled'){ Stop-Service SysMain -Force -EA SilentlyContinue; Set-Service SysMain -StartupType Disabled -EA SilentlyContinue }; if($err){ Write-Output $err; exit 1 }; if($was -eq 'Disabled'){ Write-Output '" + _tr("SysMain kurz gestartet und wieder deaktiviert", "SysMain started briefly and disabled again") + "' }",
+        revert_cmd="$s=Get-Service SysMain -EA SilentlyContinue; $was=$(if($s){ [string]$s.StartType } else { '' }); if($was -eq 'Disabled'){ Set-Service SysMain -StartupType Manual -EA SilentlyContinue; Start-Service SysMain -EA SilentlyContinue }; $err=$null; try { Enable-MMAgent -MemoryCompression -EA Stop } catch { $err=$_.Exception.Message }; if($was -eq 'Disabled'){ Stop-Service SysMain -Force -EA SilentlyContinue; Set-Service SysMain -StartupType Disabled -EA SilentlyContinue }; if($err){ Write-Output $err; exit 1 }; if($was -eq 'Disabled'){ Write-Output '" + _tr("SysMain kurz gestartet und wieder deaktiviert", "SysMain started briefly and disabled again") + "' }",
         requires_reboot=True, risk="moderate",
     ),
     Tweak(
@@ -2187,7 +2200,8 @@ reg add "HKLM\SOFTWARE\GameOptimizerPro" /v SR_AudioPriority /t REG_DWORD /d 1 /
              "(Smartphone-Link, Mail und Kalender, Wetter …) laufen nur noch, solange sie offen sind — spart "
              "RAM und Hintergrund-CPU. Danach melden sich solche Apps im geschlossenen Zustand nicht mehr, "
              "z. B. WhatsApp aus dem Store. Normale Programme (Steam, Discord, Afterburner) sind nicht "
-             "betroffen. Nur Pro, Enterprise und Education (Home: ausgeblendet).",
+             "betroffen. Nur Pro, Enterprise und Education (Home: ausgeblendet). Dasselbe nur für deinen "
+             "Benutzer, auf jeder Edition: „Hintergrund-Apps stoppen (alle Editionen)“ — einer von beiden reicht.",
         category="Windows", group="Performance",
         ps_command=r'reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy" /v LetAppsRunInBackground /t REG_DWORD /d 2 /f',
         revert_cmd=r'reg delete "HKLM\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy" /v LetAppsRunInBackground /f 2>$null; exit 0',
@@ -2418,6 +2432,26 @@ RETIRED_TWEAKS: dict[str, tuple[str, str, str]] = {
         "AMD: Anti-Lag (Low Latency Mode)", "AMD: Anti-Lag (low latency mode)",
         _AMD_KEYS_PS + "foreach($k in $amd){ if((Get-ItemProperty $k.PSPath -Name EnableAntiLag -EA SilentlyContinue)"
         ".EnableAntiLag -eq 1){ Remove-ItemProperty $k.PSPath -Name EnableAntiLag -EA SilentlyContinue } }; exit 0"),
+    # round 49: none of its nine names is a Windows 11 diagnostic endpoint (Microsoft Learn lists
+    # v10.events / v10c.events / self.events / watson.events.data.microsoft.com — a hosts line blocks one exact
+    # name only), and Microsoft Defender reports such entries as SettingsModifier:Win32/HostsFileHijack and
+    # resets the WHOLE hosts file when it cleans it (own entries too). The documented way stays: the
+    # diagnostic-data policy (Disable Telemetry). The clean-up removes only the nine lines it wrote — also
+    # one glued to the end of the line before it (it appended without a line break) — and nothing else.
+    "block_telemetry_hosts": (
+        "Telemetrie-Hosts blockieren (hosts-Datei)", "Block Telemetry Hosts (hosts file)",
+        "$f=\"$env:SystemRoot\\System32\\drivers\\etc\\hosts\"; "
+        "$ours=@('0.0.0.0 telemetry.microsoft.com','0.0.0.0 vortex.data.microsoft.com',"
+        "'0.0.0.0 vortex-win.data.microsoft.com','0.0.0.0 telecommand.telemetry.microsoft.com',"
+        "'0.0.0.0 oca.telemetry.microsoft.com','0.0.0.0 sqm.telemetry.microsoft.com',"
+        "'0.0.0.0 watson.telemetry.microsoft.com','0.0.0.0 redir.metaservices.microsoft.com',"
+        "'0.0.0.0 df.telemetry.microsoft.com'); "
+        "if(-not (Test-Path -LiteralPath $f)){ exit 0 }; "
+        "try { $l=@(Get-Content -LiteralPath $f -EA Stop) } catch { Write-Output $_.Exception.Message; exit 1 }; "
+        "$n=0; $keep=foreach($x in $l){ $t=\"$x\".Trim(); if($ours -contains $t){ $n++; continue }; "
+        "foreach($e in $ours){ if($t.Length -gt $e.Length -and $t.EndsWith($e)){ $x=$t.Substring(0,$t.Length-$e.Length); $n++; break } }; $x }; "
+        "if($n -eq 0){ exit 0 }; "
+        "try { Set-Content -LiteralPath $f -Value @($keep) -EA Stop } catch { Write-Output $_.Exception.Message; exit 1 }; exit 0"),
     # a feature override current Windows 11 builds no longer know — the check showed "active" anyway
     "start_menu_previous_layout": (
         "Startmenü: vorheriges Layout", "Enable Start Menu Previous Layout",

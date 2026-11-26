@@ -8,7 +8,7 @@ Exportiert und importiert:
 Format: JSON mit Versionierung und Metadaten.
 """
 
-import json, os
+import json, os, shutil
 from datetime import datetime
 from pathlib import Path
 from core.i18n import tr as _tr
@@ -42,7 +42,7 @@ class ExportImport:
             "_magic":   EXPORT_MAGIC,
             "_version": EXPORT_VERSION,
             "_created": datetime.now().isoformat(),
-            "_host":    os.environ.get("COMPUTERNAME", "unknown"),
+            # round 49: no computer name any more — an export is often passed on (older files still have it)
         }
 
         if include_tweaks and applied_tweaks is not None:
@@ -146,33 +146,69 @@ class ExportImport:
         n_presets  = len(result["user_presets"])
 
         m = result["meta"]
+        host = (_tr(f"  Von PC: {m['host']}\n", f"  From PC: {m['host']}\n") if "_host" in raw else "")
         msg = _tr(f"Import gelesen:\n  Version: {m['version']}\n  Erstellt: {m['created'][:16]}\n"
-                  f"  Von PC: {m['host']}\n  {n_tweaks} Tweaks, {n_profiles} GPU-Profile, {n_presets} Presets",
+                  f"{host}  {n_tweaks} Tweaks, {n_profiles} GPU-Profile, {n_presets} Presets",
                   f"Import read:\n  Version: {m['version']}\n  Created: {m['created'][:16]}\n"
-                  f"  From PC: {m['host']}\n  {n_tweaks} tweaks, {n_profiles} GPU profiles, {n_presets} presets")
+                  f"{host}  {n_tweaks} tweaks, {n_profiles} GPU profiles, {n_presets} presets")
         return True, result, msg
 
+    def _profile_dest(self, pd) -> Path | None:
+        """Where an imported GPU profile goes — None for anything that is no importable profile."""
+        from core.nvtune_core import ProfileManager
+        # a broken or hostile file: a name that is no text (e.g. 123) raised on .startswith
+        name = pd.get("name", "") if isinstance(pd, dict) else ""
+        if not isinstance(name, str) or not ProfileManager._is_profile(pd) or name.startswith("__"):
+            return None
+        safe = "".join(c if c.isalnum() or c in "-_ " else "_" for c in name)
+        return self.profiles_dir / f"{safe}.json"
+
+    def _same_file(self, dest: Path, pd: dict) -> bool:
+        try:
+            with open(dest, encoding="utf-8") as f:
+                return json.load(f) == pd
+        except Exception:
+            return False
+
+    def profile_conflicts(self, profiles: list[dict]) -> list[str]:
+        """Names of imported GPU profiles that would replace a DIFFERENT profile of the same name here
+        (round 49: an older export silently overwrote a tuned profile)."""
+        out = []
+        for pd in profiles:
+            dest = self._profile_dest(pd)
+            if dest is not None and dest.exists() and not self._same_file(dest, pd):
+                out.append(str(pd.get("name")))
+        return out
+
     def apply_imported_profiles(
-        self, profiles: list[dict]
+        self, profiles: list[dict], replace: bool = True
     ) -> tuple[int, int]:
         """
         Write imported GPU profiles to profiles directory.
+        A profile of the same name that differs is replaced only with `replace` — and kept next to it
+        as "<name>.json.bak" first (not a *.json: no profile list shows it). Without `replace` it stays.
         Returns (imported_count, skipped_count).
         """
         imported = skipped = 0
-        from core.nvtune_core import ProfileManager
         for pd in profiles:
-            # a broken or hostile file: a name that is no text (e.g. 123) raised on .startswith
-            name = pd.get("name", "") if isinstance(pd, dict) else ""
-            if not ProfileManager._is_profile(pd) or name.startswith("__"):
+            dest = self._profile_dest(pd)
+            if dest is None:
                 skipped += 1
                 continue
-            safe = "".join(c if c.isalnum() or c in "-_ " else "_" for c in name)
-            dest = self.profiles_dir / f"{safe}.json"
             try:
+                if dest.exists():
+                    if self._same_file(dest, pd):
+                        imported += 1            # already here, unchanged
+                        continue
+                    if not replace:
+                        skipped += 1
+                        continue
+                    shutil.copy2(dest, dest.with_name(dest.name + ".bak"))
                 self.profiles_dir.mkdir(parents=True, exist_ok=True)
-                with open(dest, "w", encoding="utf-8") as f:
+                tmp = dest.with_name(dest.name + ".tmp")
+                with open(tmp, "w", encoding="utf-8") as f:
                     json.dump(pd, f, indent=2)
+                os.replace(tmp, dest)
                 imported += 1
             except Exception:
                 skipped += 1

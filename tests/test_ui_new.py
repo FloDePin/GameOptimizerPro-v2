@@ -230,7 +230,7 @@ def s_dash():
     fake = tk.Frame(root)          # a real widget: the dialog needs a Tk parent
     fake.runner, fake._tab_frames = R1, {"optimizer": Opt()}
     fake.set_status = status.append
-    fake._handle_drift = lambda re, dr: mw.GameOptimizerWindow._handle_drift(fake, re, dr)
+    fake._handle_drift = lambda re, dr, *rest: mw.GameOptimizerWindow._handle_drift(fake, re, dr, *rest)
     mw.GameOptimizerWindow._ask_drift(fake, ["disable_telemetry", "disable_bing_search", "w11_taskbar_left"])
     dlg = fake._drift_dialog
     dlg.attributes("-alpha", 0.0)

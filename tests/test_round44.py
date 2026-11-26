@@ -77,7 +77,7 @@ texts = " ".join([p.desc for p in TP.BUILTIN_PRESETS] + list(PRESET_DESC_EN.valu
 check("Cortana" not in texts and "Teams" not in texts, "preset texts no longer promise Cortana / Teams")
 check(set(GONE) <= set(RETIRED_TWEAKS) and all(de and en for de, en, _c in RETIRED_TWEAKS.values())
       and RETIRED_TWEAKS["remove_cortana"][2] == "", "retired list: names in both languages, nothing to undo for an app")
-check(len(ALL_TWEAKS) == 112 and len(ids) == 112, f"112 tweaks (round 45: +14, -2; round 47: -6), ids unique ({len(ALL_TWEAKS)})")
+check(len(ALL_TWEAKS) == 111 and len(ids) == 111, f"111 tweaks (round 45: +14, -2; round 47: -6; round 49: -1), ids unique ({len(ALL_TWEAKS)})")
 
 if os.name == "nt":
     chat = RETIRED_TWEAKS["w11_remove_chat_icon"][2]
@@ -225,7 +225,7 @@ class FakeWin:
     def after(self, ms, fn):
         fn()
 
-    def _ask_drift(self, drifted, build_change=None):
+    def _ask_drift(self, drifted, build_change=None, leftovers=()):      # round 49: + retired leftovers
         got.append((drifted, build_change))
 
 
@@ -256,7 +256,7 @@ if os.name == "nt":
 # ── 5. First start on a fresh Python ─────────────────────────────────────────────────────────
 print("first start: packages")
 reqs = deps.requirements()
-check(len(reqs) == 7 and {d for _s, d, _v in reqs} >= {"Pillow", "customtkinter", "psutil", "numpy"}
+check(len(reqs) == 8 and {d for _s, d, _v in reqs} >= {"Pillow", "customtkinter", "psutil", "numpy", "pywin32"}
       and all(v for _s, _d, v in reqs), f"requirements.txt read: {len(reqs)} packages with minimum versions")
 raw = open(os.path.join(ROOT, "requirements.txt"), "rb").read()
 check(all(c < 128 for c in raw), "requirements.txt is ASCII (pip reads it with the system code page)")
@@ -332,7 +332,7 @@ finally:
 print("launcher")
 src_main = open(os.path.join(ROOT, "GameOptimizerPro.py"), encoding="utf-8").read()
 i_hook, i_hw = src_main.find("deps.ensure()"), src_main.find("from core.hardware")
-check(0 < i_hook < i_hw and 'if __name__ == "__main__":\n    # A fresh Windows' in src_main,
+check(0 < i_hook < i_hw and 'if __name__ == "__main__":\n    # The saved language first' in src_main,
       "the app checks its packages before importing anything that needs them (only when started)")
 bat = open(os.path.join(ROOT, "GameOptimizerPro.bat"), "rb").read()
 inst = open(os.path.join(ROOT, "install.bat"), "rb").read()

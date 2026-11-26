@@ -347,8 +347,11 @@ def enable(names) -> dict[str, tuple[bool, str]]:
         mode = "delayed-auto" if (start == 2 and delayed) else ("auto" if start == 2 else "demand")
         targets[n] = (start, delayed, origin)
         parts.append(f"@('{n}','{mode}')")
+    # ONE row needs the comma operator: @(@('a','b')) is the flat list 'a','b' — the loop walked over the
+    # two strings and took their first letters as name and mode (one service never came back on)
+    rows = "@(," + parts[0] + ")" if len(parts) == 1 else "@(" + ",".join(parts) + ")"
     script = (
-        f"foreach($p in @({','.join(parts)})){{ $n=$p[0]; $m=$p[1]; try {{ "
+        f"foreach($p in {rows}){{ if($p.Count -ne 2){{ continue }}; $n=$p[0]; $m=$p[1]; try {{ "
         f"$o = & sc.exe config $n start= $m 2>&1; "
         f"if($LASTEXITCODE -ne 0){{ throw (($o | Out-String).Trim()) }}; "
         f"if($m -ne 'demand'){{ Start-Service -Name $n -ErrorAction SilentlyContinue }}; "

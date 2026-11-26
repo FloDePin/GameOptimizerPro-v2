@@ -24,4 +24,8 @@ if errorlevel 1 (
 :: Fenster (das Tkinter-Hauptfenster) unsichtbar starten. Daher NICHT auf den
 :: inneren Start-Process anwenden - nur der aeussere powershell-Aufruf braucht
 :: -WindowStyle Hidden, um sein eigenes (leeres) Konsolenfenster zu verstecken.
-powershell -NoProfile -WindowStyle Hidden -Command "Start-Process -FilePath '%PYW%' -ArgumentList '\"%~dp0GameOptimizerPro.py\"' -Verb RunAs -WorkingDirectory '%~dp0'"
+:: Pfade ueber Umgebungsvariablen statt in '...': ein Apostroph im Pfad (z. B. im Benutzernamen)
+:: beendete sonst den PowerShell-Text und die App startete nicht.
+set "GOP_PYW=%PYW%"
+set "GOP_DIR=%~dp0"
+powershell -NoProfile -WindowStyle Hidden -Command "Start-Process -FilePath $env:GOP_PYW -ArgumentList ('\"' + $env:GOP_DIR + 'GameOptimizerPro.py\"') -Verb RunAs -WorkingDirectory $env:GOP_DIR"

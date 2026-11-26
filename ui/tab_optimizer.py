@@ -175,6 +175,62 @@ class OptimizerTab(Page):
         self._action_btns += [ap, rv]
         button(a, tr("Keine", "None"), self._deselect_all).pack(side="right", padx=(6, 0))
         button(a, tr("Alle", "All"), self._select_all).pack(side="right")
+        # round 49: leftovers of retired tweaks on their own — before, only "Revert all" removed them
+        # (and reverted every other tweak with them). Shown only while there are any.
+        self.btn_leftovers = button(a, tr("Reste aufräumen", "Clean up leftovers"), self._clean_leftovers,
+                                    image=icon_image("undo", AMBER, 15), compound="left")
+        self._action_btns.append(self.btn_leftovers)
+        self._refresh_leftovers()
+
+    def _refresh_leftovers(self):
+        """Show the clean-up button only while a retired tweak is still applied."""
+        btn = getattr(self, "btn_leftovers", None)
+        if btn is None:
+            return
+        try:
+            n = len(self.runner.retired_applied())
+        except Exception:
+            n = 0
+        try:
+            if n:
+                btn.configure(text=tr(f"Reste aufräumen ({n})", f"Clean up leftovers ({n})"))
+                if not btn.winfo_ismapped():
+                    btn.pack(side="left")
+            else:
+                btn.pack_forget()
+        except Exception:
+            pass
+
+    def _clean_leftovers(self):
+        """Remove what retired tweaks left behind — only the values they set themselves."""
+        if self._batch_busy():
+            return
+        retired = self.runner.retired_applied()
+        if not retired:
+            self._refresh_leftovers()
+            return
+        names = "\n".join("  • " + tr(RETIRED_TWEAKS[t][0], RETIRED_TWEAKS[t][1]) for t in retired)
+        if not messagebox.askyesno(
+                tr("Reste aufräumen", "Clean up leftovers"),
+                tr(f"Diese Version hat {len(retired)} Tweak(s) herausgenommen, die bei dir noch angewendet sind:\n"
+                   f"{names}\n\nAufräumen? Entfernt nur die Werte, die sie selbst gesetzt haben "
+                   "(vorher Registry-Backup); alle anderen Tweaks bleiben.",
+                   f"This version took out {len(retired)} tweak(s) that are still applied here:\n{names}\n\n"
+                   "Clean them up? Removes only the values they set themselves (registry backup first); every "
+                   "other tweak stays."), parent=self):
+            return
+
+        def _run():
+            self.log.append(tr("Räume Reste auf …", "Cleaning up leftovers …"), "warning")
+            self._backup_before("PreLeftoverCleanup")
+            for tid in retired:
+                ok, out = self.runner.clean_retired(tid)
+                de, en, _cmd = RETIRED_TWEAKS[tid]
+                self.log.append(f"  ↩ {tr(de, en)} ({tr('entfallen', 'retired')}): {'OK' if ok else out[:80]}",
+                                "success" if ok else "error")
+            self.log.append(tr("Fertig.", "Done."), "success")
+            self.after(0, self._refresh_leftovers)
+        self._run_batch(_run)
 
     def _build_all_sections(self):
         for key, *_x in SECTIONS:
@@ -1235,7 +1291,7 @@ class OptimizerTab(Page):
             include_presets=self.v_exp_presets.get(),
             applied_tweaks=dict(self.runner._applied) if self.v_exp_tweaks.get() else None,
             user_presets=user_pd)
-        self.lbl_exp_result.config(text="✓ OK" if ok else "✗ Fehler", fg=GREEN if ok else ERR)
+        self.lbl_exp_result.config(text="✓ OK" if ok else tr("✗ Fehler", "✗ Error"), fg=GREEN if ok else ERR)
         if ok: messagebox.showinfo("Export", msg)
 
     def _preview_import(self):
@@ -1271,8 +1327,26 @@ class OptimizerTab(Page):
                 m += tr(f"; {n_skip} unbekannt/passen nicht zu dieser Hardware", f"; {n_skip} unknown / don't fit this hardware")
             msgs.append(m)
         if self.v_imp_profiles.get() and data.get("gpu_profiles"):
-            n_ok, _ = self.exim.apply_imported_profiles(data["gpu_profiles"])
-            msgs.append(f"{n_ok} Profile")
+            # round 49: a profile of the same name that differs is only replaced when asked (the one
+            # here is kept as <name>.json.bak) — an older export overwrote a tuned profile without a word
+            same = self.exim.profile_conflicts(data["gpu_profiles"])
+            replace = True
+            if same:
+                names = ", ".join(same[:5]) + (" …" if len(same) > 5 else "")
+                replace = messagebox.askyesno(
+                    "Import", tr(f"{len(same)} GPU-Profil(e) mit gleichem Namen gibt es hier schon, mit anderen "
+                                 f"Werten: {names}\n\nErsetzen? (Ja: die bisherigen bleiben als Sicherung "
+                                 f"<Name>.json.bak im Profile-Ordner — Nein: die bisherigen bleiben, nur neue "
+                                 f"Profile werden übernommen)",
+                                 f"{len(same)} GPU profile(s) with the same name already exist here, with other "
+                                 f"values: {names}\n\nReplace them? (Yes: the current ones are kept as a backup "
+                                 f"<name>.json.bak in the profiles folder — No: the current ones stay, only new "
+                                 f"profiles are added)"), parent=self)
+            n_ok, n_skip = self.exim.apply_imported_profiles(data["gpu_profiles"], replace=replace)
+            m = tr(f"{n_ok} GPU-Profile", f"{n_ok} GPU profiles")
+            if n_skip:
+                m += tr(f" ({n_skip} nicht übernommen)", f" ({n_skip} not taken over)")
+            msgs.append(m)
         if self.v_imp_presets.get() and data.get("user_presets"):
             # one with the same name replaces the existing one (importing twice: no duplicates)
             new = [p for p in (user_presets.from_dict(pd, ACC3) for pd in data["user_presets"]) if p]
@@ -1455,6 +1529,7 @@ class OptimizerTab(Page):
                 except game_profiles.GameProfileError as e:
                     self.log.append(tr(f"  ↩ Spiel-Profil {g.exe}: {e}", f"  ↩ Game profile {g.exe}: {e}"), "error")
             self.log.append(tr("Revert abgeschlossen.", "Revert finished."), "success")
+            self.after(0, self._refresh_leftovers)
             self.after(500, self._live_verify)
             if games:
                 self.after(600, self._refresh_games)

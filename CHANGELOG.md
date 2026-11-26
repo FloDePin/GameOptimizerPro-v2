@@ -135,7 +135,19 @@ named by version only.
   check, compared on a real PC. A WMI that doesn't answer no longer keeps the whole start waiting (the app opens
   with what it knows and fills in the rest when WMI answers), and starting the app a second time while it is still
   loading says so instead of doing nothing.
-- 2030 checks in 51 suites, all green.
+- **Audit 2026-11-26** — a full technical review of the code. *Enable (original)* on the Services page works for a
+  single service again (PowerShell flattened the one-row list and nothing came back on). *Block Telemetry Hosts* is
+  retired: none of its names is a current Windows 11 diagnostic endpoint, and Microsoft Defender reports such
+  entries and resets the whole hosts file (its clean-up removes only its own lines). The German app shows the
+  tweaks' messages in German (they were built before the language was loaded), the English app five tweak names
+  in English. DNS revert puts back the servers set before (a DNS set by hand is no longer lost). Importing a GPU
+  profile of the same name asks first and keeps the old one as a backup; exports carry no computer name.
+  Leftovers of retired tweaks are cleaned up on their own (start dialog, *Clean up leftovers*) instead of only
+  with *Revert all*. Pages built before a slow hardware detection finished are rebuilt. *All Safe* no longer
+  removes apps, *Hard* has one background-apps tweak. A warning when the app runs under another administrator
+  account; the launcher starts from a folder with an apostrophe; the status check counts an empty answer as an
+  error; requirements with upper bounds; CI on current actions with a Windows job — 111 tweaks.
+- 2103 checks in 52 suites, all green.
 
 <details>
 <summary><b>Development log — rounds 8–33</b> (one or two lines per round)</summary>

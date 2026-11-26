@@ -65,10 +65,11 @@ def _nv(prefix, gen, step, core_max, core_start, mem_max, mem_start, power_min, 
                         max_temp_c=temp_max, notes=notes)
 
 
-_AMD_HINT = ("Auto-Tuner nicht unterstützt (braucht NVIDIA) — AMD Software: Adrenalin Edition "
-             "→ Leistung → Tuning → automatisch undervolten / übertakten")
-_INTEL_HINT = ("Auto-Tuner nicht unterstützt (braucht NVIDIA) — Intel Graphics Software → "
-               "Leistung")
+# internal notes like the other defaults' ones (English; no page shows GpuDefaults.notes — the GPU page
+# explains an unsupported card in the app's language itself)
+_AMD_HINT = ("Auto-tuner not supported (needs NVIDIA) — AMD Software: Adrenalin Edition "
+             "→ Performance → Tuning → auto undervolt / overclock")
+_INTEL_HINT = "Auto-tuner not supported (needs NVIDIA) — Intel Graphics Software → Performance"
 
 
 def _other(prefix, gen, vendor, notes):

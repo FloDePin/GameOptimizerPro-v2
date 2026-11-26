@@ -364,6 +364,10 @@ def detect_safe(timeout: float = DETECT_TIMEOUT_S) -> HardwareInfo:
     if done.wait(timeout):
         return box.get("hw") or basic_info()
     info = basic_info()
+    # round 49: the window polls these two (Tk only on the main thread): pending while WMI is still
+    # out, arrived once the full result is in the object — pages built before then are rebuilt
+    info.wmi_pending = True
+    info.wmi_arrived = False
     try:
         from core import errlog
         errlog.note(f"hardware detection: WMI did not answer within {timeout:.0f} s — started without it")
@@ -375,5 +379,7 @@ def detect_safe(timeout: float = DETECT_TIMEOUT_S) -> HardwareInfo:
         hw = box.get("hw")
         if hw is not None:
             info.__dict__.update(hw.__dict__)
+            info.wmi_arrived = True
+        info.wmi_pending = False
     threading.Thread(target=late, daemon=True, name="hw-detect-late").start()
     return info

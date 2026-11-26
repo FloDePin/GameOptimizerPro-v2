@@ -81,6 +81,7 @@ BACKUP_KEYS: list[str] = [
     r"HKLM\SYSTEM\CurrentControlSet\Control\Remote Assistance",
     r"HKLM\SYSTEM\CurrentControlSet\Control\Session Manager",
     r"HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters",
+    r"HKLM\SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters",    # IPv6 DNS per adapter (round 49)
     r"HKLM\SYSTEM\CurrentControlSet\Services\nvlddmkm\Global\NVTweak",
     r"HKLM\SYSTEM\CurrentControlSet\Services\stornvme\Parameters\Device",
     r"HKLM\SYSTEM\CurrentControlSet\Services\usbaudio",

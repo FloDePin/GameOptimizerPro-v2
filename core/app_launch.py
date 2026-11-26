@@ -48,3 +48,46 @@ def owns_console() -> bool:
         return True
     except Exception:
         return False
+
+
+def _session_of(pid: int) -> int | None:
+    try:
+        import ctypes
+        sid = ctypes.c_uint32()
+        if ctypes.windll.kernel32.ProcessIdToSessionId(int(pid), ctypes.byref(sid)):
+            return sid.value
+    except Exception:
+        pass
+    return None
+
+
+def foreign_admin(processes=None, me: str | None = None, my_session: int | None = None,
+                  session_of=_session_of) -> str | None:
+    """Round 49: the elevated app runs under ANOTHER account than the one signed in — UAC asked for an
+    administrator's name and password ("over the shoulder"). The per-user tweaks (HKCU: taskbar, mouse,
+    privacy switches …) then land in that administrator's profile, not in the signed-in user's.
+    -> the signed-in user's name (the owner of explorer.exe in this session), None when it is the same
+    account or nothing can be told. `processes` / `me` / `my_session` / `session_of`: for the tests."""
+    if os.name != "nt" and processes is None:
+        return None
+    try:
+        import psutil
+        if me is None:
+            me = psutil.Process().username()
+        if my_session is None:
+            my_session = session_of(os.getpid())
+        if processes is None:
+            processes = psutil.process_iter(["pid", "name", "username"])
+        owners = set()
+        for p in processes:
+            info = getattr(p, "info", p)
+            if str(info.get("name") or "").lower() != "explorer.exe" or not info.get("username"):
+                continue
+            if my_session is not None and session_of(info.get("pid")) != my_session:
+                continue
+            owners.add(str(info["username"]))
+        if not owners or not me or any(o.lower() == me.lower() for o in owners):
+            return None
+        return sorted(owners)[0]
+    except Exception:
+        return None

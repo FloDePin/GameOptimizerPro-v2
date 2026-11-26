@@ -26,8 +26,6 @@ TWEAK_DESC_EN: dict[str, str] = {
         "Disables the Windows advertising ID. Apps can no longer track you across devices.",
     "disable_location":
         "Disables the Windows location service system-wide.",
-    "block_telemetry_hosts":
-        "Blocks Microsoft telemetry servers in the hosts file. Works even if services are still running.",
     "disable_telemetry_tasks":
         "Disables the scheduled Windows tasks that collect or send telemetry and diagnostic data: compatibility "
         "appraisal, Customer Experience Improvement Program, feedback data, the error report queue, disk and "
@@ -74,7 +72,7 @@ TWEAK_DESC_EN: dict[str, str] = {
     "disable_wu_gaming":
         "Windows no longer downloads and installs updates by itself, it only tells you that there are some — for good, not just while gaming. No restarts or downloads mid-game, but security updates only come when you start them yourself under Settings → Windows Update. Only if you do that regularly. (Windows already avoids restarts during active hours.)",
     "disable_bg_throttle":
-        "Store apps no longer keep running in the background (Windows' 'Let apps run in the background' switch for your user, Home included). Saves a little memory and CPU time. Consequence: closed Store apps such as WhatsApp, Phone Link or Mail don't report new messages. Windows throttling processes is a different tweak ('Disable Power Throttling').",
+        "Store apps no longer keep running in the background (Windows' 'Let apps run in the background' switch for your user, Home included). Saves a little memory and CPU time. Consequence: closed Store apps such as WhatsApp, Phone Link or Mail don't report new messages. Windows throttling processes is a different tweak ('Disable Power Throttling'). The same as a policy for every user (Pro only): 'Don't Let Store Apps Run in the Background' — one of the two is enough.",
     "enable_msi_mode":
         "Enables Message Signaled Interrupts for the GPU. Reduces interrupt latency. Reboot required.",
     "enable_hags":
@@ -274,7 +272,8 @@ TWEAK_DESC_EN: dict[str, str] = {
         "Official policy 'Let Windows apps run in the background: force deny': Store apps (Phone Link, Mail and "
         "Calendar, Weather …) only run while they are open — saves RAM and background CPU. Afterwards such apps "
         "no longer notify you while closed, e.g. WhatsApp from the Store. Regular programs (Steam, Discord, "
-        "Afterburner) are not affected. Pro, Enterprise and Education only (Home: hidden).",
+        "Afterburner) are not affected. Pro, Enterprise and Education only (Home: hidden). The same for your "
+        "user only, on every edition: 'Stop background apps (all editions)' — one of the two is enough.",
     "usb3_link_power_off":
         "Turns off the power saving of the USB 3 link on mains power (hidden power option 'USB 3 Link Power "
         "Management', Windows default: moderate savings). The link stays awake — against short dropouts and slow "
@@ -308,6 +307,12 @@ TWEAK_DESC_EN: dict[str, str] = {
 
 # English names, only where the German name differs. Most names are already English.
 TWEAK_NAME_EN: dict[str, str] = {
+    # round 49: these five showed their German name in the English app
+    "power_pcie_aspm_off":  "PCIe Link State Power Management Off",
+    "power_disk_never_sleep": "Never Put Hard Disks to Sleep",
+    "power_display_sleep_15": "Display Sleep = 15 Minutes",
+    "power_sleep_off":      "Disable System Sleep",
+    "amd_disable_ulps":     "AMD: Disable ULPS (Ultra Low Power State)",
     # round 47: renamed honestly (German names in core/tweaks.py)
     "disable_wu_gaming":
         "Turn off automatic Windows updates",
@@ -393,7 +398,7 @@ PRESET_DESC_EN: dict[str, str] = {
     "gaming":
         "Optimises for maximum FPS and minimal input lag. Disables Xbox Game Bar, enables Ultimate Performance plan, HAGS, CPU priority, mouse accel off.",
     "privacy":
-        "Disables all Microsoft telemetry services, tracking, advertising ID, activity history, Copilot and Recall. Blocks telemetry servers in the hosts file.",
+        "Disables all Microsoft telemetry services, tracking, advertising ID, activity history, Copilot and Recall.",
     "debloat":
         "Removes all preinstalled apps (Candy Crush, TikTok, Xbox apps, Microsoft 365 Copilot, OneDrive). No data loss, apps can be reinstalled.",
     "network":
@@ -403,7 +408,8 @@ PRESET_DESC_EN: dict[str, str] = {
     "win11_classic":
         "Restores the classic Windows 10 feel on Windows 11: right-click menu, taskbar icons left, widgets off, snap suggestions off.",
     "all_safe":
-        "Applies every tweak marked as safe. Good for a quick full optimisation without risky changes.",
+        "Applies every tweak marked as safe — except app removals (no revert brings them back, only a restore "
+        "point). Good for a quick full optimisation without risky changes.",
 }
 
 PRESET_NAME_EN: dict[str, str] = {

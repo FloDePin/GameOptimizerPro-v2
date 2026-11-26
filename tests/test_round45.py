@@ -77,7 +77,7 @@ NEW = ["disable_tips_suggestions", "disable_input_speech_data", "onedrive_block_
 # ── 1. The new tweaks ────────────────────────────────────────────────────────────────────────
 print("the new tweaks")
 ids = [t.id for t in T.ALL_TWEAKS]
-check(len(ids) == 112 and len(set(ids)) == 112 and all(n in ids for n in NEW), f"112 tweaks (round 47: 6 retired), the 14 new ones in ({len(ids)})")
+check(len(ids) == 111 and len(set(ids)) == 111 and all(n in ids for n in NEW), f"111 tweaks (round 47: 6 retired, round 49: 1), the 14 new ones in ({len(ids)})")
 check(all(n in VERIFY_MAP and n in TWEAK_DESC_EN and n in TWEAK_NAME_EN for n in NEW),
       "each: a status check, an English name and description")
 check(all(T.get_by_id(n).desc and T.get_by_id(n).revert_cmd for n in NEW), "each: a German description and a revert")
@@ -102,7 +102,8 @@ mini, med, hard = set(TP._TIER_MINIMAL), set(TP._MEDIUM_EXTRA), set(TP._HARD_EXT
 check("disable_tips_suggestions" in mini, "Minimal: Windows' own ads off")
 check({"disable_input_speech_data", "onedrive_block_kfm", "disable_remote_assistance", "disable_wake_timers",
        "startup_delay_off", "controller_no_game_bar"} <= med, "Mittel: the safe privacy / comfort ones")
-check({"usb3_link_power_off", "exclude_wu_drivers", "disable_background_apps"} <= hard, "Hart: the rest")
+check({"usb3_link_power_off", "exclude_wu_drivers"} <= hard and "disable_background_apps" not in hard,
+      "Hart: the rest (round 49: the background-apps policy not next to its all-editions twin)")
 tiers = mini | med | hard
 check(not ({"wu_pin_feature_version", "disable_dynamic_lighting", "alt_tab_windows_only", "explorer_open_this_pc"} & tiers),
       "in no tier: staying on a version (must be lifted before end of support) and the matters of taste")

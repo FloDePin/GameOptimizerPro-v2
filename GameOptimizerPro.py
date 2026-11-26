@@ -20,6 +20,10 @@ BASE = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE))
 
 if __name__ == "__main__":
+    # The saved language first: core.tweaks (imported below) builds its PowerShell messages when it is
+    # imported — before, they were always English, also in the German app (main() loaded it too late)
+    from core import i18n as _i18n_early
+    _i18n_early.init_lang()
     # A fresh Windows / new Python has none of the packages: set them up before anything below
     # imports them (with a progress window) — otherwise the app started half-working
     from core import deps

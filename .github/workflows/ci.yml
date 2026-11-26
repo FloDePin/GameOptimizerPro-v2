@@ -10,9 +10,9 @@ jobs:
   compile-check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -37,3 +37,32 @@ jobs:
 
           print("No doubled-backslash reg.exe paths found.")
           EOF
+
+  # Windows: the PowerShell the app runs is parsed by Windows PowerShell 5.1 itself, and the suites
+  # that need no GPU, no Afterburner and no window run for real (registry work on scratch keys only).
+  windows-checks:
+    runs-on: windows-latest
+    env:
+      PYTHONIOENCODING: utf-8
+      GOP_TEST_NO_UI: "1"
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install the requirements (also checks that the version bounds resolve)
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
+
+      - name: Parse every PowerShell snippet
+        run: python tests/ps_parse_all.py
+
+      - name: reg.exe paths at runtime
+        run: python tests/ci_backslash_check.py
+
+      - name: Services manager logic
+        run: python tests/test_services.py
+
+      - name: Round 49 checks (scripts run against stand-ins and scratch keys)
+        run: python tests/test_round49.py

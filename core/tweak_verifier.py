@@ -85,10 +85,6 @@ VERIFY_MAP: dict[str, str] = {
         'CapabilityAccessManager\\ConsentStore\\location" -Name Value -EA SilentlyContinue).Value; '
         'if($v -eq "Deny"){"1"}else{"0"}'
     ),
-    "block_telemetry_hosts": (
-        '$h=Get-Content "$env:SystemRoot\\System32\\drivers\\etc\\hosts" -EA SilentlyContinue; '
-        'if($h -match "telemetry.microsoft.com"){"1"}else{"0"}'
-    ),
     # every task of the list this Windows has must be disabled (24H2+ lacks some — skipped); read through
     # the Task Scheduler's COM interface (round 47: 0.1 s instead of 3.7 s, same answers)
     "disable_telemetry_tasks": (
@@ -749,7 +745,9 @@ def reg_check(tid: str):
 
 
 class TweakVerifier:
-    def __init__(self, timeout_s: int = 45):
+    def __init__(self, timeout_s: int | None = None):
+        """timeout_s: None = the app's limits (fast parts 20 s, Store-app parts 30 s); a number = that many
+        seconds for every part (tools that can wait). Round 49: it was stored and never used."""
         self.timeout = timeout_s
 
     def _run_batch(self, ids: list[str], expected: dict,
@@ -800,7 +798,9 @@ class TweakVerifier:
                 if len(parts) == 2:
                     tid_out = parts[0].strip()
                     val     = parts[1].strip()
-                    if tid_out in VERIFY_MAP and val != "ERR":
+                    # round 49: only "1" / "0" are answers — an empty or odd output (a check that wrote
+                    # nothing, two values) is an error (amber), not "inactive"
+                    if tid_out in VERIFY_MAP and val in ("0", "1"):
                         parsed[tid_out] = (val == "1")
 
             for tid in ids:
@@ -855,8 +855,9 @@ class TweakVerifier:
         # Round 47: the slow batch (Store apps, storage) runs NEXT TO the fast one instead of after it, and the
         # fast one is spread over a few PowerShell processes side by side: the wall time is the slowest part,
         # not the sum (fast 20 s, slow 30 s time limit as before).
-        jobs = ([(p, 20) for p in spread_parts(fast_ids, FAST_PARTS)] +
-                [(p, 30) for p in split_batch(slow_ids)])
+        fast_t, slow_t = (20, 30) if self.timeout is None else (self.timeout, self.timeout)
+        jobs = ([(p, fast_t) for p in spread_parts(fast_ids, FAST_PARTS)] +
+                [(p, slow_t) for p in split_batch(slow_ids)])
         if len(jobs) == 1:
             results.update(self._run_part(jobs[0][0], expected, jobs[0][1]))
         elif jobs:

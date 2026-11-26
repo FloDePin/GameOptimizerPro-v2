@@ -103,10 +103,14 @@ class GameOptimizerWindow(ctk.CTk):
         self._build_hw_bar()
         self._build_content()
         self._build_status_bar()
+        self._stale_pages: set = set()
         self._show_tab("dashboard")
+        if getattr(self.hw, "wmi_pending", False):
+            self.after(1000, self._poll_late_hw)
         self._start_updater()
         # v1: did a Windows update undo tweaks applied earlier? (after start-up)
         self.after(4000, self._start_drift_check)
+        self.after(2500, self._check_foreign_admin)
         self._last_input = time.monotonic()
         for seq in ("<ButtonPress>", "<KeyPress>", "<MouseWheel>"):
             self.bind_all(seq, self._note_input, add="+")
@@ -252,6 +256,79 @@ class GameOptimizerWindow(ctk.CTk):
 
     # ── Sidebar: system + indicators ─────────────────────────────────────────
 
+    def _hw_lines(self):
+        hw = self.hw
+        vram = round(hw.gpu_vram_mb / 1024) if hw.gpu_vram_mb >= 512 else 0
+        return [
+            (_short_gpu(hw.gpu_name) + (f" · {vram} GB" if vram else ""), TEXT),
+            (_short_cpu(hw.cpu_name), TEXT2),
+            (f"{hw.ram_total_gb:.0f} GB {hw.ram_type or 'RAM'}"
+             + (" · NVMe" if hw.has_nvme else ""), TEXT2),
+            (f"{'Windows 11' if hw.is_win11 else 'Windows 10' if hw.is_win10 else 'Windows'}"
+             f" · Build {hw.os_build}", DIM),
+        ]
+
+    # ── Hardware detection that came in late (round 49) ───────────────────────
+    # The start goes on without WMI after a few seconds (core.hardware.detect_safe); the full result is
+    # copied into self.hw later. Pages built before then filtered with the reduced info — no NVIDIA,
+    # AMD or NVMe tweaks in the list, "Unknown" on the dashboard — until the next start. Now they are
+    # rebuilt: a hidden one at once, the visible one when it is opened next (never during an apply).
+    HW_PAGES = ("optimizer", "dashboard", "bios")
+
+    def _poll_late_hw(self):
+        if getattr(self.hw, "wmi_pending", False):
+            try:
+                self.after(1000, self._poll_late_hw)
+            except tk.TclError:
+                pass
+            return
+        if getattr(self.hw, "wmi_arrived", False):
+            self._hw_arrived()
+
+    def _hw_arrived(self):
+        try:
+            for lbl, (text, col) in zip(self._hw_labels, self._hw_lines()):
+                lbl.configure(text=text, fg=col)
+        except (AttributeError, tk.TclError):
+            pass
+        self._stale_pages.update(k for k in self.HW_PAGES if k in self._tab_frames)
+        for key in list(self._stale_pages):
+            if self._drop_stale(key) and key == self._active_tab:
+                self._show_tab(key)           # the visible one again, built with the full info
+        self.set_status(tr("Hardware-Erkennung nachgereicht (WMI war langsam) — die Seiten zeigen jetzt alles.",
+                           "Hardware detection came in late (WMI was slow) — the pages show everything now."))
+
+    def _drop_stale(self, key: str) -> bool:
+        """Rebuild a page built with the reduced hardware info — not while it is busy."""
+        page = self._tab_frames.get(key)
+        if page is None:
+            self._stale_pages.discard(key)
+            return True
+        if getattr(page, "_batch_running", False):
+            return False
+        # ticked boxes not applied yet are the user's pending choice: a rebuild would lose them
+        runner, vars_ = getattr(page, "runner", None), getattr(page, "_vars", None)
+        if runner is not None and vars_:
+            try:
+                if any(v.get() != runner.is_applied(tid) for tid, v in vars_.items()):
+                    return False
+            except Exception:
+                return False
+        try:
+            if hasattr(page, "on_hide"):
+                page.on_hide()
+        except Exception:
+            pass
+        if hasattr(page, "_running"):
+            page._running = False             # the dashboard's sensor thread ends with its page
+        self._tab_frames.pop(key, None)
+        self._stale_pages.discard(key)
+        try:
+            page.destroy()
+        except tk.TclError:
+            pass
+        return True
+
     def _build_hw_bar(self):
         foot = tk.Frame(self._sidebar, bg=SIDEBAR_BG)
         foot.pack(side="bottom", fill="x", padx=14, pady=(8, 12))
@@ -264,18 +341,11 @@ class GameOptimizerWindow(ctk.CTk):
         inner.pack(fill="x", padx=12, pady=10)
         tk.Label(inner, text=tr("SYSTEM", "SYSTEM"), font=("Segoe UI Semibold", 7), fg=MUTED,
                  bg=CARD_BG).pack(anchor="w", pady=(0, 3))
-        hw = self.hw
-        vram = round(hw.gpu_vram_mb / 1024) if hw.gpu_vram_mb >= 512 else 0
-        lines = [
-            (_short_gpu(hw.gpu_name) + (f" · {vram} GB" if vram else ""), TEXT),
-            (_short_cpu(hw.cpu_name), TEXT2),
-            (f"{hw.ram_total_gb:.0f} GB {hw.ram_type or 'RAM'}"
-             + (" · NVMe" if hw.has_nvme else ""), TEXT2),
-            (f"{'Windows 11' if hw.is_win11 else 'Windows 10' if hw.is_win10 else 'Windows'}"
-             f" · Build {hw.os_build}", DIM),
-        ]
-        for text, col in lines:
-            WrapLabel(inner, text=text, font=F_XS, fg=col, bg=CARD_BG, pad=2).pack(fill="x")
+        self._hw_labels = []
+        for text, col in self._hw_lines():
+            lbl = WrapLabel(inner, text=text, font=F_XS, fg=col, bg=CARD_BG, pad=2)
+            lbl.pack(fill="x")
+            self._hw_labels.append(lbl)
 
         ind = tk.Frame(foot, bg=SIDEBAR_BG)
         ind.pack(fill="x", pady=(10, 0))
@@ -433,6 +503,8 @@ class GameOptimizerWindow(ctk.CTk):
     def _show_tab(self, key: str):
         if key not in self._page_factories:
             return
+        if key in getattr(self, "_stale_pages", ()) and key != self._active_tab:
+            self._drop_stale(key)             # built before the hardware detection came in
         prev = self._active_tab
         self._active_tab = key                # before the build: a new page isn't lowered
         page = self._ensure_page(key)
@@ -512,6 +584,12 @@ class GameOptimizerWindow(ctk.CTk):
         applied = list(self.runner._applied.keys())
         if not applied:
             return
+        # round 49: retired tweaks that are still applied — offered in the same dialog (before, only
+        # "Revert all" cleaned them up, and that reverted everything else too)
+        try:
+            leftovers = self.runner.retired_applied()
+        except Exception:
+            leftovers = []
 
         def work():
             try:
@@ -522,8 +600,52 @@ class GameOptimizerWindow(ctk.CTk):
             try:
                 if switched:
                     self.after(0, lambda: self._adopt_switched(switched))
-                if drifted:
-                    self.after(0, lambda: self._ask_drift(drifted, build_change))
+                if drifted or leftovers:
+                    self.after(0, lambda: self._ask_drift(drifted, build_change, leftovers))
+            except Exception:
+                pass
+        threading.Thread(target=work, daemon=True).start()
+
+    def _check_foreign_admin(self):
+        """Round 49: elevated under another account than the signed-in one? Then the per-user tweaks go
+        into that account's profile — said once at the start (nothing is blocked: machine-wide tweaks
+        still work)."""
+        try:
+            import ctypes
+            if not ctypes.windll.shell32.IsUserAnAdmin():
+                return
+        except Exception:
+            return
+
+        def work():
+            from core.app_launch import foreign_admin
+            user = foreign_admin()
+            if not user:
+                return
+            try:
+                import psutil
+                me = psutil.Process().username()
+            except Exception:
+                me = "?"
+
+            def say():
+                self.set_status(tr(f"Läuft als {me}, angemeldet ist {user} — Benutzer-Tweaks gehen an {me}.",
+                                   f"Running as {me}, signed in is {user} — per-user tweaks go to {me}."))
+                messagebox.showwarning("GameOptimizerPro", tr(
+                    f"GameOptimizerPro läuft als Administrator „{me}“, angemeldet ist aber „{user}“ (die "
+                    "Windows-Abfrage hat nach dem Kennwort eines anderen Kontos gefragt).\n\n"
+                    f"Tweaks für den Benutzer — Taskleiste, Maus, Explorer, Datenschutz-Schalter, Spiel-"
+                    f"Einstellungen — landen dann im Profil von „{me}“, nicht bei „{user}“. Tweaks für den "
+                    f"ganzen PC wirken normal.\n\nBesser: „{user}“ zum Administrator machen (Einstellungen → "
+                    f"Konten) und die App als „{user}“ starten.",
+                    f"GameOptimizerPro runs as administrator '{me}', but '{user}' is signed in (the Windows "
+                    "prompt asked for another account's password).\n\n"
+                    f"Per-user tweaks — taskbar, mouse, Explorer, privacy switches, game settings — then go "
+                    f"into the profile of '{me}', not '{user}'. Tweaks for the whole PC work as usual.\n\n"
+                    f"Better: make '{user}' an administrator (Settings → Accounts) and start the app as "
+                    f"'{user}'."), parent=self)
+            try:
+                self.after(0, say)
             except Exception:
                 pass
         threading.Thread(target=work, daemon=True).start()
@@ -553,20 +675,23 @@ class GameOptimizerWindow(ctk.CTk):
             names.append(tweak_name(t, current_lang()) if t else new)
         self.set_status(tr("Übernommen (aktuell aktive Wahl): ", "Taken over (the choice active now): ") + ", ".join(names))
 
-    def _ask_drift(self, drifted: list, build_change=None):
+    def _ask_drift(self, drifted: list, build_change=None, leftovers=()):
         """One decision per tweak (ticked = apply again, unticked = stop asking).
-        build_change: (old, new) Windows build when Windows was updated since the last start."""
-        from core.tweaks import get_by_id
+        build_change: (old, new) Windows build when Windows was updated since the last start.
+        leftovers: retired tweak ids still applied (ticked = clean up, unticked = keep, stop asking)."""
+        from core.tweaks import RETIRED_TWEAKS, get_by_id
         from core.tweak_i18n import tweak_name
         from core.i18n import current_lang
         from ui.drift_dialog import DriftDialog
         items = [(t.id, tweak_name(t, current_lang()))
                  for t in (get_by_id(i) for i in drifted) if t]
-        if items:
+        left = [(tid, tr(RETIRED_TWEAKS[tid][0], RETIRED_TWEAKS[tid][1]))
+                for tid in leftovers if tid in RETIRED_TWEAKS]
+        if items or left:
             self._drift_dialog = DriftDialog(self, items, on_done=self._handle_drift,
-                                             build_change=build_change)
+                                             build_change=build_change, leftovers=left)
 
-    def _handle_drift(self, reapply: list, drop: list):
+    def _handle_drift(self, reapply: list, drop: list, clean=(), keep=()):
         from core.tweaks import get_by_id
         from core.tweak_i18n import tweak_name
         from core.i18n import current_lang
@@ -588,9 +713,14 @@ class GameOptimizerWindow(ctk.CTk):
                 if var is not None:
                     var.set(False)
             self.set_status(tr(f"{len(drop)} Tweak(s) als nicht angewendet markiert.", f"{len(drop)} tweak(s) marked as not applied."))
+        if keep:                      # retired ones the user keeps: their values stay, no more questions
+            self.runner.forget(list(keep))
+        if clean:
+            self._clean_leftovers(list(clean), then_reapply=reapply)
+            return
         tweaks = [t for t in (get_by_id(i) for i in reapply) if t]
         if not tweaks:
-            if drop:
+            if drop or keep:
                 recheck()
             return
         self.set_status(tr(f"Wende {len(tweaks)} Tweak(s) erneut an …", f"Applying {len(tweaks)} tweak(s) again …"))
@@ -625,6 +755,44 @@ class GameOptimizerWindow(ctk.CTk):
                 recheck()
                 (messagebox.showwarning if failed else messagebox.showinfo)(
                     "GameOptimizerPro", msg, parent=self)
+            try:
+                self.after(0, done)
+            except Exception:
+                pass
+        threading.Thread(target=work, daemon=True).start()
+
+    def _clean_leftovers(self, ids: list, then_reapply=()):
+        """Round 49: remove what retired tweaks left behind (only their own values), then go on with the
+        drift re-apply. Registry backup first; a clean-up that fails stays tracked (offered again)."""
+        from core.tweaks import RETIRED_TWEAKS
+        self.set_status(tr(f"Räume Reste von {len(ids)} ausgemusterten Tweak(s) auf …",
+                           f"Cleaning up leftovers of {len(ids)} retired tweak(s) …"))
+
+        def work():
+            self.runner.backup_registry("PreLeftoverCleanup")
+            failed = []
+            for tid in ids:
+                ok, out = self.runner.clean_retired(tid)
+                if not ok:
+                    de, en, _c = RETIRED_TWEAKS.get(tid, (tid, tid, ""))
+                    failed.append(f"{tr(de, en)}: {out[:160]}")
+
+            def done():
+                n_ok = len(ids) - len(failed)
+                self.set_status(tr(f"Reste von {n_ok}/{len(ids)} ausgemusterten Tweak(s) entfernt.",
+                                   f"Leftovers of {n_ok}/{len(ids)} retired tweak(s) removed."))
+                opt = self._tab_frames.get("optimizer")
+                fn = getattr(opt, "_refresh_leftovers", None)
+                if callable(fn):
+                    try:
+                        fn()
+                    except Exception:
+                        pass
+                if failed:
+                    messagebox.showwarning("GameOptimizerPro", tr(
+                        "Nicht aufgeräumt (wird beim nächsten Start wieder angeboten):\n",
+                        "Not cleaned up (offered again at the next start):\n") + "\n".join(failed), parent=self)
+                self._handle_drift(list(then_reapply), [])
             try:
                 self.after(0, done)
             except Exception:

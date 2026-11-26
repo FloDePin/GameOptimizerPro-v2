@@ -273,6 +273,10 @@ function Get-CimInstance { [CmdletBinding()] param($Namespace, $ClassName)
 
 
 def dns(setup, script):
+    # round 49: apply / revert keep the servers from before under HKLM — here a scratch key under HKCU
+    script = (script.replace("[Microsoft.Win32.Registry]::LocalMachine", "[Microsoft.Win32.Registry]::CurrentUser")
+              .replace("SOFTWARE\\GameOptimizerPro\\DnsOrig", TEST + "\\DnsOrig")
+              .replace("SYSTEM\\CurrentControlSet\\Services\\Tcpip", TEST + "\\Tcpip"))
     rc, out, err = ps(NETMOCK + setup + "\n$r = & { " + no_exit(script) + " }; Write-Output ('RES ' + ($r -join ' ')); "
                       "Write-Output ('CALLS ' + ($global:CALLS -join ' '))")
     res = re.search(r"RES ?(.*)", out)
@@ -333,8 +337,8 @@ check("disable_bg_throttle" in TP._HARD_EXTRA and "disable_bg_throttle" not in T
 RETIRED = ("nvme_queue_depth", "tcp_optimize", "disable_qos_limit", "amd_shader_cache", "amd_antilag",
            "start_menu_previous_layout")
 check(all(T.get_by_id(r) is None and r in T.RETIRED_TWEAKS and r not in VERIFY_MAP and r not in TWEAK_DESC_EN
-          and r not in in_any for r in RETIRED) and len(T.ALL_TWEAKS) == 112,
-      "six tweaks without documented effect retired (no tweak, check, text or preset) — 112 left")
+          and r not in in_any for r in RETIRED) and len(T.ALL_TWEAKS) == 111,
+      "six tweaks without documented effect retired (no tweak, check, text or preset) — 111 left after round 49")
 check(all("-eq" in T.RETIRED_TWEAKS[r][2] for r in ("nvme_queue_depth", "disable_qos_limit", "amd_shader_cache",
                                                   "amd_antilag", "start_menu_previous_layout")),
       "their clean-ups remove a value only when it is the one the tweak wrote")
