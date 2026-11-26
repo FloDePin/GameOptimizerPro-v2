@@ -11,6 +11,6 @@ numpy>=1.26,<3
 WMI>=1.5,<2
 psutil>=5.9,<8
 # COM for WMI (core/hardware.py); WMI pulls it in too, listed because the app imports it itself
-pywin32>=306,<400
+pywin32>=312,<400
 # user interface (since v2.0 round 12)
 customtkinter>=5.2,<7
